@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <!-- PWA viewport: viewport-fit=cover enables edge-to-edge on Android notch/cutout devices -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
-<title>₹ Money Manager — Personal Finance India</title>
+<title>₹ Money Manager — Personal Finance</title>
 
 <!-- ── PWA / Android TWA ──────────────────────────────────────── -->
 <link rel="manifest" href="https://apphosting-vh.github.io/moneyxv01/manifest.json"/>
@@ -657,8 +657,26 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="1.8.6";
+const APP_VERSION="1.8.8";
 const CHANGELOG=[
+  {version:"1.8.8",date:"2026-03-04",title:"Bank Account Reordering",changes:[
+    "New 'Reorder' toggle button in Bank Accounts header (only shown when 2+ accounts exist)",
+    "In reorder mode, each card shows ▲ Up and ▼ Down arrow buttons to move accounts",
+    "Top card's Up and bottom card's Down are disabled (greyed out) automatically",
+    "Current position badge (#1, #2...) shown on each card while reordering",
+    "Card border highlights in accent colour during reorder mode for clear visual feedback",
+    "Clicking a card does not select it in reorder mode -- accidental selection prevented",
+    "Order is persisted to state via REORDER_BANKS dispatch -- survives page reload",
+    "Click 'Done Reordering' or toggle the button again to exit reorder mode",
+  ]},
+  {version:"1.8.7",date:"2026-03-04",title:"Inline Category Column in Transaction Ledger",changes:[
+    "New 'Category' column added to the transaction table in Bank, Card, and Cash ledgers",
+    "Inline dropdown in every row lets you categorise transactions directly without opening the edit modal",
+    "Dropdown colour matches the category's theme colour -- gold border/text when set, muted when empty",
+    "Changing the dropdown instantly saves the new category via the existing onEdit handler -- no extra click needed",
+    "Category badge removed from the Description sub-line since the dedicated column now shows it",
+    "Tags and transaction type badges remain in the Description sub-line as before",
+  ]},
   {version:"1.8.6",date:"2026-03-04",title:"Modal Centering Fix - All Popups",changes:[
     "All modals now render fully visible and centred on screen at all times",
     "Fixed: tall modals (Edit Bank, Import, etc.) were clipped behind browser address bar",
@@ -802,6 +820,7 @@ const reducer=(s,a)=>{
     case"DUP_BANK_TX":return{...s,banks:s.banks.map(b=>b.id===a.accId?{...b,
       balance:b.balance+(a.tx.type==="credit"?a.tx.amount:-a.tx.amount),
       transactions:[...b.transactions,{...a.tx,id:uid()}]}:b)};
+    case"REORDER_BANKS":{const bs=[...s.banks];const[mv]=bs.splice(a.from,1);bs.splice(a.to,0,mv);return{...s,banks:bs};}
     case"EDIT_BANK":return{...s,banks:s.banks.map(b=>b.id===a.p.id?{...b,...a.p}:b)};
     case"DEL_BANK":return{...s,banks:s.banks.filter(b=>b.id!==a.id)};
     case"ADD_CARD":return{...s,cards:[...s.cards,a.p]};
@@ -1469,11 +1488,12 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassU
   const massUpdate=(status)=>{if(onMassUpdateStatus&&selectedIds.size>0){onMassUpdateStatus(new Set(selectedIds),status);clearSelection();}};
   const COL_STATUS={Reconciled:"R",Unreconciled:"U",Void:"V",Duplicate:"D","Follow Up":"F"};
   const labelSt={display:"block",color:"var(--text5)",fontSize:11,textTransform:"uppercase",letterSpacing:.5,marginBottom:5};
+  const flatCatsLedger=flatCats(categories||[]);
 
   return React.createElement("div",{style:{display:"flex",flexDirection:"column",flex:1,minHeight:0,borderRadius:12,border:"1px solid var(--border)",overflow:"hidden",background:"var(--bg3)"}},
     /* ── Table header */
     React.createElement("div",{style:{
-      display:"grid",gridTemplateColumns:"36px 30px 40px 100px 80px 72px 1fr 110px 110px 110px 110px",
+      display:"grid",gridTemplateColumns:"36px 30px 40px 100px 80px 72px 1fr 130px 110px 110px 110px 110px",
       background:"var(--bg4)",borderBottom:"2px solid var(--border)",
       fontSize:11,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.5,userSelect:"none",flexShrink:0
     }},
@@ -1493,6 +1513,7 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassU
       React.createElement("div",{style:{padding:"9px 4px"}},"Number"),
       React.createElement("div",{style:{padding:"9px 4px",textAlign:"center"}},"Status"),
       React.createElement("div",{style:{padding:"9px 4px"}},"Description / Payee"),
+      React.createElement("div",{style:{padding:"9px 4px"}},"Category"),
       React.createElement("div",{style:{padding:"9px 4px",textAlign:"right",color:"#ef4444"}},"Withdrawal"),
       React.createElement("div",{style:{padding:"9px 4px",textAlign:"right",color:"#22c55e"}},"Deposit"),
       React.createElement("div",{style:{padding:"9px 4px",textAlign:"right",color:accentColor}},"Balance"),
@@ -1516,7 +1537,7 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassU
           onClick:()=>setSelId(isSel?null:tx.id),
           className:"ldg-row"+(isSel?" ldg-sel":""),
           style:{
-            display:"grid",gridTemplateColumns:"30px 40px 100px 80px 72px 1fr 110px 110px 110px 110px",
+            display:"grid",gridTemplateColumns:"30px 40px 100px 80px 72px 1fr 130px 110px 110px 110px 110px",
             paddingLeft:0,
             background:isSel?"var(--accentbg)":idx%2===0?"transparent":"rgba(255,255,255,.02)",
             borderBottom:"1px solid var(--border2)",
@@ -1541,16 +1562,43 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassU
               background:STATUS_C[tx.status]+"22",color:STATUS_C[tx.status]||"var(--text5)"
             }},statusLbl)
           ),
-          /* Description / Payee + cat badge */
+          /* Description / Payee + tags */
           React.createElement("div",{style:{padding:"10px 4px",minWidth:0}},
             React.createElement("div",{style:{fontSize:13,color:"var(--text2)",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},
               tx.desc||(tx.payee||"--")
             ),
             React.createElement("div",{style:{display:"flex",gap:4,marginTop:2,flexWrap:"wrap",alignItems:"center"}},
               tx.payee&&tx.desc&&React.createElement("span",{style:{fontSize:10,color:"var(--text5)"}},"↳ "+tx.payee),
-              tx.cat&&React.createElement("span",{style:{fontSize:10,color:catCol,background:catCol+"18",borderRadius:10,padding:"1px 6px"}},catDisplayName(tx.cat)),
               tx.tags&&tx.tags.split(",").filter(Boolean).map((tag,i)=>React.createElement("span",{key:i,style:{fontSize:10,color:"#a78bfa",background:"rgba(167,139,250,.12)",borderRadius:10,padding:"1px 6px"}},tag.trim())),
               tx.txType&&React.createElement("span",{style:{fontSize:10,color:"var(--text6)",background:"var(--bg5)",borderRadius:10,padding:"1px 6px"}},tx.txType)
+            )
+          ),
+          /* ── Category inline dropdown ── */
+          React.createElement("div",{style:{padding:"6px 4px",display:"flex",alignItems:"center"},onClick:e=>e.stopPropagation()},
+            React.createElement("select",{
+              value:tx.cat||"",
+              onChange:e=>{
+                e.stopPropagation();
+                const newCat=e.target.value;
+                if(onEdit) onEdit({...tx,cat:newCat},tx);
+              },
+              style:{
+                width:"100%",
+                background:"transparent",
+                border:"1px solid "+(tx.cat?catCol+"55":"var(--border2)"),
+                borderRadius:7,
+                color:tx.cat?catCol:"var(--text6)",
+                fontSize:11,
+                fontWeight:tx.cat?600:400,
+                padding:"3px 5px",
+                fontFamily:"'DM Sans',sans-serif",
+                cursor:"pointer",
+                outline:"none",
+                appearance:"auto",
+              }
+            },
+              React.createElement("option",{value:""},"-- Uncategorised --"),
+              flatCatsLedger.map(c=>React.createElement("option",{key:c,value:c},catDisplayName(c)))
             )
           ),
           /* Withdrawal */
@@ -2271,9 +2319,15 @@ const BankSection=({banks,dispatch,categories,payees,allBanks,allCards=[],cash})
   const[addOpen,setAddOpen]=useState(false);
   const[f,setF]=useState({name:"",bank:"HDFC Bank",type:"Savings",balance:"",notes:""});
   const[noteEdit,setNoteEdit]=useState(null); // {id, val}
+  const[reorderMode,setReorderMode]=useState(false);
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
   const save=()=>{if(!f.name||!f.balance)return;const id=uid();dispatch({type:"ADD_BANK",p:{id,transactions:[],...f,balance:+f.balance}});setF({name:"",bank:"HDFC Bank",type:"Savings",balance:"",notes:""});setSel(id);setAddOpen(false);};
   const selD=banks.find(b=>b.id===sel);
+  const moveBank=(idx,dir)=>{
+    const to=idx+dir;
+    if(to<0||to>=banks.length)return;
+    dispatch({type:"REORDER_BANKS",from:idx,to});
+  };
   return React.createElement("div",{className:"fu",style:{display:"flex",flexDirection:"column",height:"100%"}},
     /* Top bar */
     React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}},
@@ -2281,22 +2335,56 @@ const BankSection=({banks,dispatch,categories,payees,allBanks,allCards=[],cash})
         React.createElement("h2",{style:{fontFamily:"'Sora',sans-serif",fontSize:22,fontWeight:700,color:"var(--text)"}},"Bank Accounts"),
         React.createElement("p",{style:{color:"var(--text5)",fontSize:13,marginTop:3}},"Total: ",React.createElement("span",{style:{color:"#06b6d4",fontWeight:600}},INR(banks.reduce((s,b)=>s+b.balance,0))))
       ),
-      React.createElement(Btn,{onClick:()=>setAddOpen(true)},"+ Add Account")
+      React.createElement("div",{style:{display:"flex",gap:8,alignItems:"center"}},
+        banks.length>1&&React.createElement("button",{
+          onClick:()=>setReorderMode(r=>!r),
+          style:{
+            padding:"7px 14px",borderRadius:9,border:"1px solid "+(reorderMode?"var(--accent)":"var(--border)"),
+            background:reorderMode?"var(--accentbg2)":"transparent",
+            color:reorderMode?"var(--accent)":"var(--text4)",
+            cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"'DM Sans',sans-serif",
+            display:"flex",alignItems:"center",gap:6,transition:"all .2s"
+          }
+        },
+          React.createElement("span",null,reorderMode?"✓ Done Reordering":"⇅ Reorder")
+        ),
+        React.createElement(Btn,{onClick:()=>setAddOpen(true)},"+ Add Account")
+      )
     ),
     /* Two-col layout */
     React.createElement("div",{style:{display:"flex",gap:16,flex:1,minHeight:0}},
       /* Left: account cards */
       React.createElement("div",{style:{width:280,minWidth:280,display:"flex",flexDirection:"column",gap:12,overflowY:"auto",paddingRight:4}},
-        banks.map(b=>{
+        banks.map((b,bIdx)=>{
           const inc=b.transactions.filter(t=>t.type==="credit").reduce((s,t)=>s+t.amount,0);
           const exp=b.transactions.filter(t=>t.type==="debit").reduce((s,t)=>s+t.amount,0);
-          return React.createElement("div",{key:b.id,className:"accard"+(sel===b.id?" active":""),onClick:()=>setSel(b.id),style:{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16,cursor:"pointer"}},
+          return React.createElement("div",{key:b.id,className:"accard"+(sel===b.id?" active":""),onClick:()=>{if(!reorderMode)setSel(b.id);},style:{background:"var(--card)",border:"1px solid "+(reorderMode?"var(--accent)55":"var(--border)"),borderRadius:14,padding:16,cursor:reorderMode?"default":"pointer",transition:"border-color .2s"}},
             React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}},
-              React.createElement("div",null,
-                React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"var(--text)",lineHeight:1.3}},b.name),
-                React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"var(--text4)",marginTop:2}},b.bank)
+              React.createElement("div",{style:{display:"flex",alignItems:"flex-start",gap:8,flex:1,minWidth:0}},
+                /* Drag handle / up-down buttons — visible only in reorder mode */
+                reorderMode&&React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:2,flexShrink:0,marginTop:2},onClick:e=>e.stopPropagation()},
+                  React.createElement("button",{
+                    onClick:e=>{e.stopPropagation();moveBank(bIdx,-1);},
+                    disabled:bIdx===0,
+                    title:"Move up",
+                    style:{width:22,height:22,borderRadius:5,border:"1px solid var(--border)",background:bIdx===0?"transparent":"var(--accentbg2)",color:bIdx===0?"var(--text6)":"var(--accent)",cursor:bIdx===0?"not-allowed":"pointer",fontSize:12,lineHeight:1,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",padding:0}
+                  },"▲"),
+                  React.createElement("button",{
+                    onClick:e=>{e.stopPropagation();moveBank(bIdx,+1);},
+                    disabled:bIdx===banks.length-1,
+                    title:"Move down",
+                    style:{width:22,height:22,borderRadius:5,border:"1px solid var(--border)",background:bIdx===banks.length-1?"transparent":"var(--accentbg2)",color:bIdx===banks.length-1?"var(--text6)":"var(--accent)",cursor:bIdx===banks.length-1?"not-allowed":"pointer",fontSize:12,lineHeight:1,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",padding:0}
+                  },"▼")
+                ),
+                React.createElement("div",{style:{minWidth:0,flex:1}},
+                  React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"var(--text)",lineHeight:1.3}},b.name),
+                  React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"var(--text4)",marginTop:2}},b.bank)
+                )
               ),
-              React.createElement(Badge,{ch:b.type,col:"#06b6d4"})
+              !reorderMode&&React.createElement(Badge,{ch:b.type,col:"#06b6d4"}),
+              reorderMode&&React.createElement("div",{style:{fontSize:10,color:"var(--accent)",fontWeight:700,padding:"2px 7px",borderRadius:8,background:"var(--accentbg2)",border:"1px solid var(--accent)55",flexShrink:0}},
+                "#"+(bIdx+1)
+              )
             ),
             React.createElement("div",{style:{fontSize:22,fontFamily:"'Sora',sans-serif",fontWeight:700,color:"#06b6d4",marginBottom:8}},INR(b.balance)),
             React.createElement("div",{style:{display:"flex",gap:12,fontSize:11}},

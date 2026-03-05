@@ -26,23 +26,71 @@
 <!-- SEO / share -->
 <meta name="description" content="Offline personal finance manager for India — banks, cards, investments, loans."/>
 
-<!-- Service Worker registration -->
+<!-- Service Worker registration + auto-update detection -->
 <script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('https://apphosting-vh.github.io/moneyxv01/sw.js', { scope: './' })
-        .then(reg => {
-          console.log('[SW] Registered, scope:', reg.scope);
-          /* Listen for price-sync messages from SW background sync */
-          navigator.serviceWorker.addEventListener('message', e => {
-            if (e.data?.type === 'SYNC_PRICES') {
-              window.dispatchEvent(new CustomEvent('mm:sync-prices'));
+(function(){
+  if (!('serviceWorker' in navigator)) return;
+
+  /* Store the SW registration so React can post SKIP_WAITING later */
+  window.__swReg = null;
+
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('https://apphosting-vh.github.io/moneyxv01/sw.js', { scope: './' })
+      .then(function(reg){
+        window.__swReg = reg;
+        console.log('[SW] Registered, scope:', reg.scope);
+
+        /* Helper: tell React app an update is staged and ready */
+        function notifyUpdateReady() {
+          window.dispatchEvent(new CustomEvent('mm:update-ready'));
+        }
+
+        /* Case A: SW already waiting when page loads
+           (user had the tab open during a deploy, then came back) */
+        if (reg.waiting) {
+          console.log('[SW] Update already waiting on load');
+          notifyUpdateReady();
+        }
+
+        /* Case B: New SW starts installing while page is open */
+        reg.addEventListener('updatefound', function(){
+          var newWorker = reg.installing;
+          if (!newWorker) return;
+          console.log('[SW] Update found — new worker installing');
+          newWorker.addEventListener('statechange', function(){
+            /* installed + existing controller = staged, ready to apply */
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              console.log('[SW] New version installed and waiting');
+              notifyUpdateReady();
             }
           });
-        })
-        .catch(err => console.warn('[SW] Registration failed:', err));
-    });
-  }
+        });
+
+        /* Case C: Periodic check for long-running sessions
+           Polls GitHub Pages every 60 min so users with the tab open
+           all day still get notified of deployments. */
+        setInterval(function(){ reg.update().catch(function(){}); }, 60 * 60 * 1000);
+
+        /* Messages from SW to React */
+        navigator.serviceWorker.addEventListener('message', function(e){
+          if (e.data && e.data.type === 'SYNC_PRICES') {
+            window.dispatchEvent(new CustomEvent('mm:sync-prices'));
+          }
+        });
+
+        /* controllerchange fires after skipWaiting() activates the new SW.
+           The new SW immediately claims clients, so reloading now serves
+           the fresh cached HTML. */
+        navigator.serviceWorker.addEventListener('controllerchange', function(){
+          console.log('[SW] Controller changed — reloading for new version');
+          window.location.reload();
+        });
+      })
+      .catch(function(err){
+        console.warn('[SW] Registration failed:', err);
+      });
+  });
+}());
 </script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
@@ -488,6 +536,7 @@ select.inp option{background:var(--inp-opt)}
 @keyframes fadeUp{from{opacity:0}to{opacity:1}}
 @keyframes slideIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
 @keyframes spin{to{transform:rotate(360deg)}}
+@keyframes slideUp{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:translateY(0)}}
 .fu{animation:fadeUp .35s ease forwards}
 .si{animation:slideIn .25s ease forwards}
 .spinr{animation:spin 1s linear infinite;display:inline-block}
@@ -711,8 +760,33 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="2.0.0";
+const APP_VERSION="2.0.2";
 const CHANGELOG=[
+  {version:"2.0.2",date:"2026-03-05",title:"Auto-Update on GitHub Pages Deploy",changes:[
+    "Service Worker (sw.js) rewritten with versioned cache name (mm-v{version}-{n}) — bump CACHE_NAME in sw.js with each deploy to trigger auto-update",
+    "Network-first strategy for the HTML page: every visit fetches fresh HTML from GitHub Pages; falls back to cache only when offline",
+    "Cache-first strategy for CDN scripts and fonts: served instantly from cache; fetched and stored on first use",
+    "Old caches from previous deployments deleted automatically on SW activate",
+    "Three update detection cases handled: (A) SW already waiting when tab reopened, (B) new SW installs while page is open, (C) periodic reg.update() every 60 min for long-running sessions",
+    "Update banner slides up from bottom when new version is staged: shows 'Update available — A new version is ready to install'",
+    "Banner has 'Update Now' button and '×' dismiss button",
+    "'Update Now' posts SKIP_WAITING to the waiting SW → new SW activates → controllerchange fires → page reloads automatically",
+    "Banner uses safe-area-inset-bottom so it clears the Android/iOS nav bar on PWA installs",
+    "slideUp CSS animation for smooth banner entrance",
+    "window.__swReg exposes the SW registration globally so React can access reg.waiting at click time",
+    "All existing functionality (offline cache, price sync messages, scheduled auto-execute) preserved",
+  ]},
+  {version:"2.0.1",date:"2026-03-05",title:"Hierarchical Category Dropdown — All Selects",changes:[
+    "Replaced every flat category <select> in the app with a grouped, tree-structured dropdown",
+    "Shared buildCatOptions() helper generates consistent <optgroup> + <option> tree everywhere",
+    "Optgroups labelled by ClassType (💰 Income / 💸 Expense / 📈 Investment / 🔄 Transfer / 🗂 Others)",
+    "Each main category is a selectable option, showing '▸' when it has sub-categories",
+    "Sub-categories appear indented under their parent with '    ↳ ' prefix",
+    "Applied in: TxLedger desktop inline column, TxLedger mobile card expand, TxEditModal, TxModal (new transaction), ScheduledSection add/edit form",
+    "TxEditModal and TxModal retain their colour-dot indicator next to the select",
+    "Uncategorised option always first in every dropdown",
+    "Previously the TxModal had a partial grouped select with '── ──' divider style — now unified with the same buildCatOptions pattern",
+  ]},
   {version:"2.0.0",date:"2026-03-04",title:"Stable Baseline — Modal Rendering Fix",changes:[
     "CRITICAL BUG FIX: All modals (Add FD, Add Note, Add Share, Add Mutual Fund, all Settings Edit modals) were being clipped and cut off on desktop",
     "Root cause identified: CSS @keyframes fadeUp used transform:translateY() which permanently makes any .fu element a containing block for position:fixed descendants (CSS spec §9.7)",
@@ -887,6 +961,50 @@ const catClassType=(cats,catValue)=>{const main=catMainName(catValue);const foun
 const CLASS_TYPES=["Income","Expense","Investment","Transfer","Others"];
 const CLASS_C={Income:"#22c55e",Expense:"#ef4444",Investment:"#a78bfa",Transfer:"#60a5fa",Others:"#8ba0c0"};
 const CLASS_ICON={Income:"💰",Expense:"💸",Investment:"📈",Transfer:"🔄",Others:"🗂"};
+
+/* ── SHARED HIERARCHICAL CATEGORY OPTIONS BUILDER ────────────────────────
+   Returns an array of React <optgroup> elements grouped by ClassType.
+   Structure:
+     💰 Income
+       Income ▸  (selectable as "Income")
+         ↳ Salary  (selectable as "Income::Salary")
+         ↳ Freelance
+     💸 Expense
+       Housing ▸
+         ↳ Rent
+         ↳ Maintenance
+       Food ▸  ...
+   Usage: put inside a <select> along with a leading Uncategorised option.
+   ─────────────────────────────────────────────────────────────────────── */
+const buildCatOptions=(categories)=>{
+  const cats=categories||[];
+  // Bucket main categories by their classType
+  const byClass={};
+  CLASS_TYPES.forEach(ct=>{byClass[ct]=[];});
+  cats.forEach(c=>{
+    const ct=c.classType||"Expense";
+    if(!byClass[ct])byClass[ct]=[];
+    byClass[ct].push(c);
+  });
+  return CLASS_TYPES
+    .filter(ct=>byClass[ct]&&byClass[ct].length>0)
+    .map(ct=>{
+      const mainCats=byClass[ct];
+      return React.createElement("optgroup",{key:ct,label:CLASS_ICON[ct]+" "+ct},
+        mainCats.flatMap(c=>[
+          // Main category option — shows "Housing ▸" when it has subs
+          React.createElement("option",{key:c.id,value:c.name},
+            c.name+(c.subs&&c.subs.length?" ▸":"")),
+          // Sub-category options, visually indented with ↳
+          ...(c.subs||[]).map(sc=>
+            React.createElement("option",{key:sc.id,value:c.name+"::"+sc.name},
+              "    ↳ "+sc.name)
+          )
+        ])
+      );
+    });
+};
+
 const calcFDMaturity=(principal,ratePercent,startDate,maturityDate)=>{
   if(!principal||!ratePercent||!startDate||!maturityDate)return principal||0;
   const start=new Date(startDate),end=new Date(maturityDate);
@@ -1645,7 +1763,7 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassU
                 style:{width:"100%",background:"var(--inp-bg)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",padding:"7px 10px",fontFamily:"'DM Sans',sans-serif",fontSize:13,outline:"none"}
               },
                 React.createElement("option",{value:""},"-- Uncategorised --"),
-                flatCatsLedger.map(c=>React.createElement("option",{key:c,value:c},catDisplayName(c)))
+                buildCatOptions(categories)
               )
             )
           );
@@ -1767,7 +1885,7 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassU
               }
             },
               React.createElement("option",{value:""},"-- Uncategorised --"),
-              flatCatsLedger.map(c=>React.createElement("option",{key:c,value:c},catDisplayName(c)))
+              buildCatOptions(categories)
             )
           ),
           /* Withdrawal */
@@ -1982,10 +2100,8 @@ const TxEditModal=({tx,categories,payees,txTypes,onSave,onClose})=>{
     F("Payee",React.createElement(PayeeCombobox,{value:f.payee||"",onChange:val=>setF(p=>({...p,payee:val})),payees,placeholder:"Payee name…"})),
     F("Category",React.createElement("div",{style:{display:"flex",gap:8,alignItems:"center"}},
       React.createElement("select",{className:"inp",value:f.cat||"",onChange:set("cat"),style:{flex:1,minWidth:0}},
-        categories.map(c=>React.createElement(React.Fragment,{key:c.id},
-          React.createElement("option",{value:c.name},c.name),
-          c.subs.map(sc=>React.createElement("option",{key:sc.id,value:c.name+"::"+sc.name},"  ↳ "+sc.name))
-        ))
+        React.createElement("option",{value:""},"-- Uncategorised --"),
+        buildCatOptions(categories)
       ),
       React.createElement("span",{style:{width:10,height:10,borderRadius:"50%",background:catColor(categories,catMainName(f.cat||"")),flexShrink:0,display:"inline-block"}})
     )),
@@ -2090,19 +2206,10 @@ const TxModal=({onAdd,onClose,categories,payees,txTypes,allAccounts,currentAccou
 
   /* 3-level grouped category select */
   const CatSelect=()=>{
-    const grouped={};
-    CLASS_TYPES.forEach(ct=>{grouped[ct]=[];});
-    categories.forEach(c=>{const ct=c.classType||"Expense";if(!grouped[ct])grouped[ct]=[];grouped[ct].push(c);});
     return React.createElement("div",{style:{display:"flex",gap:8,alignItems:"center"}},
       React.createElement("select",{className:"inp",value:f.cat,onChange:set("cat"),style:{flex:1,minWidth:0}},
-        CLASS_TYPES.filter(ct=>grouped[ct]&&grouped[ct].length>0).map(ct=>
-          React.createElement("optgroup",{key:ct,label:"── "+CLASS_ICON[ct]+" "+ct+" ──"},
-            grouped[ct].flatMap(c=>[
-              React.createElement("option",{key:c.id,value:c.name},c.name),
-              ...c.subs.map(sc=>React.createElement("option",{key:sc.id,value:c.name+"::"+sc.name},"  ↳ "+sc.name))
-            ])
-          )
-        )
+        React.createElement("option",{value:""},"-- Uncategorised --"),
+        buildCatOptions(categories)
       ),
       React.createElement("span",{style:{width:10,height:10,borderRadius:"50%",background:catColor(categories,catMainName(f.cat)),flexShrink:0,display:"inline-block"}})
     );
@@ -6266,7 +6373,8 @@ const ScheduledSection=({state,dispatch})=>{
         React.createElement("div",null,
           React.createElement("label",{style:labelSx},"Category"),
           React.createElement("select",{className:"inp",value:f.cat,onChange:set("cat")},
-            flatC.map(c=>React.createElement("option",{key:c,value:c},catDisplayName(c)))
+            React.createElement("option",{value:""},"-- Uncategorised --"),
+            buildCatOptions(categories)
           )
         ),
         React.createElement("div",null,
@@ -6625,6 +6733,68 @@ function App(){
   const theme=THEMES.find(t=>t.id===themeId)||THEMES[0];
   const isLight=!theme.dark;
 
+  /* ── AUTO-UPDATE BANNER ──────────────────────────────────────────────────
+     Listens for the 'mm:update-ready' custom event dispatched by the SW
+     registration script when a new service worker is staged and waiting.
+     Shows a non-intrusive banner; "Update Now" posts SKIP_WAITING → reload.
+     ─────────────────────────────────────────────────────────────────────── */
+  const[updateReady,setUpdateReady]=useState(false);
+  const[updateDismissed,setUpdateDismissed]=useState(false);
+  React.useEffect(()=>{
+    const handler=()=>setUpdateReady(true);
+    window.addEventListener('mm:update-ready',handler);
+    return()=>window.removeEventListener('mm:update-ready',handler);
+  },[]);
+  const doUpdate=()=>{
+    const reg=window.__swReg;
+    if(reg&&reg.waiting){
+      /* Tell the waiting SW to skip its waiting phase and activate.
+         'controllerchange' will then fire → page reloads automatically. */
+      reg.waiting.postMessage({type:'SKIP_WAITING'});
+    } else {
+      /* Fallback: hard reload (bypasses cache to fetch new HTML) */
+      window.location.reload(true);
+    }
+  };
+  /* Banner element — rendered outside the sidebar/content flex container
+     so it overlays at the bottom of the viewport on all screen sizes */
+  const UpdateBanner=(updateReady&&!updateDismissed)&&React.createElement("div",{style:{
+    position:"fixed",bottom:0,left:0,right:0,
+    padding:"12px 16px",
+    paddingBottom:"calc(12px + env(safe-area-inset-bottom, 0px))",
+    background:"linear-gradient(135deg,#0a1e38,#061426)",
+    borderTop:"2px solid var(--accent)",
+    display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",
+    zIndex:9999,
+    boxShadow:"0 -4px 24px rgba(0,0,0,.5)",
+    animation:"slideUp .3s ease forwards",
+  }},
+    React.createElement("span",{style:{fontSize:16}},"🚀"),
+    React.createElement("div",{style:{flex:1,minWidth:0}},
+      React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"var(--text)",lineHeight:1.3}},"Update available"),
+      React.createElement("div",{style:{fontSize:11,color:"var(--text4)",marginTop:2}},"A new version is ready to install")
+    ),
+    React.createElement("button",{
+      onClick:doUpdate,
+      style:{
+        background:"linear-gradient(135deg,var(--accent),var(--accent2))",
+        color:"#000",border:"none",borderRadius:8,
+        padding:"8px 18px",fontSize:13,fontWeight:700,
+        cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,
+        fontFamily:"'DM Sans',sans-serif",
+      }
+    },"Update Now"),
+    React.createElement("button",{
+      onClick:()=>setUpdateDismissed(true),
+      style:{
+        background:"transparent",border:"none",
+        color:"var(--text5)",cursor:"pointer",
+        fontSize:20,lineHeight:1,padding:"4px 6px",flexShrink:0,
+      },
+      title:"Dismiss"
+    },"×")
+  );
+
   /* ── Collapsed (icon-only) sidebar ── */
   const SidebarCollapsed=()=>React.createElement("div",{style:{
     width:64,minWidth:64,background:"var(--sidebar)",
@@ -6726,7 +6896,8 @@ function App(){
     )
   );
 
-  return React.createElement("div",{style:{display:"flex",height:"100vh",background:"var(--bg)"}},
+  return React.createElement(React.Fragment,null,
+    React.createElement("div",{style:{display:"flex",height:"100vh",background:"var(--bg)"}},
     isMobile?React.createElement(SidebarCollapsed):React.createElement(SidebarFull),
     React.createElement("div",{
       className:isMobile?"mobile-content-panel":"",
@@ -6750,6 +6921,8 @@ function App(){
       tab==="reports"&&React.createElement(ReportsSection,{data:state,isMobile}),
       tab==="settings"&&React.createElement(SettingsSection,{state,dispatch,themeId,setTheme,isMobile,onResetAll:()=>{dispatch({type:"RESET_ALL"});try{localStorage.removeItem(LS_KEY);localStorage.removeItem(LS_THEME);}catch{}setTimeout(()=>window.location.reload(),100);}})
     )
+  ),
+    UpdateBanner
   );
 }
 ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));

@@ -537,9 +537,20 @@ select.inp option{background:var(--inp-opt)}
 @keyframes slideIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes slideUp{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:translateY(0)}}
+@keyframes db-rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+@keyframes db-bar-grow{from{width:0}to{width:var(--bar-w)}}
+@keyframes db-pulse-ring{0%{transform:scale(1);opacity:.5}70%{transform:scale(1.6);opacity:0}100%{transform:scale(1.6);opacity:0}}
 .fu{animation:fadeUp .35s ease forwards}
 .si{animation:slideIn .25s ease forwards}
 .spinr{animation:spin 1s linear infinite;display:inline-block}
+.db-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px 20px;transition:box-shadow .2s,border-color .2s}
+.db-card:hover{border-color:var(--border3);box-shadow:0 4px 24px rgba(0,0,0,.08)}
+.db-acct-card{background:var(--bg4);border:1px solid var(--border);border-radius:14px;padding:14px 16px;flex-shrink:0;transition:transform .2s,box-shadow .2s,border-color .2s;cursor:default}
+.db-acct-card:hover{transform:translateY(-3px);box-shadow:0 8px 28px rgba(0,0,0,.12);border-color:var(--border3)}
+.db-txrow{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border2);gap:10px;transition:background .12s;border-radius:6px}
+.db-txrow:hover{background:var(--accentbg2);padding-left:6px;padding-right:6px}
+.db-txrow:last-child{border-bottom:none}
+.db-pulse-bar-fill{height:6px;border-radius:3px;transition:width 1s cubic-bezier(.22,1,.36,1)}
 .tr:hover{background:var(--accentbg2)!important}
 .nb:hover{background:var(--accentbg4)!important;color:var(--accent2)!important}
 .accard{cursor:pointer;transition:border-color .2s,transform .15s,box-shadow .2s}
@@ -775,9 +786,58 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.7.1";
+const APP_VERSION="3.7.5";
 const CHANGELOG=[
-  {version:"3.7.1",date:"2026-03-07",title:"Unified Ledger — Most Recent Transaction Hero Card",changes:[
+  {version:"3.7.5",date:"2026-03-07",title:"Calculator tab in More section",changes:[
+    "New Calculator tab added to the More section (between Notes and Reports in the sidebar)",
+    "Four operations supported: addition (+), subtraction (−), multiplication (×), division (÷)",
+    "Clean display panel shows the running expression above and the current value large below; formatted with thousands separators",
+    "Buttons: digits 0–9, 00, decimal point, C (clear), ⌫ (backspace), % (percent of current value), = (evaluate)",
+    "Calculation history panel on the right stores the last 20 results; click any history row to load that result back into the calculator",
+    "Full keyboard support: digit keys, + − * / operators, Enter or = to evaluate, Backspace to delete, Escape to clear",
+    "Custom SVG calculator icon in the sidebar nav",
+  ]},
+  {version:"3.7.4",date:"2026-03-07",title:"Dashboard — Banking-Focused Redesign",changes:[
+    "Complete Dashboard redesign scoped exclusively to the banking section: bank accounts, credit cards, and cash — no investments or loans",
+    "A: Banking Hero — Net Liquid Position (Banks + Cash − Card Dues) replaces Net Worth; segmented balance-breakdown bar shows Banks / Cash / Card Dues proportions with legend and credit utilisation meter",
+    "B: Account Cards row — one tile per bank account, each credit card, and cash; left-border accent instead of top-border; shows balance, this-month income/expenses, 7-day sparkline, last transaction date",
+    "C: Banking KPI strip — 4 focused tiles: This Month Income (with MoM delta), Expenses (with MoM delta), Net Saved, and Savings Rate with contextual label (Excellent / On track / Below target)",
+    "D: Two-column grid — Bank Cash Flow grouped bar chart (bank accounts only, last 6 months, gradient-filled bars) + Category Spending Mix donut (all banking this month, top 5 legend with animated bars)",
+    "E: Recent Transactions feed — shows all 12 latest banking transactions; per-account filter tabs (All + each bank/card/cash) let you isolate any account inline; account source shown as a colour-coded pill on each row",
+    "E2: Savings ring card — 80px SVG ring showing savings rate with income/expenses/net and MoM delta pills; Top Payees card below showing top 6 payees this month with avatar initial, amount, and animated bar",
+    "F: Upcoming Scheduled — full-width 3-column grid layout; each item shows urgency badge (Today/Tomorrow/Nd/Overdue) colour-coded green→orange→red with left-border accent",
+    "Removed from Dashboard: Investment Snapshot card, 6-tile KPI strip with investments/loans, Net Worth hero, all-accounts recent-activity feed",
+    "All data computations re-scoped: monthly cash flow uses bank-only transactions; category spend, top payees, and KPIs all derive from banks + cards + cash combined",
+    "Added txTab state for per-account transaction filtering; ready state replaces pulseReady (same animation trigger pattern)",
+  ]},
+  {version:"3.7.3",date:"2026-03-07",title:"Dashboard — Replaced Financial Pulse & Cash Flow with Investment Snapshot & Category Donut",changes:[
+    "Removed Financial Pulse card (Savings Rate / Liquidity Ratio / Cash Runway bars) — freed up vertical space on the dashboard",
+    "Removed Cash Flow area chart (Income vs Expenses SVG line chart over last 6 months)",
+    "Cleaned up all associated dead code: DualBar, AreaChart, MiniRing, PulseBar helpers and avgExp3 / cashRunway / liquidityRatio computed values",
+    "New Investment Snapshot card added between the KPI strip and the D-row grid",
+    "Investment Snapshot shows 4 asset-class tiles: Mutual Funds, Stocks, Fixed Deposits, Real Estate — only tiles with at least one entry are rendered",
+    "Each tile shows current value, invested cost, colour-coded gain/loss pill (▲/▼ with %), and an animated allocation bar proportional to share of total portfolio",
+    "Header strip summarises Total Invested, Current Value, and overall Unrealised Gain/Loss with percentage across all asset classes",
+    "Category Spending Donut replaces the Cash Flow chart in the left slot of the D-row grid",
+    "Donut built from pure SVG arc paths — one slice per expense category this month, colour-coded via CAT_C palette",
+    "Legend beside the donut lists every category with colour swatch, name, percentage share, amount, and an animated fill bar",
+    "Empty-state illustration shown when no expense transactions exist for the current month",
+    "Also fixed two pre-existing bugs introduced by v3.7.2: orphaned changelog strings (now wrapped as v3.7.1 entry) and duplicate const todayStr declaration causing blank-screen crash",
+  ]},
+  {version:"3.7.2",date:"2026-03-07",title:"Dashboard — Bento Financial Command Center Redesign",changes:[
+    "Complete visual redesign of the home Dashboard with a bento-grid layout, editorial hierarchy, and premium aesthetic",
+    "Net Worth Hero: full-width gradient panel with giant display number, live asset allocation segmented bar, breakdown legend with colour-coded pills for Banks, Cash, Investments, Card Debt, Loans",
+    "Financial Pulse: new 3-bar health strip — Savings Rate, Liquidity Ratio (liquid÷total debt), Cash Runway (months of expenses covered) — each with an animated fill bar and contextual advisory text",
+    "KPI Strip: 6 tiles with staggered entry animation, bottom accent border per metric, decorative radial glow, and sub-labels",
+    "Cash Flow: upgraded from grouped bar chart to smooth SVG area chart with gradient fill — income (green area) vs expenses (red area) over the last 6 months, with dot markers and gridlines",
+    "This Month: larger savings-rate ring (74px) with percentage inside, income/expense rows with MoM delta pills, top-5 spending categories with animated horizontal bars and percentage labels",
+    "Accounts: horizontal-scroll cards with a 7-day sparkline chart (mini bar chart) per account showing daily transaction volume; credit cards show utilization bar with colour coding",
+    "Recent Activity: redesigned transaction rows with rounded icon blocks, colour-coded source labels, category pills, and hover highlight",
+    "Upcoming Payments: timeline-style scheduled list with urgency badge (Today/Tomorrow/Nd/Overdue) coloured green→orange→red, frequency pill",
+    "Staggered CSS animations: KPI tiles reveal with animation-delay; Pulse bars and category bars animate on mount via pulseReady state",
+    "All new UI classes (db-card, db-acct-card, db-txrow, db-pulse-bar-fill) added to the global stylesheet with smooth hover/transition states",
+  ]},
+  {version:"3.7.1",date:"2026-03-07",title:"Unified Ledger — Last Transaction Date Hero Card",changes:[
     "Added a full-width hero card at the top of the Unified Transaction Ledger page",
     "Hero card displays the most recent transaction date across ALL accounts (banks, cards, cash) regardless of active filters",
     "Date is rendered as a styled calendar block showing day, month abbreviation, and year",
@@ -3453,125 +3513,580 @@ const TxPanel=({account,label,onAddTx,onEditTx,onDeleteTx,onDupTx,onImportTx,onM
 
 /* ── DASHBOARD ──────────────────────────────────────────────────────────── */
 const Dashboard=({data,isMobile})=>{
-  const bTotal=data.banks.reduce((s,b)=>s+b.balance,0);
-  const cDebt=data.cards.reduce((s,c)=>s+c.outstanding,0);
-  const lTotal=data.loans.reduce((s,l)=>s+l.outstanding,0);
-  const liquid=bTotal+data.cash.balance;
-  /* Last-6-month expense/income trend (banks + cards + cash) */
-  const monthlyFlow=(()=>{
-    const m={};
-    [...data.banks.flatMap(b=>b.transactions),...data.cards.flatMap(c=>c.transactions),...data.cash.transactions]
-      .forEach(t=>{
-        const ct=catClassType(data.categories,t.cat||"Others");
-        if(ct==="Transfer")return;
-        const k=t.date.substr(0,7);
-        if(!m[k])m[k]={inc:0,exp:0};
-        if(ct==="Income"||t.type==="credit")m[k].inc+=t.amount;
-        else m[k].exp+=t.amount;
-      });
-    return Object.entries(m).sort().slice(-6);
-  })();
-  const monthlyExp=monthlyFlow.map(([k,v])=>({month:k.slice(5),amount:v.exp}));
-  /* Per-bank quick list */
-  const bankRows=data.banks.map(b=>{
-    const lastTx=b.transactions.slice().sort((a,x)=>x.date.localeCompare(a.date))[0];
-    return{...b,lastTx};
+  const[ready,setReady]=useState(false);
+  const[txTab,setTxTab]=useState("all"); /* account id or "all" */
+  React.useEffect(()=>{const t=setTimeout(()=>setReady(true),100);return()=>clearTimeout(t);},[]);
+
+  /* ━━ 1. BANKING CORE METRICS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+  const MNAMES=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const bTotal   = data.banks.reduce((s,b)=>s+b.balance,0);
+  const cashBal  = data.cash.balance;
+  const cDebt    = data.cards.reduce((s,c)=>s+c.outstanding,0);
+  const cLimit   = data.cards.reduce((s,c)=>s+c.limit,0);
+  const netLiquid= bTotal+cashBal-cDebt;
+  const todayStr = TODAY();
+  const thisMonth= todayStr.substr(0,7);
+
+  /* ━━ 2. ALL BANKING TRANSACTIONS (banks + cards + cash) ━━━ */
+  const allBankTx=[
+    ...data.banks.flatMap(b=>b.transactions.map(t=>({...t,_bid:b.id,_src:b.name,_srcType:"bank",_col:"#06b6d4"}))),
+    ...data.cards.flatMap(c=>c.transactions.map(t=>({...t,_bid:c.id,_src:c.name,_srcType:"card",_col:"#fb923c"}))),
+    ...data.cash.transactions.map(t=>({...t,_bid:"cash",_src:"Cash",_srcType:"cash",_col:"var(--accent)"})),
+  ];
+
+  /* ━━ 3. MONTHLY CASH FLOW — bank txs only (no cards/cash) ━ */
+  const bankOnlyTx=data.banks.flatMap(b=>b.transactions);
+  const flowMap={};
+  bankOnlyTx.forEach(t=>{
+    const ct=catClassType(data.categories,t.cat||"Others");
+    if(ct==="Transfer")return;
+    const k=t.date.substr(0,7);
+    if(!flowMap[k])flowMap[k]={inc:0,exp:0};
+    if(ct==="Income"||t.type==="credit")flowMap[k].inc+=t.amount;
+    else flowMap[k].exp+=t.amount;
   });
-  /* Recent transactions across all accounts */
-  const recentTx=[
-    ...data.banks.flatMap(b=>b.transactions.map(t=>({...t,src:b.name}))),
-    ...data.cards.flatMap(c=>c.transactions.map(t=>({...t,src:c.name}))),
-    ...data.cash.transactions.map(t=>({...t,src:"Cash"})),
-  ].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,10);
-  /* Month-on-month expense delta */
-  const lastTwo=monthlyFlow.slice(-2);
-  const expDelta=lastTwo.length===2?lastTwo[1][1].exp-lastTwo[0][1].exp:null;
-  return React.createElement("div",{className:"fu"},
-    React.createElement("div",{style:{marginBottom:20}},
-      React.createElement("h2",{style:{fontFamily:"'Sora',sans-serif",fontSize:22,fontWeight:700,color:"var(--text)"}},"Banking Overview"),
-      React.createElement("p",{style:{color:"var(--text5)",fontSize:13,marginTop:4}},"As of "+new Date().toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"}))
-    ),
-    /* ── Liquid funds hero card */
-    React.createElement(Card,{sx:{marginBottom:16,background:"var(--card2)",position:"relative",overflow:"hidden"}},
-      React.createElement("div",{style:{position:"absolute",right:-20,top:-20,width:150,height:150,borderRadius:"50%",background:"var(--accentbg2)"}}),
-      React.createElement("div",{style:{display:"flex",gap:36,flexWrap:"wrap",alignItems:"flex-end"}},
-        React.createElement("div",null,
-          React.createElement("div",{style:{fontSize:11,color:"var(--text5)",textTransform:"uppercase",letterSpacing:1.2,marginBottom:6}},"Liquid Funds Available"),
-          React.createElement("div",{style:{fontSize:36,fontFamily:"'Sora',sans-serif",fontWeight:800,color:"var(--accent)"}},INR(liquid)),
-          React.createElement("div",{style:{display:"flex",gap:18,marginTop:8,flexWrap:"wrap"}},
-            React.createElement("span",{style:{fontSize:12,color:"#06b6d4"}},"🏦 Banks  "+INR(bTotal)),
-            React.createElement("span",{style:{fontSize:12,color:"var(--accent)"}},"💵 Cash  "+INR(data.cash.balance))
-          )
-        ),
-        React.createElement("div",{style:{display:"flex",gap:22,flexWrap:"wrap"}},
-          React.createElement("div",null,
-            React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.8,marginBottom:3}},"Card Dues"),
-            React.createElement("div",{style:{fontSize:18,fontFamily:"'Sora',sans-serif",fontWeight:700,color:"#fb923c"}},INR(cDebt))
-          ),
-          React.createElement("div",null,
-            React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.8,marginBottom:3}},"Loan Balance"),
-            React.createElement("div",{style:{fontSize:18,fontFamily:"'Sora',sans-serif",fontWeight:700,color:"#ef4444"}},INR(lTotal))
-          ),
-          expDelta!==null&&React.createElement("div",null,
-            React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.8,marginBottom:3}},"MoM Expenses"),
-            React.createElement("div",{style:{fontSize:18,fontFamily:"'Sora',sans-serif",fontWeight:700,color:expDelta<=0?"#22c55e":"#ef4444"}},(expDelta>0?"+":"")+INR(expDelta))
-          )
-        )
-      )
-    ),
-    /* ── Stat row */
-    React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
-      React.createElement(StatCard,{label:"Bank Balance",val:INR(bTotal),sub:data.banks.length+" accounts",col:"#06b6d4",icon:"🏦"}),
-      React.createElement(StatCard,{label:"Cash in Hand",val:INR(data.cash.balance),col:"var(--accent)",icon:"💵"}),
-      React.createElement(StatCard,{label:"Card Dues",val:INR(cDebt),sub:data.cards.length+" cards",col:"#fb923c",icon:"💳"}),
-      React.createElement(StatCard,{label:"Loan Balance",val:INR(lTotal),sub:data.loans.length+" loans",col:"#ef4444",icon:"🏠"}),
-      React.createElement(StatCard,{label:"Scheduled",val:(data.scheduled||[]).filter(s=>s.status==="active").length+" active",col:"#a78bfa",icon:"🗓"})
-    ),
-    /* ── Charts row */
-    React.createElement("div",{style:{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:14,marginBottom:16}},
-      React.createElement(Card,null,
-        React.createElement("div",{style:{fontSize:13,color:"var(--text4)",fontWeight:600,marginBottom:12}},"Monthly Expenses"),
-        React.createElement(SvgBar,{data:monthlyExp}),
-        React.createElement("div",{style:{textAlign:"center",fontSize:11,color:"var(--text5)",marginTop:6}},"Last 6 months · all accounts")
+  const monthlyFlow=Object.entries(flowMap).sort().slice(-6).map(([k,v])=>({
+    key:k,label:MNAMES[+k.slice(5)-1]+" '"+k.slice(2,4),inc:v.inc,exp:v.exp
+  }));
+
+  /* ━━ 4. THIS MONTH from ALL banking sources ━━━━━━━━━━━━━━ */
+  const allFlowMap={};
+  allBankTx.forEach(t=>{
+    const ct=catClassType(data.categories,t.cat||"Others");
+    if(ct==="Transfer")return;
+    const k=t.date.substr(0,7);
+    if(!allFlowMap[k])allFlowMap[k]={inc:0,exp:0};
+    if(ct==="Income"||t.type==="credit")allFlowMap[k].inc+=t.amount;
+    else allFlowMap[k].exp+=t.amount;
+  });
+  const curMD    = allFlowMap[thisMonth]||{inc:0,exp:0};
+  const smKeys   = Object.keys(allFlowMap).sort();
+  const prevKey  = smKeys.length>=2?smKeys[smKeys.length-2]:null;
+  const prevMD   = prevKey&&prevKey!==thisMonth?allFlowMap[prevKey]:null;
+  const savingsRate = curMD.inc>0?Math.max(0,Math.min(100,((curMD.inc-curMD.exp)/curMD.inc)*100)):0;
+  const incDelta = prevMD?curMD.inc-prevMD.inc:null;
+  const expDelta = prevMD?curMD.exp-prevMD.exp:null;
+
+  /* ━━ 5. CATEGORY SPEND this month — all banking tx ━━━━━━━ */
+  const catSpend={};
+  allBankTx.filter(t=>t.date.substr(0,7)===thisMonth&&t.type==="debit").forEach(t=>{
+    const main=catMainName(t.cat||"Others");
+    const ct=catClassType(data.categories,t.cat||"Others");
+    if(ct==="Transfer"||ct==="Income")return;
+    catSpend[main]=(catSpend[main]||0)+t.amount;
+  });
+  const catEntries=Object.entries(catSpend).sort((a,b)=>b[1]-a[1]);
+  const catTotal=catEntries.reduce((s,[,v])=>s+v,0);
+
+  /* ━━ 6. TOP PAYEES this month — all banking tx ━━━━━━━━━━━ */
+  const payeeSpend={};
+  allBankTx.filter(t=>t.date.substr(0,7)===thisMonth&&t.type==="debit"&&t.payee).forEach(t=>{
+    payeeSpend[t.payee]=(payeeSpend[t.payee]||0)+t.amount;
+  });
+  const topPayees=Object.entries(payeeSpend).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const payeeMax=topPayees.length?topPayees[0][1]:1;
+
+  /* ━━ 7. RECENT TRANSACTIONS feed ━━━━━━━━━━━━━━━━━━━━━━━━━ */
+  const recentAll=allBankTx.slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const recentFiltered=(txTab==="all"?recentAll:recentAll.filter(t=>t._bid===txTab)).slice(0,12);
+
+  /* ━━ 8. UPCOMING SCHEDULED ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+  const upcoming=(data.scheduled||[])
+    .filter(s=>s.status==="active"&&s.nextDate)
+    .sort((a,b)=>a.nextDate.localeCompare(b.nextDate))
+    .slice(0,6);
+
+  /* ━━ 9. SPARKLINE helper ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+  const Sparkline=(txns,col)=>{
+    const days=7,out=[];
+    for(let i=days-1;i>=0;i--){
+      const d=new Date();d.setDate(d.getDate()-i);
+      const k=d.toISOString().slice(0,10);
+      out.push(txns.filter(t=>t.date===k).reduce((s,t)=>s+t.amount,0));
+    }
+    const maxV=Math.max(...out,1);
+    const W=52,H=20,bW=4,gap=3;
+    return React.createElement("svg",{width:W,height:H,viewBox:`0 0 ${W} ${H}`,style:{display:"block",flexShrink:0}},
+      out.map((v,i)=>{
+        const bH=Math.max((v/maxV)*(H-2),v>0?2:1);
+        return React.createElement("rect",{key:i,x:i*(bW+gap),y:H-bH,width:bW,height:bH,rx:1.5,fill:v>0?col+"cc":"var(--border2)"});
+      })
+    );
+  };
+
+  /* ━━ 10. SVG DONUT helper ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+  const Donut=(entries,total,cx,cy,or_,ir)=>{
+    const toXY=(r,deg)=>({x:cx+r*Math.cos((deg-90)*Math.PI/180),y:cy+r*Math.sin((deg-90)*Math.PI/180)});
+    let angle=0;
+    return entries.map(([cat,amt],i)=>{
+      const col=CAT_C[cat]||PAL[i%PAL.length];
+      const sweep=total>0?(amt/total)*360:0;
+      const s=toXY(or_,angle),e=toXY(or_,angle+sweep-0.5);
+      const si=toXY(ir,angle+sweep-0.5),ei=toXY(ir,angle);
+      const large=sweep>180?1:0;
+      const d=`M ${s.x.toFixed(1)} ${s.y.toFixed(1)} A ${or_} ${or_} 0 ${large} 1 ${e.x.toFixed(1)} ${e.y.toFixed(1)} L ${si.x.toFixed(1)} ${si.y.toFixed(1)} A ${ir} ${ir} 0 ${large} 0 ${ei.x.toFixed(1)} ${ei.y.toFixed(1)} Z`;
+      angle+=sweep;
+      return React.createElement("path",{key:cat,d,fill:col,stroke:"var(--card)",strokeWidth:1.5});
+    });
+  };
+
+  /* ━━ 11. CASH FLOW SVG BAR CHART ━━━━━━━━━━━━━━━━━━━━━━━━━ */
+  const CashFlowChart=(()=>{
+    if(!monthlyFlow.length)return null;
+    const W=460,H=140,pL=6,pR=6,pT=10,pB=32;
+    const cW=W-pL-pR,cH=H-pT-pB,n=monthlyFlow.length;
+    const maxV=Math.max(...monthlyFlow.flatMap(d=>[d.inc,d.exp]),1);
+    const grpW=cW/n,bW=Math.min(grpW*0.32,14);
+    const bh=v=>Math.max(v>0?(v/maxV)*cH:0,v>0?2:0);
+    const xC=i=>pL+i*grpW+grpW/2;
+    return React.createElement("svg",{width:"100%",viewBox:`0 0 ${W} ${H}`,style:{display:"block",overflow:"visible"}},
+      React.createElement("defs",null,
+        React.createElement("linearGradient",{id:"gInc",x1:"0",y1:"0",x2:"0",y2:"1"},
+          React.createElement("stop",{offset:"0%",stopColor:"#22c55e",stopOpacity:.9}),
+          React.createElement("stop",{offset:"100%",stopColor:"#22c55e",stopOpacity:.55})),
+        React.createElement("linearGradient",{id:"gExp",x1:"0",y1:"0",x2:"0",y2:"1"},
+          React.createElement("stop",{offset:"0%",stopColor:"#ef4444",stopOpacity:.85}),
+          React.createElement("stop",{offset:"100%",stopColor:"#ef4444",stopOpacity:.5}))
       ),
-      React.createElement(Card,null,
-        React.createElement("div",{style:{fontSize:13,color:"var(--text4)",fontWeight:600,marginBottom:12}},"Bank Accounts"),
-        bankRows.length===0&&React.createElement(Empty,{icon:"🏦",text:"No bank accounts yet"}),
-        bankRows.map(b=>React.createElement("div",{key:b.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,paddingBottom:12,borderBottom:"1px solid var(--border2)"},className:"tr"},
-          React.createElement("div",null,
-            React.createElement("div",{style:{fontSize:13,fontWeight:600,color:"var(--text2)"}},b.name),
-            React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginTop:1}},b.bank+" · "+b.type+(b.lastTx?" · Last: "+b.lastTx.date:""))
-          ),
-          React.createElement("div",{style:{textAlign:"right"}},
-            React.createElement("div",{style:{fontSize:15,fontWeight:700,color:"#06b6d4",fontFamily:"'Sora',sans-serif"}},INR(b.balance)),
-            React.createElement("div",{style:{fontSize:10,color:"var(--text6)"}},b.transactions.length+" txns")
-          )
-        ))
-      )
-    ),
-    /* ── Recent transactions */
-    React.createElement(Card,null,
-      React.createElement("div",{style:{fontSize:13,color:"var(--text4)",fontWeight:600,marginBottom:12}},"Recent Transactions"),
-      recentTx.length===0&&React.createElement(Empty,{icon:"📋",text:"No transactions yet"}),
-      recentTx.map(tx=>React.createElement("div",{key:tx.id,className:"txrow",style:{flexDirection:"column",alignItems:"stretch",gap:3}},
-        React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}},
-          React.createElement("div",{style:{display:"flex",alignItems:"flex-start",gap:8,minWidth:0,flex:1}},
-            React.createElement("div",{style:{width:7,height:7,borderRadius:"50%",background:tx.type==="credit"?"#22c55e":"#ef4444",flexShrink:0,marginTop:4}}),
-            React.createElement("div",{style:{minWidth:0}},
-              React.createElement("div",{style:{fontSize:13,color:"var(--text2)",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},tx.desc||(tx.payee||"--")),
-              React.createElement("div",{style:{fontSize:11,color:"var(--text6)",marginTop:1}},tx.src+" · "+tx.date)
+      [.25,.5,.75,1].map((f,i)=>React.createElement("line",{key:i,
+        x1:pL,y1:pT+cH*(1-f),x2:W-pR,y2:pT+cH*(1-f),
+        stroke:"var(--border2)",strokeWidth:.6,strokeDasharray:"3,3"})),
+      monthlyFlow.map((d,i)=>{
+        const cx=xC(i),by=pT+cH;
+        const ih=bh(d.inc),eh=bh(d.exp);
+        return React.createElement("g",{key:i},
+          d.inc>0&&React.createElement("rect",{x:cx-bW-1.5,y:by-ih,width:bW,height:ih,rx:3,fill:"url(#gInc)"}),
+          d.exp>0&&React.createElement("rect",{x:cx+1.5,y:by-eh,width:bW,height:eh,rx:3,fill:"url(#gExp)"}),
+          React.createElement("text",{x:cx,y:H-10,textAnchor:"middle",fill:"var(--text5)",fontSize:8,fontFamily:"'DM Sans',sans-serif"},d.label)
+        );
+      })
+    );
+  })();
+
+  /* ━━ 12. SHARED HELPERS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+  const hr=new Date().getHours();
+  const greeting=hr<5?"Still up? 🌙":hr<12?"Good morning ☀️":hr<17?"Good afternoon 🌤":"Good evening 🌙";
+  const dateStr=new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long"});
+
+  /* Section label */
+  const SL=(t,sub)=>React.createElement("div",{style:{marginBottom:14}},
+    React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"var(--text4)",textTransform:"uppercase",letterSpacing:.9,display:"flex",alignItems:"center",gap:6}},
+      React.createElement("div",{style:{width:3,height:13,borderRadius:2,background:"var(--accent)",flexShrink:0}}),t),
+    sub&&React.createElement("div",{style:{fontSize:10,color:"var(--text5)",marginTop:2,paddingLeft:9}},sub)
+  );
+
+  /* Delta pill */
+  const DP=(val,goodNeg=true)=>{
+    if(val===null||val===undefined||val===0)return null;
+    const good=goodNeg?val<0:val>0;
+    const col=good?"#22c55e":"#ef4444";
+    return React.createElement("span",{style:{fontSize:9,fontWeight:700,color:col,background:col+"18",borderRadius:10,padding:"2px 7px",whiteSpace:"nowrap"}},
+      (val>0?"↑":"↓"),(val>0?"+":"")+INR(Math.abs(val)));
+  };
+
+  /* ━━ RENDER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+  return React.createElement("div",{className:"fu",style:{display:"flex",flexDirection:"column",gap:14}},
+
+    /* ══ A: BANKING HERO ════════════════════════════════════════ */
+    React.createElement("div",{style:{
+      background:"var(--networth-bg)",border:"1px solid var(--border)",borderRadius:18,
+      padding:isMobile?"16px 16px":"22px 28px",position:"relative",overflow:"hidden",
+      display:"flex",flexWrap:"wrap",gap:isMobile?16:28,alignItems:"flex-start"
+    }},
+      React.createElement("div",{style:{position:"absolute",top:-50,right:-50,width:180,height:180,borderRadius:"50%",background:"var(--accentbg2)",pointerEvents:"none"}}),
+      React.createElement("div",{style:{position:"absolute",bottom:-30,left:"35%",width:120,height:120,borderRadius:"50%",background:"var(--accentbg3)",pointerEvents:"none"}}),
+      /* Greeting + liquid balance */
+      React.createElement("div",{style:{zIndex:1,flex:"1 1 180px"}},
+        React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginBottom:4,letterSpacing:.3}},greeting+" · "+dateStr),
+        React.createElement("div",{style:{fontSize:9,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:1.1,marginBottom:5}},"Net Liquid Position"),
+        React.createElement("div",{style:{fontSize:isMobile?28:42,fontFamily:"'Sora',sans-serif",fontWeight:800,color:netLiquid>=0?"var(--accent)":"#ef4444",lineHeight:1,letterSpacing:"-1px"}},INR(netLiquid)),
+        React.createElement("div",{style:{fontSize:10,color:"var(--text5)",marginTop:6}},"Banks + Cash − Card Dues")
+      ),
+      /* Account balance breakdown bars */
+      React.createElement("div",{style:{zIndex:1,flex:"1 1 240px",display:"flex",flexDirection:"column",gap:8,justifyContent:"center"}},
+        React.createElement("div",{style:{fontSize:9,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.8,marginBottom:2}},"Balance Breakdown"),
+        /* Segmented bar */
+        React.createElement("div",{style:{height:8,borderRadius:4,overflow:"hidden",display:"flex",gap:.5,background:"var(--border)"}},
+          [
+            {l:"Banks",v:bTotal,c:"#06b6d4"},
+            {l:"Cash",v:cashBal,c:"var(--accent)"},
+            cDebt>0&&{l:"Card Dues",v:cDebt,c:"#fb923c"},
+          ].filter(Boolean).map((seg,i)=>{
+            const tot=bTotal+cashBal+(cDebt||0);
+            const w=tot>0?(seg.v/tot)*100:0;
+            return w>0.5?React.createElement("div",{key:i,title:seg.l+": "+INR(seg.v),style:{width:w+"%",height:"100%",background:seg.c}}):null;
+          })
+        ),
+        /* Legend */
+        React.createElement("div",{style:{display:"flex",flexWrap:"wrap",gap:"5px 16px"}},
+          [
+            {l:"Banks",v:bTotal,c:"#06b6d4",n:data.banks.length+" accounts"},
+            {l:"Cash",v:cashBal,c:"var(--accent)",n:"physical"},
+            cDebt>0&&{l:"Card Dues",v:cDebt,c:"#fb923c",n:data.cards.length+" cards",neg:true},
+          ].filter(Boolean).map((item,i)=>
+            React.createElement("div",{key:i,style:{display:"flex",alignItems:"center",gap:5}},
+              React.createElement("span",{style:{width:7,height:7,borderRadius:2,background:item.c,display:"inline-block",flexShrink:0}}),
+              React.createElement("div",null,
+                React.createElement("span",{style:{fontSize:10,color:"var(--text5)"}}," "+item.l+" "),
+                React.createElement("span",{style:{fontSize:10,fontFamily:"'Sora',sans-serif",fontWeight:700,color:item.neg?"#fb923c":item.c}},(item.neg?"−":"")+INR(item.v)),
+                React.createElement("span",{style:{fontSize:9,color:"var(--text6)"}}," · "+item.n)
+              )
             )
+          )
+        )
+      ),
+      /* Right stats: card utilisation + tx count */
+      React.createElement("div",{style:{zIndex:1,display:"flex",flexDirection:"column",gap:10,justifyContent:"center",flexShrink:0}},
+        cLimit>0&&React.createElement("div",null,
+          React.createElement("div",{style:{fontSize:9,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.7,marginBottom:4}},"Credit Utilisation"),
+          React.createElement("div",{style:{width:isMobile?120:150,height:6,borderRadius:3,background:"var(--border)",overflow:"hidden",marginBottom:3}},
+            (()=>{const u=Math.min((cDebt/cLimit)*100,100);const uc=u>80?"#ef4444":u>50?"#fb923c":"#22c55e";return React.createElement("div",{style:{width:u+"%",height:"100%",background:uc,borderRadius:3}});})()
           ),
-          React.createElement("div",{style:{textAlign:"right",flexShrink:0}},
-            React.createElement("span",{style:{fontSize:13,fontWeight:600,color:tx.type==="credit"?"#22c55e":"#ef4444",fontFamily:"'Sora',sans-serif"}},(tx.type==="credit"?"+":"-")+INR(tx.amount)),
-            tx.txType&&React.createElement("div",{style:{fontSize:10,color:"var(--text5)"}},tx.txType)
+          React.createElement("div",{style:{fontSize:9,color:"var(--text4)",display:"flex",justifyContent:"space-between",width:isMobile?120:150}},
+            React.createElement("span",null,(cLimit>0?((cDebt/cLimit)*100).toFixed(0):0)+"% used"),
+            React.createElement("span",null,"avail "+INR(cLimit-cDebt))
           )
         ),
-        React.createElement("div",{style:{display:"flex",gap:5,flexWrap:"wrap",marginLeft:15}},
-          tx.cat&&React.createElement("span",{style:{fontSize:10,color:CAT_C[catMainName(tx.cat)]||"var(--text3)",background:(CAT_C[catMainName(tx.cat)]||"var(--text3)")+"18",borderRadius:10,padding:"1px 6px"}},catDisplayName(tx.cat)),
-          tx.status&&tx.status!=="Unreconciled"&&React.createElement("span",{style:{fontSize:10,color:STATUS_C[tx.status]||"var(--text5)",background:(STATUS_C[tx.status]||"var(--text5)")+"18",borderRadius:10,padding:"1px 6px"}},STATUS_ICON[tx.status]+" "+tx.status)
+        React.createElement("div",{style:{fontSize:10,color:"var(--text5)"}},
+          React.createElement("span",{style:{fontWeight:700,color:"var(--text3)",fontFamily:"'Sora',sans-serif"}},allBankTx.length),
+          " total transactions"
         )
-      ))
+      )
+    ),
+
+    /* ══ B: ACCOUNT CARDS ROW ════════════════════════════════════ */
+    React.createElement("div",{className:"db-card",style:{padding:isMobile?"14px":"16px 20px"}},
+      SL("Accounts",data.banks.length+" bank"+(data.banks.length!==1?"s":"")+" · "+data.cards.length+" card"+(data.cards.length!==1?"s":"")+" · cash"),
+      React.createElement("div",{style:{display:"flex",gap:10,overflowX:"auto",paddingBottom:4}},
+        /* Bank accounts */
+        ...data.banks.map(b=>{
+          const mInc=b.transactions.filter(t=>t.date.substr(0,7)===thisMonth&&t.type==="credit").reduce((s,t)=>s+t.amount,0);
+          const mExp=b.transactions.filter(t=>t.date.substr(0,7)===thisMonth&&t.type==="debit").reduce((s,t)=>s+t.amount,0);
+          const lastTx=b.transactions.slice().sort((a,x)=>x.date.localeCompare(a.date))[0];
+          return React.createElement("div",{key:b.id,className:"db-acct-card",style:{
+            minWidth:isMobile?148:168,borderLeft:"3px solid #06b6d4",borderTop:"none",
+            display:"flex",flexDirection:"column",gap:6,padding:"12px 14px"
+          }},
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
+              React.createElement("div",{style:{minWidth:0,flex:1}},
+                React.createElement("div",{style:{fontSize:8,color:"#06b6d4",fontWeight:700,textTransform:"uppercase",letterSpacing:.6}},b.type),
+                React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"var(--text2)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}},b.name),
+                React.createElement("div",{style:{fontSize:8,color:"var(--text5)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},b.bank)
+              ),
+              Sparkline(b.transactions,"#06b6d4")
+            ),
+            React.createElement("div",{style:{fontSize:isMobile?15:19,fontFamily:"'Sora',sans-serif",fontWeight:800,color:"#06b6d4",lineHeight:1}},INR(b.balance)),
+            React.createElement("div",{style:{height:1,background:"var(--border2)",margin:"2px 0"}}),
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",fontSize:9}},
+              React.createElement("span",{style:{color:"#22c55e",fontWeight:600}},"↑ "+INR(mInc)),
+              React.createElement("span",{style:{color:"#ef4444",fontWeight:600}},"↓ "+INR(mExp))
+            ),
+            lastTx&&React.createElement("div",{style:{fontSize:8,color:"var(--text6)",marginTop:1}},
+              "Last: "+lastTx.date.split("-").reverse().join("-"))
+          );
+        }),
+        /* Credit cards */
+        ...data.cards.map(c=>{
+          const used=c.limit>0?(c.outstanding/c.limit*100):0;
+          const uc=used>80?"#ef4444":used>50?"#fb923c":"#22c55e";
+          const mSpend=c.transactions.filter(t=>t.date.substr(0,7)===thisMonth&&t.type==="debit").reduce((s,t)=>s+t.amount,0);
+          return React.createElement("div",{key:c.id,className:"db-acct-card",style:{
+            minWidth:isMobile?148:168,borderLeft:"3px solid #fb923c",borderTop:"none",
+            display:"flex",flexDirection:"column",gap:6,padding:"12px 14px"
+          }},
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
+              React.createElement("div",{style:{minWidth:0,flex:1}},
+                React.createElement("div",{style:{fontSize:8,color:"#fb923c",fontWeight:700,textTransform:"uppercase",letterSpacing:.6}},"Credit Card"),
+                React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"var(--text2)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}},c.name),
+                React.createElement("div",{style:{fontSize:8,color:"var(--text5)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},c.bank)
+              ),
+              Sparkline(c.transactions,"#fb923c")
+            ),
+            React.createElement("div",{style:{fontSize:isMobile?15:19,fontFamily:"'Sora',sans-serif",fontWeight:800,color:"#fb923c",lineHeight:1}},INR(c.outstanding)),
+            React.createElement("div",{style:{height:4,borderRadius:2,background:"var(--border2)",overflow:"hidden",margin:"4px 0 2px"}},
+              React.createElement("div",{style:{width:Math.min(used,100)+"%",height:"100%",background:uc,borderRadius:2,transition:"width 1s ease"}})),
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",fontSize:9}},
+              React.createElement("span",{style:{color:uc,fontWeight:600}},used.toFixed(0)+"% used"),
+              React.createElement("span",{style:{color:"var(--text5)"}},"this mo ↓ "+INR(mSpend))
+            )
+          );
+        }),
+        /* Cash */
+        (()=>{
+          const mInc=data.cash.transactions.filter(t=>t.date.substr(0,7)===thisMonth&&t.type==="credit").reduce((s,t)=>s+t.amount,0);
+          const mExp=data.cash.transactions.filter(t=>t.date.substr(0,7)===thisMonth&&t.type==="debit").reduce((s,t)=>s+t.amount,0);
+          return React.createElement("div",{key:"cash",className:"db-acct-card",style:{
+            minWidth:isMobile?132:148,borderLeft:"3px solid var(--accent)",borderTop:"none",
+            display:"flex",flexDirection:"column",gap:6,padding:"12px 14px"
+          }},
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
+              React.createElement("div",null,
+                React.createElement("div",{style:{fontSize:8,color:"var(--accent)",fontWeight:700,textTransform:"uppercase",letterSpacing:.6}},"Cash"),
+                React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"var(--text2)",marginTop:1}},"Physical Cash")
+              ),
+              Sparkline(data.cash.transactions,"var(--accent)")
+            ),
+            React.createElement("div",{style:{fontSize:isMobile?15:19,fontFamily:"'Sora',sans-serif",fontWeight:800,color:"var(--accent)",lineHeight:1}},INR(cashBal)),
+            React.createElement("div",{style:{height:1,background:"var(--border2)",margin:"2px 0"}}),
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",fontSize:9}},
+              React.createElement("span",{style:{color:"#22c55e",fontWeight:600}},"↑ "+INR(mInc)),
+              React.createElement("span",{style:{color:"#ef4444",fontWeight:600}},"↓ "+INR(mExp))
+            )
+          );
+        })()
+      )
+    ),
+
+    /* ══ C: THIS MONTH KPI STRIP ════════════════════════════════ */
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:10}},
+      ...[
+        {label:"Income",val:INR(curMD.inc),col:"#22c55e",icon:"↑",sub:incDelta!==null?((incDelta>=0?"↑ ":"↓ ")+INR(Math.abs(incDelta))+" vs last mo"):data.banks.length+" bank accounts",delay:0},
+        {label:"Expenses",val:INR(curMD.exp),col:"#ef4444",icon:"↓",sub:expDelta!==null?((expDelta>=0?"↑ ":"↓ ")+INR(Math.abs(expDelta))+" vs last mo"):data.cards.length+" cards + cash",delay:60},
+        {label:"Net Saved",val:INR(curMD.inc-curMD.exp),col:curMD.inc-curMD.exp>=0?"#22c55e":"#ef4444",icon:"=",sub:"income − expenses",delay:120},
+        {label:"Savings Rate",val:savingsRate.toFixed(1)+"%",col:savingsRate>=30?"#22c55e":savingsRate>=15?"#f0a500":"#ef4444",icon:"🎯",sub:savingsRate>=30?"Excellent":savingsRate>=15?"On track":"Below target",delay:180},
+      ].map(({label,val,col,icon,sub,delay})=>
+        React.createElement("div",{key:label,style:{
+          background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,
+          padding:"14px 16px",display:"flex",flexDirection:"column",gap:5,
+          borderBottom:`3px solid ${col}`,animation:`db-rise .45s ease ${delay}ms both`,
+          overflow:"hidden",position:"relative"
+        }},
+          React.createElement("div",{style:{position:"absolute",top:-14,right:-14,width:52,height:52,borderRadius:"50%",background:col+"10",pointerEvents:"none"}}),
+          React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+            React.createElement("span",{style:{fontSize:10,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.7}},label),
+            React.createElement("span",{style:{fontSize:15,lineHeight:1}},icon)
+          ),
+          React.createElement("div",{style:{fontSize:isMobile?16:20,fontFamily:"'Sora',sans-serif",fontWeight:800,color:col,lineHeight:1}},val),
+          React.createElement("div",{style:{fontSize:9,color:"var(--text5)"}},sub)
+        )
+      )
+    ),
+
+    /* ══ D: CASH FLOW CHART + CATEGORY DONUT ════════════════════ */
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:isMobile?"1fr":"3fr 2fr",gap:12}},
+
+      /* D1: Monthly cash flow bar chart — bank accounts only */
+      React.createElement("div",{className:"db-card"},
+        SL("Bank Cash Flow","Income vs Expenses — last 6 months · bank accounts only"),
+        monthlyFlow.length>0
+          ?React.createElement(React.Fragment,null,
+              CashFlowChart,
+              React.createElement("div",{style:{display:"flex",gap:16,marginTop:10,paddingTop:10,borderTop:"1px solid var(--border2)",flexWrap:"wrap",justifyContent:"space-between"}},
+                React.createElement("div",{style:{display:"flex",gap:14}},
+                  React.createElement("div",{style:{display:"flex",alignItems:"center",gap:5}},
+                    React.createElement("div",{style:{width:18,height:3,borderRadius:2,background:"#22c55e"}}),
+                    React.createElement("span",{style:{fontSize:10,color:"var(--text5)"}},"Income")),
+                  React.createElement("div",{style:{display:"flex",alignItems:"center",gap:5}},
+                    React.createElement("div",{style:{width:18,height:3,borderRadius:2,background:"#ef4444"}}),
+                    React.createElement("span",{style:{fontSize:10,color:"var(--text5)"}},"Expenses"))
+                ),
+                React.createElement("div",{style:{display:"flex",gap:14}},
+                  React.createElement("span",{style:{fontSize:10,color:"var(--text5)"}},"This month:"),
+                  React.createElement("span",{style:{fontSize:11,fontWeight:700,color:"#22c55e"}},INR(flowMap[thisMonth]?.inc||0)),
+                  React.createElement("span",{style:{fontSize:11,fontWeight:700,color:"#ef4444"}},INR(flowMap[thisMonth]?.exp||0))
+                )
+              )
+            )
+          :React.createElement("div",{style:{textAlign:"center",padding:"40px 0",color:"var(--text6)",fontSize:12,display:"flex",flexDirection:"column",gap:8,alignItems:"center"}},
+              React.createElement("span",{style:{fontSize:26}},"📊"),
+              "No bank transaction data yet"
+            )
+      ),
+
+      /* D2: Category spending donut — all banking this month */
+      React.createElement("div",{className:"db-card"},
+        SL("Spending Mix",new Date().toLocaleString("en-IN",{month:"long"})+" · all banking"),
+        catEntries.length>0
+          ?React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:10,alignItems:"center"}},
+              React.createElement("svg",{width:160,height:160,viewBox:"0 0 160 160"},
+                ...Donut(catEntries,catTotal,80,80,68,40),
+                React.createElement("text",{x:80,y:76,textAnchor:"middle",dominantBaseline:"middle",fill:"var(--text4)",fontSize:8,fontFamily:"'DM Sans',sans-serif",fontWeight:700},"TOTAL"),
+                React.createElement("text",{x:80,y:90,textAnchor:"middle",dominantBaseline:"middle",fill:"var(--accent)",fontSize:11,fontFamily:"'Sora',sans-serif",fontWeight:800},INR(catTotal))
+              ),
+              React.createElement("div",{style:{width:"100%",display:"flex",flexDirection:"column",gap:5}},
+                catEntries.slice(0,5).map(([cat,amt],i)=>{
+                  const col=CAT_C[cat]||PAL[i%PAL.length];
+                  const pct=catTotal>0?((amt/catTotal)*100):0;
+                  return React.createElement("div",{key:cat,style:{display:"flex",alignItems:"center",gap:7}},
+                    React.createElement("div",{style:{width:8,height:8,borderRadius:2,background:col,flexShrink:0}}),
+                    React.createElement("div",{style:{flex:1,minWidth:0}},
+                      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:2}},
+                        React.createElement("span",{style:{fontSize:10,color:"var(--text3)",fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},cat),
+                        React.createElement("span",{style:{fontSize:10,color:col,fontFamily:"'Sora',sans-serif",fontWeight:700,flexShrink:0,marginLeft:4}},INR(amt))
+                      ),
+                      React.createElement("div",{style:{height:3,borderRadius:2,background:"var(--border2)",overflow:"hidden"}},
+                        React.createElement("div",{style:{width:ready?pct+"%":"0%",height:"100%",background:col,borderRadius:2,transition:"width 1.2s cubic-bezier(.22,1,.36,1)"}})
+                      )
+                    )
+                  );
+                })
+              )
+            )
+          :React.createElement("div",{style:{textAlign:"center",padding:"40px 0",color:"var(--text6)",fontSize:12,display:"flex",flexDirection:"column",gap:8,alignItems:"center"}},
+              React.createElement("span",{style:{fontSize:26}},"🍩"),
+              "No expenses this month"
+            )
+      )
+    ),
+
+    /* ══ E: RECENT TRANSACTIONS + TOP PAYEES ════════════════════ */
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:isMobile?"1fr":"3fr 2fr",gap:12}},
+
+      /* E1: Transaction feed with per-account tabs */
+      React.createElement("div",{className:"db-card"},
+        SL("Recent Transactions","All banking accounts · latest activity"),
+        /* Account filter tabs */
+        React.createElement("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12,paddingBottom:10,borderBottom:"1px solid var(--border2)"}},
+          [{id:"all",label:"All",col:"var(--accent)"},
+           ...data.banks.map(b=>({id:b.id,label:b.name.split(" ")[0],col:"#06b6d4"})),
+           ...data.cards.map(c=>({id:c.id,label:c.name.split(" ")[0],col:"#fb923c"})),
+           {id:"cash",label:"Cash",col:"var(--accent)"},
+          ].map(tab=>
+            React.createElement("button",{key:tab.id,onClick:()=>setTxTab(tab.id),style:{
+              padding:"3px 10px",borderRadius:20,border:"1px solid "+(txTab===tab.id?tab.col:"var(--border2)"),
+              background:txTab===tab.id?tab.col+"18":"transparent",
+              color:txTab===tab.id?tab.col:"var(--text5)",
+              fontSize:10,fontWeight:txTab===tab.id?700:400,cursor:"pointer",
+              fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",transition:"all .15s"
+            }},tab.label)
+          )
+        ),
+        /* Transaction rows */
+        recentFiltered.length===0
+          ?React.createElement("div",{style:{textAlign:"center",padding:"28px 0",color:"var(--text6)",fontSize:12,display:"flex",flexDirection:"column",gap:8,alignItems:"center"}},
+              React.createElement("span",{style:{fontSize:24}},"📋"),"No transactions")
+          :recentFiltered.map((tx,i)=>{
+            const isCredit=tx.type==="credit";
+            const col=catColor(data.categories,catMainName(tx.cat||""));
+            return React.createElement("div",{key:tx.id+i,className:"db-txrow"},
+              /* Type icon */
+              React.createElement("div",{style:{
+                width:32,height:32,borderRadius:10,flexShrink:0,
+                background:isCredit?"rgba(34,197,94,.1)":"rgba(239,68,68,.07)",
+                border:"1px solid "+(isCredit?"rgba(34,197,94,.2)":"rgba(239,68,68,.18)"),
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:13,color:isCredit?"#22c55e":"#ef4444",fontWeight:800
+              }},isCredit?"↑":"↓"),
+              /* Description + meta */
+              React.createElement("div",{style:{flex:1,minWidth:0}},
+                React.createElement("div",{style:{fontSize:12,fontWeight:600,color:"var(--text2)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},
+                  tx.desc||tx.payee||"—"),
+                React.createElement("div",{style:{display:"flex",gap:5,alignItems:"center",marginTop:2,flexWrap:"nowrap",overflow:"hidden"}},
+                  React.createElement("span",{style:{fontSize:9,color:tx._col,fontWeight:700,flexShrink:0,
+                    background:tx._col+"15",borderRadius:6,padding:"1px 6px"}},tx._src),
+                  tx.payee&&React.createElement("span",{style:{fontSize:9,color:"var(--text5)",flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},tx.payee),
+                  tx.cat&&React.createElement("span",{style:{fontSize:9,color:col,background:col+"18",borderRadius:6,padding:"1px 6px",flexShrink:0}},catDisplayName(tx.cat))
+                )
+              ),
+              /* Date + amount */
+              React.createElement("div",{style:{textAlign:"right",flexShrink:0,display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}},
+                React.createElement("div",{style:{fontSize:13,fontWeight:700,color:isCredit?"#22c55e":"#ef4444",fontFamily:"'Sora',sans-serif"}},(isCredit?"+":"−")+INR(tx.amount)),
+                React.createElement("div",{style:{fontSize:9,color:"var(--text6)"}},tx.date.split("-").reverse().join("-"))
+              )
+            );
+          })
+      ),
+
+      /* E2: Top payees + this-month savings ring */
+      React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:12}},
+
+        /* Savings ring card */
+        React.createElement("div",{className:"db-card",style:{display:"flex",gap:16,alignItems:"center"}},
+          /* Ring */
+          (()=>{
+            const r=32,circ=2*Math.PI*r,pct=Math.max(0,Math.min(100,savingsRate));
+            const filled=(pct/100)*circ,col=pct>=30?"#22c55e":pct>=15?"#f0a500":"#ef4444",C=40;
+            return React.createElement("svg",{width:80,height:80,viewBox:"0 0 80 80",flexShrink:0},
+              React.createElement("circle",{cx:C,cy:C,r,fill:"none",stroke:"var(--border)",strokeWidth:7}),
+              React.createElement("circle",{cx:C,cy:C,r,fill:"none",stroke:col,strokeWidth:7,
+                strokeDasharray:`${filled} ${circ}`,strokeLinecap:"round",transform:`rotate(-90 ${C} ${C})`}),
+              React.createElement("text",{x:C,y:C-4,dominantBaseline:"middle",textAnchor:"middle",fill:col,fontSize:14,fontWeight:800,fontFamily:"'Sora',sans-serif"},pct.toFixed(0)+"%"),
+              React.createElement("text",{x:C,y:C+12,dominantBaseline:"middle",textAnchor:"middle",fill:"var(--text5)",fontSize:7,fontFamily:"'DM Sans',sans-serif"},"SAVED")
+            );
+          })(),
+          React.createElement("div",{style:{flex:1,display:"flex",flexDirection:"column",gap:7}},
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+              React.createElement("span",{style:{fontSize:11,color:"var(--text5)"}},"Income"),
+              React.createElement("div",{style:{display:"flex",alignItems:"center",gap:4}},
+                React.createElement("span",{style:{fontSize:12,fontWeight:700,color:"#22c55e",fontFamily:"'Sora',sans-serif"}},INR(curMD.inc)),
+                DP(incDelta,false))
+            ),
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+              React.createElement("span",{style:{fontSize:11,color:"var(--text5)"}},"Expenses"),
+              React.createElement("div",{style:{display:"flex",alignItems:"center",gap:4}},
+                React.createElement("span",{style:{fontSize:12,fontWeight:700,color:"#ef4444",fontFamily:"'Sora',sans-serif"}},INR(curMD.exp)),
+                DP(expDelta,true))
+            ),
+            React.createElement("div",{style:{height:1,background:"var(--border2)"}}),
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+              React.createElement("span",{style:{fontSize:11,fontWeight:600,color:"var(--text3)"}},"Net"),
+              React.createElement("span",{style:{fontSize:13,fontWeight:800,color:curMD.inc-curMD.exp>=0?"#22c55e":"#ef4444",fontFamily:"'Sora',sans-serif"}},INR(curMD.inc-curMD.exp))
+            )
+          )
+        ),
+
+        /* Top payees */
+        React.createElement("div",{className:"db-card",style:{flex:1}},
+          SL("Top Payees","By spend this month"),
+          topPayees.length===0
+            ?React.createElement("div",{style:{textAlign:"center",padding:"20px 0",color:"var(--text6)",fontSize:11}},"No payee data this month")
+            :topPayees.map(([name,amt],i)=>{
+              const col=PAL[i%PAL.length];
+              const w=(amt/payeeMax)*100;
+              return React.createElement("div",{key:name,style:{marginBottom:8}},
+                React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}},
+                  React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6}},
+                    React.createElement("div",{style:{
+                      width:22,height:22,borderRadius:8,background:col+"22",border:"1px solid "+col+"44",
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      fontSize:8,fontWeight:800,color:col,flexShrink:0
+                    }},name.charAt(0).toUpperCase()),
+                    React.createElement("span",{style:{fontSize:11,color:"var(--text3)",fontWeight:500,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},name)
+                  ),
+                  React.createElement("span",{style:{fontSize:11,color:col,fontFamily:"'Sora',sans-serif",fontWeight:700}},INR(amt))
+                ),
+                React.createElement("div",{style:{height:3,borderRadius:2,background:"var(--border2)",overflow:"hidden"}},
+                  React.createElement("div",{style:{width:ready?w+"%":"0%",height:"100%",background:col,borderRadius:2,transition:"width 1.1s cubic-bezier(.22,1,.36,1)"}})
+                )
+              );
+            })
+        )
+      )
+    ),
+
+    /* ══ F: UPCOMING SCHEDULED (full width) ═════════════════════ */
+    React.createElement("div",{className:"db-card"},
+      SL("Upcoming Payments",upcoming.length+" scheduled · active"),
+      upcoming.length===0
+        ?React.createElement("div",{style:{textAlign:"center",padding:"24px 0",color:"var(--text6)",fontSize:12,display:"flex",flexDirection:"column",gap:6,alignItems:"center"}},
+            React.createElement("span",{style:{fontSize:24}},"🗓"),
+            "No upcoming scheduled payments"
+          )
+        :React.createElement("div",{style:{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gap:8}},
+            upcoming.map((sc,i)=>{
+              const isOvd=sc.nextDate<todayStr;
+              const dl=daysLeft(sc.nextDate);
+              const uc=isOvd?"#ef4444":dl===0?"#22c55e":dl<=3?"#fb923c":dl<=7?"#f0a500":"var(--text4)";
+              const lbl=isOvd?"Overdue":dl===0?"Today":dl===1?"Tomorrow":dl+" days";
+              return React.createElement("div",{key:sc.id,style:{
+                background:"var(--bg4)",border:"1px solid var(--border2)",borderRadius:12,
+                padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,
+                borderLeft:"3px solid "+uc
+              }},
+                React.createElement("div",{style:{minWidth:0,flex:1}},
+                  React.createElement("div",{style:{fontSize:12,fontWeight:600,color:"var(--text2)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},sc.desc||"Scheduled"),
+                  React.createElement("div",{style:{display:"flex",gap:6,marginTop:3,alignItems:"center",flexWrap:"wrap"}},
+                    React.createElement("span",{style:{fontSize:9,fontWeight:700,color:uc,background:uc+"18",borderRadius:6,padding:"1px 6px"}},lbl),
+                    React.createElement("span",{style:{fontSize:9,color:"var(--text5)"}},sc.nextDate.split("-").reverse().join("-")),
+                    sc.frequency&&React.createElement("span",{style:{fontSize:9,color:"var(--text6)",background:"var(--bg5)",borderRadius:5,padding:"1px 5px",textTransform:"capitalize"}},sc.frequency)
+                  )
+                ),
+                React.createElement("div",{style:{textAlign:"right",flexShrink:0}},
+                  React.createElement("div",{style:{fontSize:13,fontWeight:700,fontFamily:"'Sora',sans-serif",color:sc.ledgerType==="credit"?"#22c55e":"#ef4444"}},(sc.ledgerType==="credit"?"+":"−")+INR(sc.amount))
+                )
+              );
+            })
+          )
     )
   );
 };
@@ -9148,6 +9663,224 @@ const SettingsSection=({state,dispatch,themeId,setTheme,onResetAll,isMobile})=>{
 /* ══════════════════════════════════════════════════════════════════════════
    NOTES SECTION
    ══════════════════════════════════════════════════════════════════════════ */
+/* ── CALCULATOR SECTION ───────────────────────────────────────────────── */
+const CalculatorSection=()=>{
+  const[expr,setExpr]=useState("");      /* full expression string */
+  const[display,setDisplay]=useState("0");/* current display value */
+  const[result,setResult]=useState(null); /* last computed result */
+  const[fresh,setFresh]=useState(false);  /* true right after = so next digit starts fresh */
+  const[history,setHistory]=useState([]); /* [{expr,ans}] */
+
+  /* Format number nicely — no unnecessary decimals, commas for readability */
+  const fmt=v=>{
+    if(v===null||v===undefined||v==="")return"0";
+    const n=Number(v);
+    if(!isFinite(n))return String(v);
+    /* Up to 10 significant digits, strip trailing zeros */
+    const s=parseFloat(n.toPrecision(10)).toString();
+    /* Add thousands separator to integer part */
+    const[int,dec]=s.split(".");
+    const intFmt=int.replace(/\B(?=(\d{3})+(?!\d))/g,",");
+    return dec!==undefined?intFmt+"."+dec:intFmt;
+  };
+
+  const safeEval=str=>{
+    /* Replace × ÷ with JS operators, then eval safely */
+    const cleaned=str.replace(/×/g,"*").replace(/÷/g,"/");
+    /* Only allow digits, operators, dot, parens, spaces */
+    if(!/^[0-9+\-*/().\s]+$/.test(cleaned))throw new Error("invalid");
+    /* eslint-disable-next-line no-new-func */
+    return Function('"use strict";return ('+cleaned+')')();
+  };
+
+  const pressDigit=d=>{
+    if(fresh){setExpr(d);setDisplay(d);setFresh(false);return;}
+    const ne=expr===(""+result)?d:(expr+d);
+    setExpr(ne);setDisplay(d);setResult(null);
+  };
+
+  const pressOp=op=>{
+    setFresh(false);
+    /* Compute partial result if previous expr is complete */
+    let base=expr;
+    if(base===""||base===undefined)base="0";
+    /* Replace trailing operator */
+    const trimmed=base.replace(/[+\-×÷]$/,"");
+    setExpr(trimmed+op);
+    setDisplay(op);
+    setResult(null);
+  };
+
+  const pressDot=()=>{
+    if(fresh){setExpr("0.");setDisplay("0.");setFresh(false);return;}
+    /* Don't add dot if current segment already has one */
+    const segs=expr.split(/[+\-×÷]/);
+    const cur=segs[segs.length-1];
+    if(cur.includes("."))return;
+    const ne=expr+".";
+    setExpr(ne);setDisplay(ne);
+  };
+
+  const pressEquals=()=>{
+    if(!expr)return;
+    try{
+      const ans=safeEval(expr);
+      if(!isFinite(ans))throw new Error("div0");
+      const fmtAns=parseFloat(ans.toPrecision(10));
+      setHistory(h=>[{expr,ans:fmtAns},...h].slice(0,20));
+      setDisplay(String(fmtAns));
+      setExpr(String(fmtAns));
+      setResult(fmtAns);
+      setFresh(true);
+    }catch{
+      setDisplay("Error");setExpr("");setResult(null);setFresh(true);
+    }
+  };
+
+  const pressClear=()=>{setExpr("");setDisplay("0");setResult(null);setFresh(false);};
+  const pressBack=()=>{
+    if(fresh||!expr){pressClear();return;}
+    const ne=expr.slice(0,-1);
+    setExpr(ne);setDisplay(ne||"0");
+  };
+
+  const pressPercent=()=>{
+    if(!expr)return;
+    try{const v=safeEval(expr)/100;setExpr(String(v));setDisplay(String(v));}catch{}
+  };
+
+  /* Keyboard support */
+  React.useEffect(()=>{
+    const h=e=>{
+      if("0123456789".includes(e.key))pressDigit(e.key);
+      else if(e.key===".")pressDot();
+      else if(e.key==="+"||e.key==="-")pressOp(e.key==="+"?"+":"−");
+      else if(e.key==="*")pressOp("×");
+      else if(e.key==="/"){e.preventDefault();pressOp("÷");}
+      else if(e.key==="Enter"||e.key==="=")pressEquals();
+      else if(e.key==="Backspace")pressBack();
+      else if(e.key==="Escape")pressClear();
+    };
+    window.addEventListener("keydown",h);
+    return()=>window.removeEventListener("keydown",h);
+  });
+
+  /* Button config: [label, action, style-class] */
+  const BTNS=[
+    ["C",  pressClear,  "fn"],   ["⌫", pressBack,   "fn"],  ["%",pressPercent,"fn"],  ["÷",()=>pressOp("÷"),"op"],
+    ["7",  ()=>pressDigit("7"),"num"],["8",()=>pressDigit("8"),"num"],["9",()=>pressDigit("9"),"num"],["×",()=>pressOp("×"),"op"],
+    ["4",  ()=>pressDigit("4"),"num"],["5",()=>pressDigit("5"),"num"],["6",()=>pressDigit("6"),"num"],["−",()=>pressOp("−"),"op"],
+    ["1",  ()=>pressDigit("1"),"num"],["2",()=>pressDigit("2"),"num"],["3",()=>pressDigit("3"),"num"],["+",()=>pressOp("+"),"op"],
+    ["00", ()=>{pressDigit("0");pressDigit("0");},"num"],
+              ["0",()=>pressDigit("0"),"num"],[".",pressDot,"num"],["=",pressEquals,"eq"],
+  ];
+
+  return React.createElement("div",{className:"fu",style:{display:"flex",gap:18,alignItems:"flex-start",flexWrap:"wrap"}},
+
+    /* ── Calculator body ── */
+    React.createElement("div",{style:{
+      background:"var(--card)",border:"1px solid var(--border)",borderRadius:20,
+      overflow:"hidden",width:300,flexShrink:0,
+      boxShadow:"0 8px 32px rgba(0,0,0,.18)"
+    }},
+
+      /* Display */
+      React.createElement("div",{style:{
+        background:"var(--bg3)",padding:"20px 22px 14px",
+        borderBottom:"1px solid var(--border2)",minHeight:104,
+        display:"flex",flexDirection:"column",justifyContent:"flex-end",alignItems:"flex-end",gap:6
+      }},
+        /* Expression strip */
+        React.createElement("div",{style:{
+          fontSize:12,color:"var(--text5)",fontFamily:"'Sora',monospace",
+          minHeight:16,textAlign:"right",overflow:"hidden",
+          textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:260,
+          letterSpacing:.3
+        }},expr||""),
+        /* Main display value */
+        React.createElement("div",{style:{
+          fontSize:display.length>12?22:display.length>8?28:34,
+          fontFamily:"'Sora',sans-serif",fontWeight:700,
+          color:display==="Error"?"#ef4444":"var(--accent)",
+          lineHeight:1.1,letterSpacing:"-0.5px",
+          textAlign:"right",wordBreak:"break-all"
+        }},display==="Error"?"Error":fmt(isNaN(Number(display.replace(/,/g,"")))?display:display))
+      ),
+
+      /* Button grid */
+      React.createElement("div",{style:{
+        display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:1,
+        background:"var(--border2)"
+      }},
+        BTNS.map(([lbl,action,cls],i)=>{
+          const isEq=cls==="eq",isOp=cls==="op",isFn=cls==="fn";
+          return React.createElement("button",{
+            key:i,onClick:action,
+            style:{
+              padding:"0",height:64,
+              background:isEq?"var(--accent)":isOp?"var(--bg3)":isFn?"var(--bg4)":"var(--card)",
+              color:isEq?"#fff":isOp?"var(--accent)":isFn?"var(--text4)":"var(--text2)",
+              fontSize:isEq?22:isOp?20:isFn?16:18,
+              fontFamily:"'Sora',sans-serif",fontWeight:isOp||isEq?700:500,
+              border:"none",cursor:"pointer",
+              transition:"filter .1s,background .1s",
+              outline:"none",
+            },
+            onMouseEnter:e=>{e.currentTarget.style.filter="brightness(1.15)";},
+            onMouseLeave:e=>{e.currentTarget.style.filter="";},
+            onMouseDown:e=>{e.currentTarget.style.filter="brightness(.9)";},
+            onMouseUp:e=>{e.currentTarget.style.filter="brightness(1.15)";}
+          },lbl);
+        })
+      )
+    ),
+
+    /* ── History panel ── */
+    React.createElement("div",{style:{flex:1,minWidth:220}},
+      React.createElement("div",{style:{
+        background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,
+        overflow:"hidden"
+      }},
+        React.createElement("div",{style:{
+          padding:"12px 16px",borderBottom:"1px solid var(--border2)",
+          display:"flex",justifyContent:"space-between",alignItems:"center"
+        }},
+          React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"var(--text4)",textTransform:"uppercase",letterSpacing:.8}},"History"),
+          history.length>0&&React.createElement("button",{
+            onClick:()=>setHistory([]),
+            style:{fontSize:10,color:"var(--text5)",background:"var(--bg4)",border:"1px solid var(--border2)",
+              borderRadius:8,padding:"2px 9px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}
+          },"Clear")
+        ),
+        history.length===0
+          ?React.createElement("div",{style:{padding:"32px 16px",textAlign:"center",color:"var(--text6)",fontSize:12,display:"flex",flexDirection:"column",gap:6,alignItems:"center"}},
+              React.createElement("span",{style:{fontSize:22}},"🔢"),
+              "Calculations will appear here"
+            )
+          :React.createElement("div",{style:{maxHeight:360,overflowY:"auto"}},
+              history.map((h,i)=>
+                React.createElement("div",{key:i,
+                  onClick:()=>{setExpr(String(h.ans));setDisplay(String(h.ans));setResult(h.ans);setFresh(true);},
+                  style:{
+                    padding:"10px 16px",borderBottom:"1px solid var(--border2)",
+                    cursor:"pointer",transition:"background .12s",
+                  },
+                  onMouseEnter:e=>{e.currentTarget.style.background="var(--bg4)";},
+                  onMouseLeave:e=>{e.currentTarget.style.background="";},
+                },
+                  React.createElement("div",{style:{fontSize:11,color:"var(--text5)",fontFamily:"'Sora',monospace",marginBottom:3}},h.expr+" ="),
+                  React.createElement("div",{style:{fontSize:16,fontWeight:700,color:"var(--accent)",fontFamily:"'Sora',sans-serif"}},fmt(h.ans))
+                )
+              )
+            )
+      ),
+      React.createElement("div",{style:{marginTop:10,padding:"8px 12px",borderRadius:10,background:"var(--bg4)",border:"1px solid var(--border2)"}},
+        React.createElement("div",{style:{fontSize:10,color:"var(--text6)",lineHeight:1.7}},"⌨️ Keyboard supported · 0–9 digits · + − * / operators · Enter to calculate · Backspace to delete · Esc to clear")
+      )
+    )
+  );
+};
+
 const NotesSection=({notes=[],dispatch})=>{
   const[open,setOpen]=useState(false);
   const[editing,setEditing]=useState(null);
@@ -9914,7 +10647,7 @@ const saveTheme=(id)=>{
 };
 
 /* ── HASH ROUTING ─────────────────────────────────────────────────────────── */
-const VALID_TABS=["dashboard","banks","cards","cash","inv_dash","inv_mf","inv_shares","inv_fd","inv_re","loans","scheduled","notes","reports","settings"];
+const VALID_TABS=["dashboard","banks","cards","cash","inv_dash","inv_mf","inv_shares","inv_fd","inv_re","loans","scheduled","notes","calculator","reports","settings"];
 
 const getTabFromHash=()=>{
   const h=window.location.hash.replace("#/","").replace("#","").toLowerCase();
@@ -9968,6 +10701,7 @@ const NavIcon=({id,size=16})=>{
     case"inv_fd":      return React.createElement("svg",s,React.createElement("circle",{cx:8,cy:8,r:6}),React.createElement("polyline",{points:"8,5 8,8.5 10.5,10.5"}));
     case"inv_re":      return React.createElement("svg",s,React.createElement("path",{d:"M1.5 14.5v-7l6.5-5.5 6.5 5.5v7z"}),React.createElement("rect",{x:5.5,y:9,width:2.5,height:5.5,rx:.4}),React.createElement("rect",{x:8,y:9,width:2.5,height:5.5,rx:.4}),React.createElement("line",{x1:1.5,y1:14.5,x2:14.5,y2:14.5}));
     case"notes":       return React.createElement("svg",s,React.createElement("path",{d:"M10.8 1.5H3.8A1.2 1.2 0 002.5 2.7v10.6A1.2 1.2 0 003.8 14.5h8.4a1.2 1.2 0 001.3-1.2V5.2L10.8 1.5z"}),React.createElement("polyline",{points:"10.8,1.5 10.8,5.2 13.5,5.2"}),React.createElement("line",{x1:5.2,y1:8,x2:10.8,y2:8}),React.createElement("line",{x1:5.2,y1:10.8,x2:8.8,y2:10.8}));
+    case"calculator":  return React.createElement("svg",s,React.createElement("rect",{x:2.5,y:1.5,width:11,height:13,rx:1.8}),React.createElement("rect",{x:4.5,y:3.2,width:7,height:2.8,rx:.8,fill:"currentColor",opacity:.25}),React.createElement("circle",{cx:5.2,cy:8,r:.9,fill:"currentColor"}),React.createElement("circle",{cx:8,cy:8,r:.9,fill:"currentColor"}),React.createElement("circle",{cx:10.8,cy:8,r:.9,fill:"currentColor"}),React.createElement("circle",{cx:5.2,cy:10.8,r:.9,fill:"currentColor"}),React.createElement("circle",{cx:8,cy:10.8,r:.9,fill:"currentColor"}),React.createElement("circle",{cx:10.8,cy:10.8,r:.9,fill:"currentColor"}),React.createElement("circle",{cx:5.2,cy:13.2,r:.9,fill:"currentColor"}),React.createElement("circle",{cx:8,cy:13.2,r:.9,fill:"currentColor"}),React.createElement("circle",{cx:10.8,cy:13.2,r:.9,fill:"currentColor"}));
     case"reports":     return React.createElement("svg",s,React.createElement("rect",{x:2,y:1.5,width:12,height:13,rx:1.5}),React.createElement("line",{x1:5,y1:5.5,x2:11,y2:5.5}),React.createElement("line",{x1:5,y1:8,x2:11,y2:8}),React.createElement("line",{x1:5,y1:10.5,x2:8.5,y2:10.5}));
     case"settings":        return React.createElement("svg",s,React.createElement("circle",{cx:8,cy:8,r:2.4}),React.createElement("path",{d:"M8 1.5v1.3M8 13.2v1.3M1.5 8h1.3M13.2 8h1.3M3.55 3.55l.92.92M11.53 11.53l.92.92M3.55 12.45l.92-.92M11.53 4.47l.92-.92"}));
     case"unified_ledger": return React.createElement("svg",s,React.createElement("rect",{x:1.5,y:2,width:13,height:2.5,rx:.7}),React.createElement("rect",{x:1.5,y:6.6,width:13,height:2.5,rx:.7}),React.createElement("rect",{x:1.5,y:11.2,width:13,height:2.5,rx:.7}),React.createElement("line",{x1:3.5,y1:3.25,x2:12.5,y2:3.25,strokeWidth:.8,stroke:"var(--bg)"}),React.createElement("line",{x1:3.5,y1:7.85,x2:12.5,y2:7.85,strokeWidth:.8,stroke:"var(--bg)"}),React.createElement("line",{x1:3.5,y1:12.45,x2:10,y2:12.45,strokeWidth:.8,stroke:"var(--bg)"}));
@@ -10490,6 +11224,7 @@ const NAV=[
   {id:"inv_re",    label:"Real Estate"},
   {id:"__sep_more__",label:"MORE",section:"header"},
   {id:"notes",     label:"Notes"},
+  {id:"calculator",label:"Calculator"},
   {id:"reports",   label:"Reports"},
   {id:"settings",  label:"Settings"},
 ];
@@ -10757,6 +11492,7 @@ function App(){
       tab==="inv_re"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"re",isMobile}),
       tab==="loans"&&React.createElement(LoanSection,{loans:state.loans,dispatch,isMobile}),
       tab==="notes"&&React.createElement(NotesSection,{notes:state.notes||[],dispatch}),
+      tab==="calculator"&&React.createElement(CalculatorSection,null),
       tab==="scheduled"&&React.createElement(ScheduledSection,{state,dispatch}),
       tab==="unified_ledger"&&React.createElement(UnifiedLedgerSection,{banks:state.banks,cards:state.cards,cash:state.cash,categories:state.categories,payees:state.payees,isMobile}),
       tab==="reports"&&React.createElement(ReportsSection,{data:state,isMobile}),

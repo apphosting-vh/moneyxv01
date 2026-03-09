@@ -790,6 +790,9 @@ select.inp option{background:var(--inp-opt)}
 @keyframes db-pulse-ring{0%{transform:scale(1);opacity:.5}70%{transform:scale(1.6);opacity:0}100%{transform:scale(1.6);opacity:0}}
 @keyframes tx-flash{0%{box-shadow:inset 0 0 0 2px var(--accent),inset 0 0 24px var(--accentbg5)}40%{box-shadow:inset 0 0 0 2px var(--accent),inset 0 0 24px var(--accentbg5)}85%{box-shadow:inset 0 0 0 1px var(--accent)55,inset 0 0 10px transparent}100%{box-shadow:none}}
 @keyframes pinShake{0%,100%{transform:translateX(0)}15%{transform:translateX(-10px)}35%{transform:translateX(10px)}55%{transform:translateX(-7px)}75%{transform:translateX(7px)}90%{transform:translateX(-3px)}}
+@keyframes fsaPulse{0%,100%{box-shadow:0 0 0 0 rgba(251,146,60,.55),0 8px 32px rgba(0,0,0,.35)}60%{box-shadow:0 0 0 8px rgba(251,146,60,.0),0 8px 32px rgba(0,0,0,.35)}}
+@keyframes fsaSlideIn{from{opacity:0;transform:translateY(24px) scale(.95)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes fsaIconSpin{0%{transform:rotate(-8deg)}50%{transform:rotate(8deg)}100%{transform:rotate(-8deg)}}
 .fu{animation:fadeUp .35s ease forwards}
 .si{animation:slideIn .25s ease forwards}
 .spinr{animation:spin 1s linear infinite;display:inline-block}
@@ -1064,10 +1067,39 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.16.1";
+const APP_VERSION="3.17.1";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.17.1",date:"2026-03-09",title:"File Storage — Floating Re-grant Permission Card",changes:[
+    "New floating card appears bottom-right on every screen/tab when a connected file handle exists but browser permission has lapsed (every new browser session)",
+    "Card shows 📁 icon with pulsing amber glow (fsaPulse keyframe animation) and gentle icon rock animation (fsaIconSpin) to draw attention without being disruptive",
+    "Single tap/click anywhere on the card calls fsaVerifyPermission — the browser shows its native 'Allow' prompt, then the card switches to ✅ green state ('File storage active!') for 1.4 seconds before auto-dismissing",
+    "States: idle (amber pulsing, › chevron) → granting (⏳ spinner, 'Requesting permission…') → granted (✅ green, filename shown) → dismissed",
+    "× dismiss button: lets the user snooze the card without granting — data continues saving to localStorage; the card does not re-appear until the next page load",
+    "Card is positioned above the mobile bottom nav (bottom:80px on mobile, 24px on desktop) and never overlaps the UpdateBanner (different z-index layers)",
+    "Fires fsa:permission-granted custom event on success — FSAStoragePanel in Settings listens and syncs its own connected/permNeeded state without needing prop-drilling or a page reload",
+    "Three new CSS keyframes added: fsaPulse (amber glow ring), fsaSlideIn (entrance from below), fsaIconSpin (gentle rocking)",
+    "App useEffect on mount: checks IndexedDB for stored handle, queries permission silently — sets fsaPermNeeded=true only when handle exists but permission is not yet granted",
+    "Also listens for fsa:saved to auto-clear fsaPermNeeded if permission was granted via the Settings panel instead",
+  ]},
+  {version:"3.17.0",date:"2026-03-09",title:"File Storage — Save Data to Any Folder on Your PC (File System Access API)",changes:[
+    "New Settings → File Storage tab (📁) — save your data to any file on your computer: D: drive, Documents, Dropbox, OneDrive, USB drive, or anywhere you choose",
+    "Uses the browser-native File System Access API (Chrome 86+ / Edge 86+ on desktop) — no extensions, no server, no installs required",
+    "📁 Connect New Save File: opens a native 'Save As' dialog; current data is written to the chosen file immediately and auto-saved on every future change",
+    "📂 Load from Existing File: opens an existing Money Manager JSON backup; restores all data and sets that file as the going-forward auto-save target",
+    "Auto-save: every state change (transactions, edits, settings) triggers a write to the connected file within 400ms — identical timing to the existing localStorage save",
+    "Dual-write architecture: localStorage remains the primary fast cache; the file on disk is a real-time copy the user fully controls",
+    "File handle persistence: file handles are stored in IndexedDB (not localStorage) so they survive page reloads; the panel auto-reconnects on mount if permission was already granted",
+    "Session permission model: Chrome/Edge require one permission re-grant per browser session (security requirement); the panel detects lapsed permission and shows a 'Re-grant Permission' button with clear explanation",
+    "Connection status: live indicator shows Connected (green) / Permission Needed (amber) / Disconnected (red) with last-saved timestamp updating in real time via fsa:saved custom event",
+    "💾 Save Now button: manual save with permission re-verification for when auto-save may have missed a write",
+    "🔌 Disconnect: clears handle from IndexedDB and stops file writes; data continues in localStorage",
+    "Browser support badge: shows ✅ Chrome/Edge or ❌ not supported with helpful instructions",
+    "Output is plain JSON (same format as the existing manual backup) — human-readable, openable in Notepad, importable via Settings → Data & Backup → Restore on any device or browser",
+    "FSA module: fsaSupported, fsaGetHandle/Set/Clear (IndexedDB wrappers), fsaQueryPermission, fsaRequestPermission, fsaVerifyPermission, fsaWriteFile, fsaReadFile — all isolated, no side effects when FSA is unused",
+    "window.__fsa singleton (handle, filename, lastSaved, ready flags) shared between usePersistentReducer and FSAStoragePanel without prop-drilling",
+  ]},
   {version:"3.16.1",date:"2026-03-09",title:"Bug Fix — PIN Lock: React Rules of Hooks Violation (Blank Screen after Unlock)",changes:[
     "Root cause: App() had an early 'if(locked) return PinLockScreen' on line 3 of the function body, with useState/useCallback/useEffect hooks declared AFTER it — a direct violation of React's Rules of Hooks",
     "React error #310 ('Cannot call Hooks inside a callback or conditional') was thrown the moment onUnlock() set locked=false, because React detected hooks being called after a conditional return in the same render order",
@@ -11472,6 +11504,266 @@ const SecurityPanel=()=>{
   );
 };
 
+/* ══════════════════════════════════════════════════════════════════════════
+   FSA STORAGE PANEL — Save data to a user-chosen file on disk
+   ══════════════════════════════════════════════════════════════════════════ */
+const FSAStoragePanel=({state,dispatch})=>{
+  const[connected,setConnected]=React.useState(()=>!!(window.__fsa&&window.__fsa.handle&&window.__fsa.ready));
+  const[filename,setFilename]=React.useState(()=>(window.__fsa&&window.__fsa.filename)||"");
+  const[lastSaved,setLastSaved]=React.useState(()=>(window.__fsa&&window.__fsa.lastSaved)||null);
+  const[permNeeded,setPermNeeded]=React.useState(false);
+  const[busy,setBusy]=React.useState(false);
+  const[msg,setMsg]=React.useState({text:"",ok:true});
+
+  const say=(text,ok=true)=>{setMsg({text,ok});setTimeout(()=>setMsg({text:"",ok:true}),5000);};
+
+  /* Listen for background save events */
+  React.useEffect(()=>{
+    const onSaved=()=>{setLastSaved(new Date(window.__fsa.lastSaved));};
+    // Also sync panel when the floating card grants permission
+    const onGranted=()=>{
+      setConnected(true);
+      setPermNeeded(false);
+      setFilename(window.__fsa.filename||"");
+    };
+    window.addEventListener("fsa:saved",onSaved);
+    window.addEventListener("fsa:permission-granted",onGranted);
+    return()=>{
+      window.removeEventListener("fsa:saved",onSaved);
+      window.removeEventListener("fsa:permission-granted",onGranted);
+    };
+  },[]);
+
+  /* On mount: check if a file handle is stored in IndexedDB and auto-reconnect if permission is already granted */
+  React.useEffect(()=>{
+    if(!fsaSupported())return;
+    (async()=>{
+      try{
+        const h=await fsaGetHandle();
+        if(!h)return;
+        const perm=await fsaQueryPermission(h);
+        if(perm==="granted"){
+          window.__fsa.handle=h;window.__fsa.filename=h.name;window.__fsa.ready=true;
+          setConnected(true);setFilename(h.name);
+        }else{
+          /* Handle found but needs user gesture to grant permission */
+          window.__fsa.handle=h;window.__fsa.filename=h.name;window.__fsa.ready=false;
+          setFilename(h.name);setPermNeeded(true);
+        }
+      }catch{}
+    })();
+  },[]);
+
+  /* 📁 Connect new file — showSaveFilePicker, save current state, persist handle */
+  const handleConnect=async()=>{
+    if(!fsaSupported()){say("File System Access API is not supported. Please use Chrome or Edge on desktop.",false);return;}
+    setBusy(true);
+    try{
+      const handle=await window.showSaveFilePicker({
+        suggestedName:"money-manager-data.json",
+        types:[{description:"Money Manager Data",accept:{"application/json":[".json"]}}],
+      });
+      await fsaSetHandle(handle);
+      window.__fsa.handle=handle;window.__fsa.filename=handle.name;window.__fsa.ready=true;
+      setConnected(true);setFilename(handle.name);setPermNeeded(false);
+      const ok=await fsaWriteFile(handle,state);
+      if(ok){window.__fsa.lastSaved=new Date();setLastSaved(window.__fsa.lastSaved);say("✓ Connected! Current data saved to "+handle.name);}
+      else say("✓ File connected, but initial write failed. Try 'Save Now'.",false);
+    }catch(e){if(e.name!=="AbortError")say("Could not connect file: "+e.message,false);}
+    setBusy(false);
+  };
+
+  /* 📂 Open existing — showOpenFilePicker, load data, dispatch RESTORE_ALL, set as save file */
+  const handleOpenFile=async()=>{
+    if(!fsaSupported()){say("File System Access API is not supported in this browser.",false);return;}
+    setBusy(true);
+    try{
+      const[handle]=await window.showOpenFilePicker({
+        types:[{description:"Money Manager Data",accept:{"application/json":[".json"]}}],
+        multiple:false,
+      });
+      const data=await fsaReadFile(handle);
+      if(!data){say("Could not read the file or the file is empty.",false);setBusy(false);return;}
+      dispatch({type:"RESTORE_ALL",data});
+      await fsaSetHandle(handle);
+      window.__fsa.handle=handle;window.__fsa.filename=handle.name;window.__fsa.ready=true;
+      setConnected(true);setFilename(handle.name);setPermNeeded(false);
+      say("✓ Data loaded from "+handle.name+" and file set as auto-save location.");
+    }catch(e){if(e.name!=="AbortError")say("Could not open file: "+e.message,false);}
+    setBusy(false);
+  };
+
+  /* 💾 Manual save now */
+  const handleSaveNow=async()=>{
+    if(!window.__fsa||!window.__fsa.handle){return;}
+    setBusy(true);
+    /* Request permission if it lapsed */
+    const ok=await fsaVerifyPermission(window.__fsa.handle);
+    if(!ok){say("Permission denied. Please click 'Re-grant Permission'.",false);setBusy(false);return;}
+    window.__fsa.ready=true;
+    const saved=await fsaWriteFile(window.__fsa.handle,state);
+    if(saved){window.__fsa.lastSaved=new Date();setLastSaved(window.__fsa.lastSaved);say("✓ Saved to "+window.__fsa.filename);}
+    else say("Write failed — the file may have been moved or deleted.",false);
+    setBusy(false);
+  };
+
+  /* 🔓 Re-grant permission after a new session */
+  const handleGrantPerm=async()=>{
+    if(!window.__fsa||!window.__fsa.handle)return;
+    setBusy(true);
+    const granted=await fsaVerifyPermission(window.__fsa.handle);
+    if(granted){
+      window.__fsa.ready=true;
+      setPermNeeded(false);setConnected(true);
+      say("✓ Permission granted — auto-save is now active.");
+    }else say("Permission was denied.",false);
+    setBusy(false);
+  };
+
+  /* 🔌 Disconnect */
+  const handleDisconnect=async()=>{
+    await fsaClearHandle();
+    window.__fsa.handle=null;window.__fsa.filename="";window.__fsa.ready=false;window.__fsa.lastSaved=null;
+    setConnected(false);setFilename("");setPermNeeded(false);setLastSaved(null);
+    say("File storage disconnected. Data continues to auto-save to browser storage.");
+  };
+
+  const fmtTime=d=>{
+    if(!d)return"—";
+    try{return new Date(d).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",second:"2-digit"});}catch{return"—";}
+  };
+
+  const supported=fsaSupported();
+
+  return React.createElement("div",{className:"fu"},
+
+    /* Header */
+    React.createElement("div",{style:{marginBottom:24}},
+      React.createElement("h3",{style:{fontFamily:"'Sora',sans-serif",fontSize:18,fontWeight:700,color:"var(--text)"}},"File Storage"),
+      React.createElement("p",{style:{color:"var(--text5)",fontSize:13,marginTop:4}},"Auto-save your data to any file on your PC — D: drive, Documents, Dropbox, OneDrive. Requires Chrome or Edge on desktop.")
+    ),
+
+    /* Browser support badge */
+    React.createElement("div",{style:{
+      display:"flex",alignItems:"center",gap:10,marginBottom:20,
+      padding:"10px 14px",borderRadius:10,
+      background:supported?"rgba(22,163,74,.07)":"rgba(239,68,68,.07)",
+      border:"1px solid "+(supported?"rgba(22,163,74,.2)":"rgba(239,68,68,.2)"),
+    }},
+      React.createElement("span",{style:{fontSize:18}},supported?"✅":"❌"),
+      React.createElement("div",null,
+        React.createElement("div",{style:{fontSize:13,fontWeight:600,color:supported?"#16a34a":"#ef4444"}},
+          supported?"File System Access API — Supported":"Not supported in this browser"),
+        React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginTop:2}},
+          supported
+            ?"Chrome / Edge on desktop — you can save to any folder on your PC."
+            :"Please open this app in Chrome or Edge on a desktop/laptop.")
+      )
+    ),
+
+    /* ── Status & Controls card */
+    React.createElement(Card,{sx:{marginBottom:16}},
+      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12}},
+
+        /* Left: status pill */
+        React.createElement("div",null,
+          React.createElement("div",{style:{fontSize:11,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.7,fontWeight:600,marginBottom:6}},"Connection Status"),
+          React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8}},
+            React.createElement("span",{style:{
+              width:9,height:9,borderRadius:"50%",display:"inline-block",
+              background:connected?"#16a34a":permNeeded?"#b45309":"#ef4444",
+              boxShadow:connected?"0 0 0 2px #22c55e33":permNeeded?"0 0 0 2px #b4530933":"none",
+            }}),
+            React.createElement("span",{style:{fontSize:14,fontWeight:700,color:connected?"#16a34a":permNeeded?"#b45309":"var(--text4)"}},
+              connected?"Connected & Auto-saving":permNeeded?"Permission Needed":"Disconnected")
+          )
+        ),
+
+        /* Right: action buttons */
+        React.createElement("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},
+          connected&&React.createElement(Btn,{sz:"sm",onClick:handleSaveNow,disabled:busy},"💾 Save Now"),
+          connected&&React.createElement(Btn,{v:"danger",sz:"sm",onClick:handleDisconnect,disabled:busy},"🔌 Disconnect"),
+          permNeeded&&React.createElement(Btn,{sz:"sm",onClick:handleGrantPerm,disabled:busy},"🔓 Re-grant Permission"),
+          permNeeded&&React.createElement(Btn,{v:"danger",sz:"sm",onClick:handleDisconnect,disabled:busy},"🔌 Disconnect")
+        )
+      ),
+
+      /* File info row — shown when connected or permission-needed */
+      (connected||permNeeded)&&React.createElement("div",{style:{
+        marginTop:14,padding:"12px 14px",borderRadius:10,background:"var(--bg4)",
+        border:"1px solid var(--border2)",
+      }},
+        React.createElement("div",{style:{display:"flex",alignItems:"center",gap:12}},
+          React.createElement("span",{style:{fontSize:24}},connected?"📄":"⚠️"),
+          React.createElement("div",{style:{flex:1,minWidth:0}},
+            React.createElement("div",{style:{fontSize:13,fontWeight:600,color:"var(--text2)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},filename),
+            React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginTop:3}},
+              connected
+                ?"Last saved: "+fmtTime(lastSaved)+" · Auto-save active"
+                :"File found but browser needs permission to write. Click 'Re-grant Permission'.")
+          )
+        )
+      )
+    ),
+
+    /* ── Connect buttons — shown only when disconnected */
+    !connected&&!permNeeded&&React.createElement(Card,{sx:{marginBottom:16}},
+      React.createElement("div",{style:{fontSize:11,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.7,fontWeight:600,marginBottom:14}},"Choose Your Save Location"),
+      React.createElement("div",{style:{display:"flex",flexWrap:"wrap",gap:12,marginBottom:16}},
+        React.createElement(Btn,{onClick:handleConnect,disabled:busy||!supported,sx:{flex:"1 1 200px",justifyContent:"center",fontSize:14}},
+          busy?"⏳ Working…":"📁 Connect New Save File"),
+        React.createElement(Btn,{v:"secondary",onClick:handleOpenFile,disabled:busy||!supported,sx:{flex:"1 1 200px",justifyContent:"center",fontSize:14}},
+          "📂 Load from Existing File")
+      ),
+      React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:10}},
+        React.createElement("div",{style:{display:"flex",gap:10,alignItems:"flex-start"}},
+          React.createElement("span",{style:{fontSize:16,flexShrink:0}},"📁"),
+          React.createElement("div",{style:{fontSize:12,color:"var(--text5)",lineHeight:1.7}},
+            React.createElement("strong",{style:{color:"var(--text3)"}},"Connect New Save File"),
+            " — Opens a 'Save As' dialog. Pick any location (e.g. D:\\Money\\data.json). Your current data is saved there immediately and auto-saved on every future change.")
+        ),
+        React.createElement("div",{style:{display:"flex",gap:10,alignItems:"flex-start"}},
+          React.createElement("span",{style:{fontSize:16,flexShrink:0}},"📂"),
+          React.createElement("div",{style:{fontSize:12,color:"var(--text5)",lineHeight:1.7}},
+            React.createElement("strong",{style:{color:"var(--text3)"}},"Load from Existing File"),
+            " — Opens an existing Money Manager JSON file. Restores all data from that file and sets it as the auto-save location going forward.")
+        )
+      )
+    ),
+
+    /* ── How It Works card */
+    React.createElement(Card,{sx:{marginBottom:16}},
+      React.createElement("div",{style:{fontSize:11,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.7,fontWeight:600,marginBottom:14}},"ℹ How It Works"),
+      React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:12}},
+        ...[
+          ["🗂","Save to any folder on your PC","Pick any path — D:\\, Documents, Dropbox, OneDrive, a USB drive. You fully control where the file lives."],
+          ["⚡","Auto-saves on every change","Every transaction, edit, or setting change is written to your file within 400ms — no manual steps."],
+          ["🔁","Browser storage stays as backup","localStorage is still used as a fast local cache. The file on disk is a real-time copy you own and control."],
+          ["🔒","One permission grant per session","Chrome / Edge ask for file-write permission once per browser session. You'll click 'Re-grant Permission' when you reopen the browser — this is a browser security requirement that cannot be bypassed."],
+          ["📋","Plain JSON — open anywhere","The file is human-readable JSON. Open in Notepad, email it to yourself, import it via Settings → Data & Backup → Restore on any device."],
+          ["📵","Fully offline","No internet required. All reads and writes happen directly between the browser and your local disk."],
+        ].map(([icon,title,desc],i)=>
+          React.createElement("div",{key:i,style:{display:"flex",gap:12,alignItems:"flex-start"}},
+            React.createElement("span",{style:{fontSize:18,flexShrink:0,marginTop:1}},icon),
+            React.createElement("div",null,
+              React.createElement("div",{style:{fontSize:13,fontWeight:600,color:"var(--text3)",marginBottom:2}},title),
+              React.createElement("div",{style:{fontSize:12,color:"var(--text5)",lineHeight:1.6}},desc)
+            )
+          )
+        )
+      )
+    ),
+
+    /* Feedback message */
+    msg.text&&React.createElement("div",{style:{
+      padding:"11px 16px",borderRadius:10,fontSize:13,fontWeight:500,marginTop:4,
+      background:msg.ok?"rgba(22,163,74,.1)":"rgba(239,68,68,.1)",
+      border:"1px solid "+(msg.ok?"rgba(22,163,74,.3)":"rgba(239,68,68,.3)"),
+      color:msg.ok?"#16a34a":"#ef4444",
+    }},msg.text)
+  );
+};
+
 const SettingsSection=({state,dispatch,themeId,setTheme,onResetAll,isMobile})=>{
   const[stab,setStab]=useState("appearance");
   const[confirm,setConfirm]=useState(null);
@@ -11593,6 +11885,7 @@ const SettingsSection=({state,dispatch,themeId,setTheme,onResetAll,isMobile})=>{
   const STABS=[
     {id:"appearance",label:"Appearance",icon:"🎨"},
     {id:"security",  label:"Security",  icon:"🔐"},
+    {id:"filestorage",label:"File Storage",icon:"📁"},
     {id:"banks",label:"Bank Accounts",icon:"🏦"},
     {id:"cards",label:"Credit Cards",icon:"💳"},
     {id:"cash",label:"Cash Account",icon:"💵"},
@@ -11636,6 +11929,9 @@ const SettingsSection=({state,dispatch,themeId,setTheme,onResetAll,isMobile})=>{
 
       /* ══ SECURITY ══ */
       stab==="security"&&React.createElement(SecurityPanel,null),
+
+      /* ══ FILE STORAGE ══ */
+      stab==="filestorage"&&React.createElement(FSAStoragePanel,{state,dispatch}),
 
       /* ══ APPEARANCE ══ */
       stab==="appearance"&&React.createElement("div",{className:"fu"},
@@ -13302,6 +13598,91 @@ const isSessionUnlocked=()=>{try{return sessionStorage.getItem(SS_UNLOCK)==="1";
 const setSessionUnlocked=()=>{try{sessionStorage.setItem(SS_UNLOCK,"1");}catch{}};
 const clearSessionUnlock=()=>{try{sessionStorage.removeItem(SS_UNLOCK);}catch{}};
 
+/* ══════════════════════════════════════════════════════════════════════════
+   FILE SYSTEM ACCESS API (FSA) — Save data to any folder on your PC
+   Supported: Chrome 86+ / Edge 86+ on desktop.
+   Falls back gracefully to localStorage-only on unsupported browsers.
+   ══════════════════════════════════════════════════════════════════════════ */
+const FSA_IDB_NAME ="mm_fsa_db";
+const FSA_IDB_STORE="handles";
+const FSA_IDB_KEY  ="saveFileHandle";
+
+/* Is the API available in this browser? */
+const fsaSupported=()=>typeof window.showSaveFilePicker==="function";
+
+/* ── IndexedDB wrappers — file handles survive page reloads when stored here ── */
+const _fsaDbOpen=()=>new Promise((res,rej)=>{
+  const req=indexedDB.open(FSA_IDB_NAME,1);
+  req.onupgradeneeded=e=>e.target.result.createObjectStore(FSA_IDB_STORE);
+  req.onsuccess=e=>res(e.target.result);
+  req.onerror=e=>rej(e.target.error);
+});
+const fsaGetHandle=async()=>{
+  try{
+    const db=await _fsaDbOpen();
+    return await new Promise((res,rej)=>{
+      const tx=db.transaction(FSA_IDB_STORE,"readonly");
+      const req=tx.objectStore(FSA_IDB_STORE).get(FSA_IDB_KEY);
+      req.onsuccess=e=>res(e.target.result||null);
+      req.onerror=e=>rej(e.target.error);
+    });
+  }catch{return null;}
+};
+const fsaSetHandle=async(handle)=>{
+  try{
+    const db=await _fsaDbOpen();
+    await new Promise((res,rej)=>{
+      const tx=db.transaction(FSA_IDB_STORE,"readwrite");
+      const req=tx.objectStore(FSA_IDB_STORE).put(handle,FSA_IDB_KEY);
+      req.onsuccess=()=>res();req.onerror=e=>rej(e.target.error);
+    });
+  }catch{}
+};
+const fsaClearHandle=async()=>{
+  try{
+    const db=await _fsaDbOpen();
+    await new Promise((res,rej)=>{
+      const tx=db.transaction(FSA_IDB_STORE,"readwrite");
+      const req=tx.objectStore(FSA_IDB_STORE).delete(FSA_IDB_KEY);
+      req.onsuccess=()=>res();req.onerror=e=>rej(e.target.error);
+    });
+  }catch{}
+};
+
+/* ── Permission helpers ── */
+const fsaQueryPermission=async(handle)=>{
+  try{return await handle.queryPermission({mode:"readwrite"});}catch{return "denied";}
+};
+const fsaRequestPermission=async(handle)=>{
+  try{return await handle.requestPermission({mode:"readwrite"});}catch{return "denied";}
+};
+const fsaVerifyPermission=async(handle)=>{
+  const q=await fsaQueryPermission(handle);
+  if(q==="granted")return true;
+  const r=await fsaRequestPermission(handle);
+  return r==="granted";
+};
+
+/* ── File read / write ── */
+const fsaWriteFile=async(handle,data)=>{
+  try{
+    const writable=await handle.createWritable();
+    await writable.write(JSON.stringify(data,null,2));
+    await writable.close();
+    return true;
+  }catch(e){console.warn("[FSA] Write failed:",e);return false;}
+};
+const fsaReadFile=async(handle)=>{
+  try{
+    const file=await handle.getFile();
+    const text=await file.text();
+    return JSON.parse(text);
+  }catch(e){console.warn("[FSA] Read failed:",e);return null;}
+};
+
+/* ── Global singleton — shared across usePersistentReducer and FSAStoragePanel ── */
+window.__fsa={handle:null,filename:"",lastSaved:null,ready:false};
+
 /* ── PIN LOCK SCREEN ───────────────────────────────────────────────────────── */
 const PinLockScreen=({onUnlock})=>{
   const[digits,setDigits]=React.useState([]);
@@ -13446,11 +13827,22 @@ const useRouting=()=>{
 const usePersistentReducer=(reducer,init)=>{
   const[state,rawDispatch]=useReducer(reducer,null,()=>loadState()||init());
   const dispatch=React.useCallback((action)=>{rawDispatch(action);},[]);
-  // Save to localStorage whenever state changes (debounced)
+  // Save to localStorage (and FSA file if connected) whenever state changes (debounced)
   const timerRef=React.useRef(null);
   React.useEffect(()=>{
     if(timerRef.current)clearTimeout(timerRef.current);
-    timerRef.current=setTimeout(()=>saveState(state),400);
+    timerRef.current=setTimeout(()=>{
+      saveState(state);
+      /* Also write to FSA file if connected and has permission */
+      if(window.__fsa&&window.__fsa.handle&&window.__fsa.ready){
+        fsaWriteFile(window.__fsa.handle,state).then(ok=>{
+          if(ok){
+            window.__fsa.lastSaved=new Date();
+            window.dispatchEvent(new CustomEvent("fsa:saved"));
+          }
+        });
+      }
+    },400);
     return()=>{if(timerRef.current)clearTimeout(timerRef.current);};
   },[state]);
   return[state,dispatch];
@@ -16811,6 +17203,48 @@ function App(){
      ─────────────────────────────────────────────────────────────────────── */
   const[updateReady,setUpdateReady]=useState(false);
   const[updateDismissed,setUpdateDismissed]=useState(false);
+
+  /* ── FSA: detect on mount if a file handle is stored but permission lapsed ── */
+  const[fsaPermNeeded,setFsaPermNeeded]=useState(false);
+  const[fsaGranting,setFsaGranting]=useState(false);
+  const[fsaGranted,setFsaGranted]=useState(false);  // brief success flash
+  React.useEffect(()=>{
+    if(!fsaSupported())return;
+    (async()=>{
+      try{
+        const h=await fsaGetHandle();
+        if(!h)return;
+        const perm=await fsaQueryPermission(h);
+        if(perm==="granted"){
+          // Permission already granted (rare — e.g. page refresh within same session)
+          window.__fsa.handle=h;window.__fsa.filename=h.name;window.__fsa.ready=true;
+        }else{
+          // Handle found but needs a user gesture to re-grant
+          window.__fsa.handle=h;window.__fsa.filename=h.name;window.__fsa.ready=false;
+          setFsaPermNeeded(true);
+        }
+      }catch{}
+    })();
+    // Also clear the card when a successful save fires (means permission was granted elsewhere)
+    const onSaved=()=>{setFsaPermNeeded(false);setFsaGranted(false);};
+    window.addEventListener("fsa:saved",onSaved);
+    return()=>window.removeEventListener("fsa:saved",onSaved);
+  },[]);
+
+  const doFsaGrant=React.useCallback(async()=>{
+    if(fsaGranting||!window.__fsa||!window.__fsa.handle)return;
+    setFsaGranting(true);
+    const granted=await fsaVerifyPermission(window.__fsa.handle);
+    if(granted){
+      window.__fsa.ready=true;
+      // Notify FSAStoragePanel (and any other listener) that permission is active
+      window.dispatchEvent(new CustomEvent("fsa:permission-granted"));
+      setFsaGranted(true);
+      // Small delay so user sees the ✓ tick before card dismisses
+      setTimeout(()=>{setFsaPermNeeded(false);setFsaGranted(false);},1400);
+    }
+    setFsaGranting(false);
+  },[fsaGranting]);
   React.useEffect(()=>{
     const handler=()=>setUpdateReady(true);
     window.addEventListener('mm:update-ready',handler);
@@ -16827,6 +17261,112 @@ function App(){
       window.location.reload(true);
     }
   };
+  /* ── FSA Re-grant Permission floating card ─────────────────────────────
+     Appears bottom-right whenever a file handle exists but write permission
+     has lapsed (every new browser session). One click re-grants and dismisses.
+     ─────────────────────────────────────────────────────────────────────── */
+  const FsaPermCard=fsaPermNeeded&&React.createElement("div",{
+    onClick:doFsaGrant,
+    title:"Click to re-enable file auto-save",
+    style:{
+      position:"fixed",
+      bottom:isMobile?"80px":"24px",
+      right:"18px",
+      zIndex:9998,
+      cursor:fsaGranting?"wait":"pointer",
+      animation:"fsaSlideIn .4s cubic-bezier(.22,1,.36,1) forwards",
+      userSelect:"none",
+    }
+  },
+    /* The card itself */
+    React.createElement("div",{style:{
+      background:"linear-gradient(135deg,#1c2a18,#14200f)",
+      border:"1.5px solid rgba(251,146,60,.55)",
+      borderRadius:16,
+      padding:isMobile?"12px 14px":"14px 18px",
+      display:"flex",
+      alignItems:"center",
+      gap:isMobile?10:13,
+      minWidth:isMobile?220:270,
+      maxWidth:isMobile?260:320,
+      boxShadow:"0 8px 32px rgba(0,0,0,.45)",
+      animation:fsaGranted?"none":"fsaPulse 2.4s ease-in-out infinite",
+      transition:"border-color .3s,background .3s",
+      ...(fsaGranted?{
+        background:"linear-gradient(135deg,#0f2318,#091a10)",
+        border:"1.5px solid rgba(34,197,94,.6)",
+      }:{})
+    }},
+      /* Icon bubble */
+      React.createElement("div",{style:{
+        width:isMobile?38:44,
+        height:isMobile?38:44,
+        borderRadius:12,
+        background:fsaGranted?"rgba(34,197,94,.18)":"rgba(251,146,60,.15)",
+        border:"1px solid "+(fsaGranted?"rgba(34,197,94,.35)":"rgba(251,146,60,.3)"),
+        display:"flex",alignItems:"center",justifyContent:"center",
+        flexShrink:0,
+        fontSize:isMobile?18:22,
+        animation:fsaGranted||fsaGranting?"none":"fsaIconSpin 3s ease-in-out infinite",
+      }},
+        fsaGranted?"✅":fsaGranting?"⏳":"📁"
+      ),
+      /* Text */
+      React.createElement("div",{style:{flex:1,minWidth:0}},
+        React.createElement("div",{style:{
+          fontSize:isMobile?12:13,
+          fontWeight:700,
+          fontFamily:"'Sora',sans-serif",
+          color:fsaGranted?"#4ade80":"#fb923c",
+          lineHeight:1.3,
+          marginBottom:3,
+        }},
+          fsaGranted?"✓ File storage active!"
+          :fsaGranting?"Requesting permission…"
+          :"File auto-save needs permission"
+        ),
+        React.createElement("div",{style:{
+          fontSize:isMobile?10:11,
+          color:"rgba(255,255,255,.5)",
+          lineHeight:1.5,
+          overflow:"hidden",
+          textOverflow:"ellipsis",
+          whiteSpace:"nowrap",
+        }},
+          fsaGranted
+            ?"Auto-saving to "+window.__fsa.filename
+            :fsaGranting
+            ?"One moment…"
+            :"Tap to enable · "+( window.__fsa.filename||"file not found")
+        )
+      ),
+      /* Chevron / spinner — hidden when granted */
+      !fsaGranted&&React.createElement("div",{style:{
+        color:"rgba(251,146,60,.7)",
+        fontSize:18,
+        flexShrink:0,
+        animation:fsaGranting?"spin 1s linear infinite":"none",
+        display:"inline-block",
+      }},fsaGranting?"↻":"›"),
+      /* Dismiss ✕ — stops propagation so clicking × doesn't trigger grant */
+      !fsaGranted&&!fsaGranting&&React.createElement("div",{
+        title:"Dismiss",
+        onClick:e=>{e.stopPropagation();setFsaPermNeeded(false);},
+        style:{
+          color:"rgba(255,255,255,.3)",
+          fontSize:16,
+          lineHeight:1,
+          padding:"2px 4px",
+          flexShrink:0,
+          cursor:"pointer",
+          transition:"color .15s",
+        },
+        onMouseEnter:e=>{e.currentTarget.style.color="rgba(255,255,255,.7)";},
+        onMouseLeave:e=>{e.currentTarget.style.color="rgba(255,255,255,.3)";},
+      },"×")
+    )
+  );
+
   /* Banner element — rendered outside the sidebar/content flex container
      so it overlays at the bottom of the viewport on all screen sizes */
   const UpdateBanner=(updateReady&&!updateDismissed)&&React.createElement("div",{style:{
@@ -17044,6 +17584,7 @@ function App(){
       tab==="info"&&React.createElement(InfoSection,{isMobile})
     )
   ),
+    FsaPermCard,
     UpdateBanner
   );
 }

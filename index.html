@@ -4,6 +4,10 @@
 <meta charset="UTF-8"/>
 <!-- PWA viewport: viewport-fit=cover enables edge-to-edge on Android notch/cutout devices -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<!-- ── Force-fresh: instruct browsers and proxies never to serve a stale copy ── -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+<meta http-equiv="Pragma"        content="no-cache"/>
+<meta http-equiv="Expires"       content="0"/>
 <title>₹ Money Manager — Personal Finance India</title>
 
 <!-- ── PWA / Android TWA ──────────────────────────────────────── -->
@@ -28,10 +32,53 @@
 
 <!-- Service Worker registration + auto-update detection -->
 <script>
+/* ══════════════════════════════════════════════════════════════════════
+   ALWAYS-FRESH STRATEGY
+   When online, this app must serve the latest deployed version.
+   Three independent layers guarantee this:
+
+   Layer 1 — Meta tags (above): tell the browser/proxy not to cache.
+   Layer 2 — Service Worker: network-first for HTML, cache-first for CDN.
+              Aggressive update checks (immediate + tab-focus + online).
+   Layer 3 — Self-version fetch: independently compares the live page's
+              APP_VERSION against the running version; fires update banner
+              if they differ, even when the SW is absent or stale.
+   ══════════════════════════════════════════════════════════════════════ */
 (function(){
+
+  /* ── LAYER 3: Self-version fetch ─────────────────────────────────────
+     Runs immediately, before the SW is even registered.
+     Fetches the live HTML with cache:'reload' (bypasses all caches,
+     including any SW cache) and extracts the APP_VERSION string.
+     If it differs from the version currently running in the page,
+     dispatches mm:update-ready so the React banner appears.         */
+  var _selfCheckDone = false;
+  function selfVersionCheck() {
+    if (_selfCheckDone || !navigator.onLine) return;
+    _selfCheckDone = true;
+    var currentVer = (window.__MM_APP_VERSION || '');
+    fetch(location.href, { cache: 'reload', method: 'GET' })
+      .then(function(r){ return r.text(); })
+      .then(function(html){
+        var m = html.match(/APP_VERSION\s*=\s*"([^"]+)"/);
+        if (m && m[1] && currentVer && m[1] !== currentVer) {
+          console.log('[MM] New version detected via self-check:', m[1], '(running:', currentVer, ')');
+          window.dispatchEvent(new CustomEvent('mm:update-ready'));
+        }
+      })
+      .catch(function(){});  // offline or CORS — silently ignore
+  }
+
+  /* Run on load and again whenever the tab becomes visible or reconnects */
+  window.addEventListener('load', function(){ setTimeout(selfVersionCheck, 2000); });
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState === 'visible') { _selfCheckDone = false; selfVersionCheck(); }
+  });
+  window.addEventListener('online', function(){ _selfCheckDone = false; selfVersionCheck(); });
+
+  /* ── LAYER 2: Service Worker ─────────────────────────────────────── */
   if (!('serviceWorker' in navigator)) return;
 
-  /* Store the SW registration so React can post SKIP_WAITING later */
   window.__swReg = null;
 
   window.addEventListener('load', function(){
@@ -40,25 +87,22 @@
         window.__swReg = reg;
         console.log('[SW] Registered, scope:', reg.scope);
 
-        /* Helper: tell React app an update is staged and ready */
         function notifyUpdateReady() {
           window.dispatchEvent(new CustomEvent('mm:update-ready'));
         }
 
-        /* Case A: SW already waiting when page loads
-           (user had the tab open during a deploy, then came back) */
+        /* ── Case A: SW already waiting on page load ── */
         if (reg.waiting) {
           console.log('[SW] Update already waiting on load');
           notifyUpdateReady();
         }
 
-        /* Case B: New SW starts installing while page is open */
+        /* ── Case B: New SW installs while page is open ── */
         reg.addEventListener('updatefound', function(){
           var newWorker = reg.installing;
           if (!newWorker) return;
           console.log('[SW] Update found — new worker installing');
           newWorker.addEventListener('statechange', function(){
-            /* installed + existing controller = staged, ready to apply */
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
               console.log('[SW] New version installed and waiting');
               notifyUpdateReady();
@@ -66,10 +110,24 @@
           });
         });
 
-        /* Case C: Periodic check for long-running sessions
-           Polls GitHub Pages every 60 min so users with the tab open
-           all day still get notified of deployments. */
-        setInterval(function(){ reg.update().catch(function(){}); }, 60 * 60 * 1000);
+        /* ── Case C: Immediate update check on every fresh load ──
+           Unlike the old 60-min poll, this fires straight away so
+           visiting the page online always pulls a fresh sw.js.    */
+        function swUpdate() {
+          if (navigator.onLine) reg.update().catch(function(){});
+        }
+        swUpdate(); // fire immediately
+
+        /* ── Case D: Tab regains focus (user switches back to the tab) ── */
+        document.addEventListener('visibilitychange', function(){
+          if (document.visibilityState === 'visible') swUpdate();
+        });
+
+        /* ── Case E: Device/browser comes back online ── */
+        window.addEventListener('online', swUpdate);
+
+        /* ── Case F: Periodic heartbeat — every 10 min for long sessions ── */
+        setInterval(swUpdate, 10 * 60 * 1000);
 
         /* Messages from SW to React */
         navigator.serviceWorker.addEventListener('message', function(e){
@@ -78,9 +136,7 @@
           }
         });
 
-        /* controllerchange fires after skipWaiting() activates the new SW.
-           The new SW immediately claims clients, so reloading now serves
-           the fresh cached HTML. */
+        /* controllerchange fires after skipWaiting() activates new SW */
         navigator.serviceWorker.addEventListener('controllerchange', function(){
           console.log('[SW] Controller changed — reloading for new version');
           window.location.reload();
@@ -1005,8 +1061,30 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.15.6";
+const APP_VERSION="3.15.8";
+/* Expose to window so the always-fresh self-version-check (in <head>) can read it */
+window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.15.8",date:"2026-03-09",title:"Always-Fresh Online Strategy — 3-Layer Version Enforcement",changes:[
+    "Layer 1 — Meta cache-control headers added to <head>: Cache-Control: no-cache/no-store/must-revalidate, Pragma: no-cache, Expires: 0 — instructs browsers and CDN proxies never to serve a stale copy of the HTML",
+    "Layer 2 — Service Worker update triggers overhauled: reg.update() now fires immediately on every page load (was only periodic), plus on visibilitychange (tab regains focus), plus on the 'online' event (device reconnects); periodic heartbeat reduced from 60 min to 10 min",
+    "Layer 3 — Self-version fetch: on load, tab-focus, and reconnect the app fetches its own URL with {cache:'reload'} (bypasses all caches including SW), extracts APP_VERSION from the response HTML, and fires mm:update-ready if the live version differs from the running version — catches cases where SW is absent, stale, or bypassed",
+    "APP_VERSION exposed as window.__MM_APP_VERSION so the head-script can compare versions before the Babel app script has fully parsed",
+    "All three layers are independent: if any one layer detects a new version it fires the existing update banner, no duplicate reloads",
+    "Offline behaviour unchanged: self-check and SW update calls are guarded by navigator.onLine checks — no errors or noise when offline",
+    "_selfCheckDone flag prevents redundant concurrent fetches within the same visibility event",
+  ]},
+  {version:"3.15.7",date:"2026-03-09",title:"Info Tab — Developer Info, Copyright & Unauthorised Use Notice",changes:[
+    "New 'Info' nav tab added to the MORE section — shows app developer information and legal notices",
+    "Developer card: Vivek Hegde Hulimane, app name, current version, platform details, and tech stack",
+    "Copyright Notice block: full © copyright statement for Vivek Hegde Hulimane with year-auto-update",
+    "Permitted Use block: lists allowed personal, non-commercial use cases with green checkmarks",
+    "Prohibited Use block: 5 red warning cards covering cloning, derivative works, commercial use, reverse engineering, and re-hosting; includes a Legal Notice footer with enforcement language",
+    "Data & Privacy block: reaffirms 100% offline/localStorage-only operation with no tracking or telemetry",
+    "Footer stamp at bottom of page with version and copyright line",
+    "NavIcon: new 'info' SVG icon (circled i) added to the NavIcon switch for both collapsed and full sidebar",
+    "InfoSection receives isMobile prop for responsive font sizing on the page header",
+  ]},
   {version:"3.15.6",date:"2026-03-09",title:"Bug Fix — WaterfallTab Yearly Budget Cards Syntax Error",changes:[
     "Fixed blank screen crash: Uncaught SyntaxError in Babel at the closing of WaterfallTab (Insights → Budget tab)",
     "Root cause: the 'Planned vs Actual' section div added alongside the yearly budget cards was missing its closing parenthesis",
@@ -12939,6 +13017,7 @@ const NavIcon=({id,size=16})=>{
     case"unified_ledger": return React.createElement("svg",s,React.createElement("rect",{x:1.5,y:2,width:13,height:2.5,rx:.7}),React.createElement("rect",{x:1.5,y:6.6,width:13,height:2.5,rx:.7}),React.createElement("rect",{x:1.5,y:11.2,width:13,height:2.5,rx:.7}),React.createElement("line",{x1:3.5,y1:3.25,x2:12.5,y2:3.25,strokeWidth:.8,stroke:"var(--bg)"}),React.createElement("line",{x1:3.5,y1:7.85,x2:12.5,y2:7.85,strokeWidth:.8,stroke:"var(--bg)"}),React.createElement("line",{x1:3.5,y1:12.45,x2:10,y2:12.45,strokeWidth:.8,stroke:"var(--bg)"}));
     case"goals": return React.createElement("svg",s,React.createElement("circle",{cx:8,cy:8,r:6}),React.createElement("circle",{cx:8,cy:8,r:3.5}),React.createElement("line",{x1:8,y1:1.5,x2:8,y2:4.5}),React.createElement("line",{x1:8,y1:11.5,x2:8,y2:14.5}),React.createElement("line",{x1:1.5,y1:8,x2:4.5,y2:8}),React.createElement("line",{x1:11.5,y1:8,x2:14.5,y2:8}));
     case"insights": return React.createElement("svg",s,React.createElement("rect",{x:1.5,y:9,width:2.8,height:5.5,rx:.6}),React.createElement("rect",{x:6.6,y:5.5,width:2.8,height:9,rx:.6}),React.createElement("rect",{x:11.7,y:2,width:2.8,height:12.5,rx:.6}),React.createElement("polyline",{points:"2.9,8.5 8,5 13.1,1.5",strokeDasharray:"2,1.5"}));
+    case"info":     return React.createElement("svg",s,React.createElement("circle",{cx:8,cy:8,r:6.2}),React.createElement("line",{x1:8,y1:7,x2:8,y2:11.5}),React.createElement("circle",{cx:8,cy:4.8,r:.85,fill:"currentColor",stroke:"none"}));
     default:              return React.createElement("svg",s,React.createElement("circle",{cx:8,cy:8,r:5}));
   }
 };
@@ -16028,6 +16107,143 @@ const InsightCalculators=({isMobile})=>{
 };
 
 
+/* ══════════════════════════════════════════════════════════════════════════
+   INFO SECTION — Developer info, copyright, and legal notices
+   ══════════════════════════════════════════════════════════════════════════ */
+const InfoSection=({isMobile})=>{
+  const YEAR=new Date().getFullYear();
+  const Block=({icon,title,children,accent="#0284c7"})=>React.createElement("div",{style:{
+    background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,
+    padding:"20px 22px",marginBottom:16,
+  }},
+    React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:14,borderBottom:"1px solid var(--border2)",paddingBottom:12}},
+      React.createElement("span",{style:{fontSize:22}}),
+      React.createElement("span",{style:{fontSize:22}},icon),
+      React.createElement("span",{style:{fontFamily:"'Sora',sans-serif",fontSize:15,fontWeight:700,color:accent}}),
+      React.createElement("h3",{style:{fontFamily:"'Sora',sans-serif",fontSize:15,fontWeight:700,color:accent,margin:0}},title)
+    ),
+    children
+  );
+  const Row=({label,value,mono})=>React.createElement("div",{style:{display:"flex",gap:12,alignItems:"flex-start",marginBottom:9}},
+    React.createElement("span",{style:{fontSize:11,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.5,minWidth:110,paddingTop:1,flexShrink:0}},label),
+    React.createElement("span",{style:{fontSize:13,color:"var(--text2)",fontWeight:500,fontFamily:mono?"'DM Mono',monospace":undefined,lineHeight:1.5}},value)
+  );
+  const Divider=()=>React.createElement("div",{style:{borderTop:"1px solid var(--border2)",margin:"12px 0"}});
+  const Warning=({icon,text})=>React.createElement("div",{style:{
+    display:"flex",gap:12,alignItems:"flex-start",
+    background:"rgba(239,68,68,.07)",border:"1px solid rgba(239,68,68,.2)",
+    borderRadius:10,padding:"11px 14px",marginBottom:10,
+  }},
+    React.createElement("span",{style:{fontSize:18,flexShrink:0,marginTop:1}},icon),
+    React.createElement("span",{style:{fontSize:12,color:"var(--text3)",lineHeight:1.7}},text)
+  );
+
+  return React.createElement("div",{style:{maxWidth:720,paddingBottom:32}},
+
+    /* ── Page header ── */
+    React.createElement("div",{style:{marginBottom:22}},
+      React.createElement("h2",{style:{fontFamily:"'Sora',sans-serif",fontSize:isMobile?18:22,fontWeight:800,color:"var(--text)",marginBottom:4}},"App Information"),
+      React.createElement("p",{style:{fontSize:13,color:"var(--text5)",lineHeight:1.6,margin:0}},"Developer details, version history, copyright, and terms of authorised use for ₹ Money Manager.")
+    ),
+
+    /* ── Developer Card ── */
+    Block({icon:"👨‍💻",title:"Developer",accent:"var(--accent)",children:React.createElement("div",null,
+      Row({label:"Name",       value:"Vivek Hegde Hulimane"}),
+      Row({label:"App",        value:"₹ Money Manager — Personal Finance India"}),
+      Row({label:"Version",    value:"v"+APP_VERSION, mono:true}),
+      Row({label:"Platform",   value:"Progressive Web App (PWA) · Offline-first · Single-file"}),
+      Row({label:"Built with", value:"React 18 · Babel · SheetJS · Google Fonts"}),
+      Divider(),
+      React.createElement("div",{style:{fontSize:12,color:"var(--text5)",lineHeight:1.8,marginTop:4}},
+        "This application was independently designed and developed by ",
+        React.createElement("strong",{style:{color:"var(--text2)"}},"Vivek Hegde Hulimane"),
+        " as a personal finance management tool tailored for Indian users. All logic, UI, data models, and financial computation run entirely on-device — no data is ever transmitted to any server."
+      )
+    )}),
+
+    /* ── Copyright Notice ── */
+    Block({icon:"©",title:"Copyright Notice",accent:"#6d28d9",children:React.createElement("div",null,
+      React.createElement("div",{style:{
+        background:"linear-gradient(135deg,rgba(109,40,217,.08),rgba(109,40,217,.03))",
+        border:"1px solid rgba(109,40,217,.18)",borderRadius:10,
+        padding:"14px 16px",marginBottom:16,
+      }},
+        React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontSize:15,fontWeight:800,color:"var(--text)",marginBottom:4}},"© "+YEAR+" Vivek Hegde Hulimane. All Rights Reserved."),
+        React.createElement("div",{style:{fontSize:12,color:"var(--text4)",lineHeight:1.8}},"₹ Money Manager — Personal Finance India")
+      ),
+      React.createElement("p",{style:{fontSize:13,color:"var(--text3)",lineHeight:1.8,marginBottom:10}},
+        "The software, source code, design, layout, user interface, financial logic, and all associated content of this application are the exclusive intellectual property of ",
+        React.createElement("strong",null,"Vivek Hegde Hulimane"),
+        ". This work is protected under applicable copyright and intellectual property laws."
+      ),
+      React.createElement("p",{style:{fontSize:13,color:"var(--text3)",lineHeight:1.8,marginBottom:0}},
+        "Any reproduction, redistribution, modification, reverse engineering, or derivative use of this application — in whole or in part — without the prior written consent of the copyright holder is strictly prohibited and may be subject to legal action."
+      )
+    )}),
+
+    /* ── Permitted Use ── */
+    Block({icon:"✅",title:"Permitted Use",accent:"#16a34a",children:React.createElement("div",null,
+      React.createElement("p",{style:{fontSize:13,color:"var(--text3)",lineHeight:1.8,marginBottom:12}},
+        "This application is made available for personal, non-commercial use only. Permitted use includes:"
+      ),
+      [
+        "Using the app to track and manage your own personal finances.",
+        "Installing the app on your personal devices as a PWA.",
+        "Taking personal backups of your own exported data (JSON/Excel).",
+        "Referring to the app's design or features for personal learning or inspiration, with clear attribution.",
+      ].map((t,i)=>React.createElement("div",{key:i,style:{display:"flex",gap:10,alignItems:"flex-start",marginBottom:8}},
+        React.createElement("span",{style:{color:"#16a34a",fontSize:15,flexShrink:0,marginTop:1}},"✓"),
+        React.createElement("span",{style:{fontSize:13,color:"var(--text3)",lineHeight:1.6}},t)
+      ))
+    )}),
+
+    /* ── Prohibited Use ── */
+    Block({icon:"🚫",title:"Prohibited Use & Unauthorised Access",accent:"#ef4444",children:React.createElement("div",null,
+      React.createElement("p",{style:{fontSize:13,color:"var(--text3)",lineHeight:1.8,marginBottom:14}},
+        "The following actions are explicitly prohibited and constitute a violation of the copyright and terms of use of this application:"
+      ),
+      Warning({icon:"🔓",text:"Unauthorised copying, cloning, re-hosting, or redistribution of this application or any portion of its source code, whether in original or modified form, without the explicit written permission of Vivek Hegde Hulimane."}),
+      Warning({icon:"🔀",text:"Creating derivative works, modified versions, or forks of this application and presenting them as your own, or removing or altering any copyright, attribution, or developer notices contained within."}),
+      Warning({icon:"💰",text:"Using this application or any portion of its code, design, or logic for commercial purposes, including resale, SaaS offerings, or bundling into paid products, without a written commercial licence from the developer."}),
+      Warning({icon:"🕵️",text:"Attempting to reverse-engineer, decompile, or extract the source code, algorithms, or financial logic of this application for use in competing or third-party products."}),
+      Warning({icon:"🌐",text:"Embedding, iframing, or re-hosting this application on any external domain, platform, or service without explicit written authorisation from the developer."}),
+      React.createElement("div",{style:{
+        background:"rgba(239,68,68,.06)",border:"1px solid rgba(239,68,68,.2)",
+        borderRadius:10,padding:"12px 16px",marginTop:6,
+      }},
+        React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"#ef4444",marginBottom:4}},"⚠ Legal Notice"),
+        React.createElement("div",{style:{fontSize:12,color:"var(--text3)",lineHeight:1.7}},"Violation of these terms may result in civil and/or criminal liability under applicable copyright, intellectual property, and computer fraud laws. The developer reserves the right to pursue all available legal remedies against unauthorised use.")
+      )
+    )}),
+
+    /* ── Data & Privacy ── */
+    Block({icon:"🔒",title:"Data & Privacy",accent:"#0e7490",children:React.createElement("div",null,
+      React.createElement("p",{style:{fontSize:13,color:"var(--text3)",lineHeight:1.8,marginBottom:12}},"Your financial data never leaves your device. The app is fully offline-capable:"),
+      [
+        "All data is stored exclusively in your browser's localStorage — no accounts, no cloud sync.",
+        "No analytics, tracking scripts, or telemetry of any kind are embedded in this application.",
+        "No user data is collected, processed, stored, or shared with any third party.",
+        "Clearing your browser data or uninstalling the PWA will permanently delete all app data.",
+      ].map((t,i)=>React.createElement("div",{key:i,style:{display:"flex",gap:10,alignItems:"flex-start",marginBottom:8}},
+        React.createElement("span",{style:{color:"#0e7490",fontSize:15,flexShrink:0,marginTop:1}},"🔒"),
+        React.createElement("span",{style:{fontSize:13,color:"var(--text3)",lineHeight:1.6}},t)
+      ))
+    )}),
+
+    /* ── Footer stamp ── */
+    React.createElement("div",{style:{
+      textAlign:"center",padding:"16px 20px",
+      border:"1px solid var(--border2)",borderRadius:12,
+      background:"var(--bg4)",
+    }},
+      React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:700,color:"var(--text4)",marginBottom:4}},"₹ Money Manager · v"+APP_VERSION),
+      React.createElement("div",{style:{fontSize:11,color:"var(--text6)"}},
+        "© "+YEAR+" Vivek Hegde Hulimane · All Rights Reserved · Personal use only"
+      )
+    )
+  );
+};
+
 const NAV=[
   {id:"dashboard", label:"Dashboard"},
   {id:"banks",     label:"Bank Accounts"},
@@ -16049,6 +16265,7 @@ const NAV=[
   {id:"calculator",label:"Calculator"},
   {id:"reports",   label:"Reports"},
   {id:"settings",  label:"Settings"},
+  {id:"info",      label:"Info"},
 ];
 
 /* ── RESPONSIVE HOOK ──────────────────────────────────────────────────────── */
@@ -16323,7 +16540,8 @@ function App(){
       tab==="scheduled"&&React.createElement(ScheduledSection,{state,dispatch}),
       tab==="unified_ledger"&&React.createElement(UnifiedLedgerSection,{banks:state.banks,cards:state.cards,cash:state.cash,categories:state.categories,payees:state.payees,isMobile,initialFilter:jumpFilter,onClearJump}),
       tab==="reports"&&React.createElement(ReportsSection,{data:state,isMobile,onJumpToLedger}),
-      tab==="settings"&&React.createElement(SettingsSection,{state,dispatch,themeId,setTheme,isMobile,onResetAll:()=>{dispatch({type:"RESET_ALL"});try{localStorage.removeItem(LS_KEY);localStorage.removeItem(LS_THEME);}catch{}setTimeout(()=>window.location.reload(),100);}})
+      tab==="settings"&&React.createElement(SettingsSection,{state,dispatch,themeId,setTheme,isMobile,onResetAll:()=>{dispatch({type:"RESET_ALL"});try{localStorage.removeItem(LS_KEY);localStorage.removeItem(LS_THEME);}catch{}setTimeout(()=>window.location.reload(),100);}}),
+      tab==="info"&&React.createElement(InfoSection,{isMobile})
     )
   ),
     UpdateBanner

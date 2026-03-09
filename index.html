@@ -1067,10 +1067,16 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.17.2";
+const APP_VERSION="3.17.3";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.17.3",date:"2026-03-09",title:"Fix: FSA auto-save silently failing on Android Chrome",changes:[
+    "Root cause: Android Chrome 120+ exposes window.showSaveFilePicker in the JS environment, so the old fsaSupported() check (typeof showSaveFilePicker === 'function') returned true on Android. But FileSystemFileHandle.createWritable() for local files is not supported on Android — Chrome only permits OPFS (sandboxed private storage) writes there. Every write attempt threw NotAllowedError, was caught silently, and returned false. The floating re-grant card also appeared on Android, but tapping it couldn't fix anything because the underlying API doesn't work.",
+    "Fix: fsaSupported() now checks three things: (1) showSaveFilePicker exists, (2) FileSystemFileHandle.prototype.createWritable exists (the actual write API), and (3) the device is not mobile — using navigator.userAgentData.mobile (modern UA client hints) with a fallback to navigator.userAgent string matching Android/iPhone/iPad/iPod/IEMobile/Opera Mini.",
+    "On Android/iOS: fsaSupported() returns false → FSA mount effect exits immediately → no handle IDB lookup → no floating re-grant card → no write attempts. LocalStorage auto-save continues to work normally and is unaffected.",
+    "Settings → File Storage: badge now distinguishes three states: ✅ supported (desktop Chrome/Edge), 📱 mobile (amber, explains desktop-only limitation), ❌ unsupported browser (red). Mobile users see a clear explanation rather than a confusing broken-looking panel.",
+  ]},
   {version:"3.17.2",date:"2026-03-09",title:"Fix: FSA auto-save not writing to file",changes:[
     "Root cause 1: usePersistentReducer's save effect only fires when React state changes. On launch, the async IDB handle-read completed after the effect already ran (with ready=false), so the first write was silently skipped — and never retried until the user made a transaction.",
     "Root cause 2: doFsaGrant (floating card) and handleGrantPerm (Settings) both set window.__fsa.ready=true but never triggered a write, because state hadn't changed. Data was silently not written until the next user action.",
@@ -11649,6 +11655,8 @@ const FSAStoragePanel=({state,dispatch})=>{
   };
 
   const supported=fsaSupported();
+  /* Distinguish between mobile (API exists but not usable) vs truly unsupported */
+  const isMobileDevice=/Android|iPhone|iPad|iPod|IEMobile|Opera Mini/i.test(navigator.userAgent)||(navigator.userAgentData?.mobile===true);
 
   return React.createElement("div",{className:"fu"},
 
@@ -11662,16 +11670,20 @@ const FSAStoragePanel=({state,dispatch})=>{
     React.createElement("div",{style:{
       display:"flex",alignItems:"center",gap:10,marginBottom:20,
       padding:"10px 14px",borderRadius:10,
-      background:supported?"rgba(22,163,74,.07)":"rgba(239,68,68,.07)",
-      border:"1px solid "+(supported?"rgba(22,163,74,.2)":"rgba(239,68,68,.2)"),
+      background:supported?"rgba(22,163,74,.07)":isMobileDevice?"rgba(234,179,8,.07)":"rgba(239,68,68,.07)",
+      border:"1px solid "+(supported?"rgba(22,163,74,.2)":isMobileDevice?"rgba(234,179,8,.3)":"rgba(239,68,68,.2)"),
     }},
-      React.createElement("span",{style:{fontSize:18}},supported?"✅":"❌"),
+      React.createElement("span",{style:{fontSize:18}},supported?"✅":isMobileDevice?"📱":"❌"),
       React.createElement("div",null,
-        React.createElement("div",{style:{fontSize:13,fontWeight:600,color:supported?"#16a34a":"#ef4444"}},
-          supported?"File System Access API — Supported":"Not supported in this browser"),
+        React.createElement("div",{style:{fontSize:13,fontWeight:600,color:supported?"#16a34a":isMobileDevice?"#b45309":"#ef4444"}},
+          supported?"File System Access API — Supported"
+          :isMobileDevice?"Not available on mobile / Android"
+          :"Not supported in this browser"),
         React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginTop:2}},
           supported
             ?"Chrome / Edge on desktop — you can save to any folder on your PC."
+            :isMobileDevice
+            ?"File write access is desktop-only. Your data auto-saves to browser storage here."
             :"Please open this app in Chrome or Edge on a desktop/laptop.")
       )
     ),
@@ -13622,8 +13634,23 @@ const FSA_IDB_NAME ="mm_fsa_db";
 const FSA_IDB_STORE="handles";
 const FSA_IDB_KEY  ="saveFileHandle";
 
-/* Is the API available in this browser? */
-const fsaSupported=()=>typeof window.showSaveFilePicker==="function";
+/* Is the API available AND usable in this browser?
+   showSaveFilePicker exists on Android Chrome 120+ but createWritable() for
+   local files is NOT supported there (only OPFS works on Android).
+   We gate on desktop explicitly:
+     1. showSaveFilePicker must exist
+     2. FileSystemFileHandle.createWritable must exist (actual write API)
+     3. Must not be a mobile device (userAgentData.mobile or UA string fallback)
+   This ensures Android/iOS users never hit the FSA code-path and get silent
+   write failures. They fall through to the localStorage-only path cleanly. */
+const fsaSupported=()=>{
+  if(typeof window.showSaveFilePicker!=="function")return false;
+  if(typeof FileSystemFileHandle==="undefined"||typeof FileSystemFileHandle.prototype.createWritable!=="function")return false;
+  // Prefer modern UA client hints; fall back to userAgent string
+  if(navigator.userAgentData&&typeof navigator.userAgentData.mobile==="boolean")
+    return !navigator.userAgentData.mobile;
+  return !/Android|iPhone|iPad|iPod|IEMobile|Opera Mini/i.test(navigator.userAgent);
+};
 
 /* ── IndexedDB wrappers — file handles survive page reloads when stored here ── */
 const _fsaDbOpen=()=>new Promise((res,rej)=>{

@@ -789,6 +789,7 @@ select.inp option{background:var(--inp-opt)}
 @keyframes db-bar-grow{from{width:0}to{width:var(--bar-w)}}
 @keyframes db-pulse-ring{0%{transform:scale(1);opacity:.5}70%{transform:scale(1.6);opacity:0}100%{transform:scale(1.6);opacity:0}}
 @keyframes tx-flash{0%{box-shadow:inset 0 0 0 2px var(--accent),inset 0 0 24px var(--accentbg5)}40%{box-shadow:inset 0 0 0 2px var(--accent),inset 0 0 24px var(--accentbg5)}85%{box-shadow:inset 0 0 0 1px var(--accent)55,inset 0 0 10px transparent}100%{box-shadow:none}}
+@keyframes pinShake{0%,100%{transform:translateX(0)}15%{transform:translateX(-10px)}35%{transform:translateX(10px)}55%{transform:translateX(-7px)}75%{transform:translateX(7px)}90%{transform:translateX(-3px)}}
 .fu{animation:fadeUp .35s ease forwards}
 .si{animation:slideIn .25s ease forwards}
 .spinr{animation:spin 1s linear infinite;display:inline-block}
@@ -1063,10 +1064,31 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.15.12";
+const APP_VERSION="3.16.1";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.16.1",date:"2026-03-09",title:"Bug Fix — PIN Lock: React Rules of Hooks Violation (Blank Screen after Unlock)",changes:[
+    "Root cause: App() had an early 'if(locked) return PinLockScreen' on line 3 of the function body, with useState/useCallback/useEffect hooks declared AFTER it — a direct violation of React's Rules of Hooks",
+    "React error #310 ('Cannot call Hooks inside a callback or conditional') was thrown the moment onUnlock() set locked=false, because React detected hooks being called after a conditional return in the same render order",
+    "Fix: removed the early return entirely; moved the if(locked) guard to just before the final return statement, after ALL hooks (useState, useCallback, useEffect, useIsMobile) are unconditionally declared",
+    "All hook call counts are now identical on every render regardless of whether the app is locked or unlocked — React's hook ordering rule is satisfied",
+    "No logic changes to PIN hashing, session storage, lock/unlock flow, or Settings Security tab",
+  ]},
+  {version:"3.16.0",date:"2026-03-09",title:"PIN Lock — 6-Digit App Protection",changes:[
+    "New: 6-digit PIN lock screen protects all data on every new browser session",
+    "PIN is stored as a SHA-256 hash (via crypto.subtle.digest) in localStorage — the plain PIN is never stored anywhere",
+    "Session unlock flag stored in sessionStorage — survives page refresh within the same tab, cleared automatically when the tab or browser is closed",
+    "Full-screen lock screen on launch: dark gradient background, app logo, 6 animated dot indicators, backlit number pad with hover/press effects, shake animation on wrong PIN",
+    "Keyboard support on lock screen: digits 0-9 and Backspace work natively",
+    "Settings → Security tab (new, placed second after Appearance): set, change, and remove PIN flows with inline confirmation",
+    "Set PIN: two-entry confirmation (enter + confirm), validation for exactly 6 digits and match check",
+    "Change PIN: verify current PIN first, then enter and confirm new PIN",
+    "Remove PIN: verify current PIN before clearing, with styled danger card UI",
+    "Status banner in Security tab shows lock/unlock icon and current state clearly",
+    "After setting or changing PIN, session remains unlocked (no unnecessary re-lock in the same session)",
+    "Reset All Data also clears the pin hash to avoid a locked-out state after full reset",
+  ]},
   {version:"3.15.12",date:"2026-03-09",title:"Jump-to-Transaction — Reliable Every Jump via Serial Number",changes:[
     "Root cause of 'works once then stops': onJumpConsumed() was called inside TxLedger's useEffect, which immediately set localJumpTxId=null in the parent, which changed jumpTxId prop mid-effect, which triggered React's effect cleanup — cancelling the 200ms scroll/flash timer on every jump after the first",
     "Fix: removed onJumpConsumed entirely from TxLedger, TxPanel, BankSection, CardSection — no consumer callback needed",
@@ -11272,6 +11294,184 @@ const InsightPrefsPanel=({state,dispatch})=>{
   );
 };
 
+/* ── SECURITY PANEL (PIN management, used inside SettingsSection) ─────────── */
+const SecurityPanel=()=>{
+  const pinSet=!!getPinHash();
+  /* flow: "idle" | "set-new" | "change-old" | "change-new" | "remove" */
+  const[flow,setFlow]=useState("idle");
+  const[pin1,setPin1]=useState("");
+  const[pin2,setPin2]=useState("");
+  const[oldPin,setOldPin]=useState("");
+  const[msg,setMsg]=useState({text:"",ok:true});
+  const[busy,setBusy]=useState(false);
+
+  const reset=()=>{setFlow("idle");setPin1("");setPin2("");setOldPin("");setMsg({text:"",ok:true});};
+  const say=(text,ok=true)=>setMsg({text,ok});
+
+  const PinInput=({value,onChange,placeholder,autoFocus})=>React.createElement("input",{
+    className:"inp",
+    type:"password",
+    inputMode:"numeric",
+    pattern:"[0-9]*",
+    maxLength:6,
+    placeholder:placeholder||"6-digit PIN",
+    value,
+    autoFocus:!!autoFocus,
+    onChange:e=>{const v=e.target.value.replace(/\D/g,"").slice(0,6);onChange(v);},
+    style:{letterSpacing:8,fontSize:22,textAlign:"center",fontFamily:"'Sora',sans-serif",width:"100%"},
+  });
+
+  /* ── SET NEW PIN ── */
+  const doSetPin=async()=>{
+    if(pin1.length!==6){say("PIN must be exactly 6 digits.",false);return;}
+    if(pin1!==pin2){say("PINs do not match. Please try again.",false);setPin2("");return;}
+    setBusy(true);
+    const h=await hashPin(pin1);
+    savePinHash(h);
+    setSessionUnlocked(); /* already authenticated, keep session active */
+    setBusy(false);
+    reset();
+    say("✓ PIN set successfully. You will be asked for it next time you open the app.",true);
+  };
+
+  /* ── CHANGE PIN — verify old first ── */
+  const doVerifyOld=async()=>{
+    if(oldPin.length!==6){say("Enter your current 6-digit PIN.",false);return;}
+    setBusy(true);
+    const h=await hashPin(oldPin);
+    if(h!==getPinHash()){setBusy(false);say("Incorrect current PIN.",false);setOldPin("");return;}
+    setBusy(false);
+    setFlow("change-new");
+    setMsg({text:"",ok:true});
+  };
+
+  const doChangePin=async()=>{
+    if(pin1.length!==6){say("New PIN must be exactly 6 digits.",false);return;}
+    if(pin1!==pin2){say("New PINs do not match.",false);setPin2("");return;}
+    setBusy(true);
+    const h=await hashPin(pin1);
+    savePinHash(h);
+    setSessionUnlocked();
+    setBusy(false);
+    reset();
+    say("✓ PIN changed successfully.",true);
+  };
+
+  /* ── REMOVE PIN ── */
+  const doRemovePin=async()=>{
+    if(oldPin.length!==6){say("Enter your current PIN to confirm removal.",false);return;}
+    setBusy(true);
+    const h=await hashPin(oldPin);
+    if(h!==getPinHash()){setBusy(false);say("Incorrect PIN.",false);setOldPin("");return;}
+    savePinHash("");
+    clearSessionUnlock();
+    setBusy(false);
+    reset();
+    say("✓ PIN removed. The app will no longer ask for a PIN on launch.",true);
+  };
+
+  const H3=({children})=>React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontSize:15,fontWeight:700,color:"var(--text)",marginBottom:4}},children);
+  const Sub=({children})=>React.createElement("div",{style:{fontSize:13,color:"var(--text5)",marginBottom:18,lineHeight:1.6}},children);
+  const BtnRow=({children})=>React.createElement("div",{style:{display:"flex",gap:10,flexWrap:"wrap",marginTop:8}},children);
+
+  return React.createElement("div",{className:"fu"},
+    /* Header */
+    React.createElement("div",{style:{marginBottom:24}},
+      React.createElement("h3",{style:{fontFamily:"'Sora',sans-serif",fontSize:18,fontWeight:700,color:"var(--text)"}},"Security"),
+      React.createElement("p",{style:{color:"var(--text5)",fontSize:13,marginTop:4}},"Protect your financial data with a 6-digit PIN. You will be prompted each time the app is opened in a new session.")
+    ),
+
+    /* Status banner */
+    React.createElement(Card,{sx:{marginBottom:16,border:"1px solid "+(pinSet?"rgba(22,163,74,.3)":"rgba(255,255,255,.08)"),background:pinSet?"rgba(22,163,74,.06)":"var(--bg4)"}},
+      React.createElement("div",{style:{display:"flex",alignItems:"center",gap:14}},
+        React.createElement("div",{style:{fontSize:32}},pinSet?"🔒":"🔓"),
+        React.createElement("div",null,
+          React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontSize:15,fontWeight:700,color:pinSet?"#16a34a":"var(--text4)"}}),
+          React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontSize:15,fontWeight:700,color:pinSet?"#16a34a":"var(--text4)"}},pinSet?"PIN Protection is ON":"PIN Protection is OFF"),
+          React.createElement("div",{style:{fontSize:12,color:"var(--text5)",marginTop:2}},pinSet?"App is locked on every new session. Use Settings to change or remove your PIN.":"No PIN set. Anyone who opens this browser can access your data.")
+        )
+      )
+    ),
+
+    /* Global message */
+    msg.text&&React.createElement("div",{style:{
+      padding:"10px 14px",borderRadius:9,marginBottom:16,fontSize:13,fontWeight:500,
+      background:msg.ok?"rgba(22,163,74,.1)":"rgba(239,68,68,.1)",
+      border:"1px solid "+(msg.ok?"rgba(22,163,74,.3)":"rgba(239,68,68,.3)"),
+      color:msg.ok?"#16a34a":"#ef4444",
+    }},msg.text),
+
+    /* ── FLOWS ── */
+
+    /* Idle: show action buttons */
+    flow==="idle"&&React.createElement(Card,null,
+      !pinSet&&React.createElement("div",null,
+        React.createElement(H3,null,"Set a PIN"),
+        React.createElement(Sub,null,"Choose a 6-digit numerical PIN. You will need to enter it each time you launch the app."),
+        React.createElement(Btn,{onClick:()=>{setFlow("set-new");setMsg({text:"",ok:true});}},"🔐 Set PIN")
+      ),
+      pinSet&&React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:16}},
+        React.createElement("div",null,
+          React.createElement(H3,null,"Change PIN"),
+          React.createElement(Sub,null,"Update your current PIN to a new one. You will need to verify your current PIN first."),
+          React.createElement(Btn,{onClick:()=>{setFlow("change-old");setMsg({text:"",ok:true});}},"🔑 Change PIN")
+        ),
+        React.createElement("div",{style:{borderTop:"1px solid var(--border2)",paddingTop:16}},
+          React.createElement(H3,null,"Remove PIN"),
+          React.createElement(Sub,null,"Disable PIN protection. The app will open without any lock screen."),
+          React.createElement(Btn,{v:"danger",onClick:()=>{setFlow("remove");setMsg({text:"",ok:true});}},"🔓 Remove PIN")
+        )
+      )
+    ),
+
+    /* Set new PIN */
+    flow==="set-new"&&React.createElement(Card,null,
+      React.createElement(H3,null,"Set New PIN"),
+      React.createElement(Sub,null,"Choose a 6-digit number you will remember. Do not use obvious patterns like 123456."),
+      React.createElement(Field,{label:"Enter PIN"},React.createElement(PinInput,{value:pin1,onChange:setPin1,autoFocus:true})),
+      React.createElement(Field,{label:"Confirm PIN"},React.createElement(PinInput,{value:pin2,onChange:setPin2})),
+      React.createElement(BtnRow,null,
+        React.createElement(Btn,{onClick:doSetPin,disabled:busy,sx:{flex:1,justifyContent:"center"}},busy?"Saving…":"✓ Save PIN"),
+        React.createElement(Btn,{v:"secondary",onClick:reset,sx:{justifyContent:"center"}},"Cancel")
+      )
+    ),
+
+    /* Change PIN — verify old */
+    flow==="change-old"&&React.createElement(Card,null,
+      React.createElement(H3,null,"Verify Current PIN"),
+      React.createElement(Sub,null,"Enter your existing PIN to proceed."),
+      React.createElement(Field,{label:"Current PIN"},React.createElement(PinInput,{value:oldPin,onChange:setOldPin,autoFocus:true})),
+      React.createElement(BtnRow,null,
+        React.createElement(Btn,{onClick:doVerifyOld,disabled:busy,sx:{flex:1,justifyContent:"center"}},busy?"Verifying…":"Next →"),
+        React.createElement(Btn,{v:"secondary",onClick:reset,sx:{justifyContent:"center"}},"Cancel")
+      )
+    ),
+
+    /* Change PIN — set new */
+    flow==="change-new"&&React.createElement(Card,null,
+      React.createElement(H3,null,"Enter New PIN"),
+      React.createElement(Sub,null,"Choose your new 6-digit PIN and confirm it."),
+      React.createElement(Field,{label:"New PIN"},React.createElement(PinInput,{value:pin1,onChange:setPin1,autoFocus:true})),
+      React.createElement(Field,{label:"Confirm New PIN"},React.createElement(PinInput,{value:pin2,onChange:setPin2})),
+      React.createElement(BtnRow,null,
+        React.createElement(Btn,{onClick:doChangePin,disabled:busy,sx:{flex:1,justifyContent:"center"}},busy?"Saving…":"✓ Change PIN"),
+        React.createElement(Btn,{v:"secondary",onClick:reset,sx:{justifyContent:"center"}},"Cancel")
+      )
+    ),
+
+    /* Remove PIN */
+    flow==="remove"&&React.createElement(Card,{sx:{border:"1px solid rgba(239,68,68,.25)",background:"rgba(239,68,68,.03)"}},
+      React.createElement(H3,null,"Remove PIN"),
+      React.createElement(Sub,null,"Enter your current PIN to confirm you want to remove PIN protection."),
+      React.createElement(Field,{label:"Current PIN"},React.createElement(PinInput,{value:oldPin,onChange:setOldPin,autoFocus:true})),
+      React.createElement(BtnRow,null,
+        React.createElement(Btn,{v:"danger",onClick:doRemovePin,disabled:busy,sx:{flex:1,justifyContent:"center"}},busy?"Removing…":"🔓 Remove PIN"),
+        React.createElement(Btn,{v:"secondary",onClick:reset,sx:{justifyContent:"center"}},"Cancel")
+      )
+    )
+  );
+};
+
 const SettingsSection=({state,dispatch,themeId,setTheme,onResetAll,isMobile})=>{
   const[stab,setStab]=useState("appearance");
   const[confirm,setConfirm]=useState(null);
@@ -11392,6 +11592,7 @@ const SettingsSection=({state,dispatch,themeId,setTheme,onResetAll,isMobile})=>{
 
   const STABS=[
     {id:"appearance",label:"Appearance",icon:"🎨"},
+    {id:"security",  label:"Security",  icon:"🔐"},
     {id:"banks",label:"Bank Accounts",icon:"🏦"},
     {id:"cards",label:"Credit Cards",icon:"💳"},
     {id:"cash",label:"Cash Account",icon:"💵"},
@@ -11432,6 +11633,9 @@ const SettingsSection=({state,dispatch,themeId,setTheme,onResetAll,isMobile})=>{
 
     /* ── Right Panel */
     React.createElement("div",{style:{flex:1,overflowY:"auto",minWidth:0}},
+
+      /* ══ SECURITY ══ */
+      stab==="security"&&React.createElement(SecurityPanel,null),
 
       /* ══ APPEARANCE ══ */
       stab==="appearance"&&React.createElement("div",{className:"fu"},
@@ -11920,6 +12124,8 @@ const SettingsSection=({state,dispatch,themeId,setTheme,onResetAll,isMobile})=>{
                          never falls back to INIT() with its sample data */
                       localStorage.setItem(LS_KEY,JSON.stringify(EMPTY_STATE()));
                       localStorage.removeItem(LS_THEME);
+                      savePinHash(""); /* clear PIN so user is not locked out after reset */
+                      clearSessionUnlock();
                     }catch{}
                     setTimeout(()=>{window.location.href="#/dashboard";window.location.reload();},100);
                   },sx:{flex:1,justifyContent:"center"}},"Yes, Delete Everything"),
@@ -13042,6 +13248,8 @@ const ScheduledSection=({state,dispatch})=>{
 /* ── LOCALSTORAGE PERSISTENCE ─────────────────────────────────────────────── */
 const LS_KEY="mm_v7_state";
 const LS_THEME="mm_v7_theme";
+const LS_PIN="mm_v7_pin";   /* stores SHA-256 hex hash of the 6-digit PIN */
+const SS_UNLOCK="mm_v7_unlocked"; /* sessionStorage — cleared when tab closes */
 
 const loadState=()=>{
   try{
@@ -13080,6 +13288,134 @@ const loadTheme=()=>{
 
 const saveTheme=(id)=>{
   try{localStorage.setItem(LS_THEME,id);}catch{}
+};
+
+/* ── PIN SECURITY ─────────────────────────────────────────────────────────── */
+/* Hash a PIN string with SHA-256; returns lowercase hex string */
+const hashPin=async(pin)=>{
+  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(pin));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+};
+const getPinHash=()=>{try{return localStorage.getItem(LS_PIN)||"";}catch{return "";}};
+const savePinHash=(h)=>{try{if(h)localStorage.setItem(LS_PIN,h);else localStorage.removeItem(LS_PIN);}catch{}};
+const isSessionUnlocked=()=>{try{return sessionStorage.getItem(SS_UNLOCK)==="1";}catch{return false;}};
+const setSessionUnlocked=()=>{try{sessionStorage.setItem(SS_UNLOCK,"1");}catch{}};
+const clearSessionUnlock=()=>{try{sessionStorage.removeItem(SS_UNLOCK);}catch{}};
+
+/* ── PIN LOCK SCREEN ───────────────────────────────────────────────────────── */
+const PinLockScreen=({onUnlock})=>{
+  const[digits,setDigits]=React.useState([]);
+  const[shake,setShake]=React.useState(false);
+  const[err,setErr]=React.useState("");
+  const[checking,setChecking]=React.useState(false);
+
+  const addDigit=React.useCallback((d)=>{
+    if(checking)return;
+    setDigits(prev=>{
+      if(prev.length>=6)return prev;
+      const next=[...prev,d];
+      if(next.length===6){
+        /* verify after state updates */
+        setTimeout(()=>verify(next.join("")),0);
+      }
+      return next;
+    });
+    setErr("");
+  },[checking]);
+
+  const del=()=>{if(!checking)setDigits(p=>p.slice(0,-1));setErr("");};
+
+  const verify=async(pin)=>{
+    setChecking(true);
+    const hash=await hashPin(pin);
+    if(hash===getPinHash()){
+      setSessionUnlocked();
+      onUnlock();
+    }else{
+      setShake(true);
+      setErr("Incorrect PIN. Try again.");
+      setTimeout(()=>{setShake(false);setDigits([]);setChecking(false);},700);
+    }
+  };
+
+  /* keyboard support */
+  React.useEffect(()=>{
+    const handler=(e)=>{
+      if(e.key>="0"&&e.key<="9")addDigit(e.key);
+      else if(e.key==="Backspace")del();
+    };
+    window.addEventListener("keydown",handler);
+    return()=>window.removeEventListener("keydown",handler);
+  },[addDigit]);
+
+  const pad="#000a16";
+  const acc="var(--accent)";
+
+  return React.createElement("div",{style:{
+    position:"fixed",inset:0,
+    background:"linear-gradient(160deg,#000d1a 0%,#001428 60%,#000d1a 100%)",
+    display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+    zIndex:9999,userSelect:"none",
+  }},
+    /* App logo */
+    React.createElement("div",{style:{marginBottom:36,textAlign:"center"}},
+      React.createElement("div",{style:{fontSize:38,marginBottom:8}},"🔐"),
+      React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontSize:22,fontWeight:800,color:"#0ea5e9",letterSpacing:-.3}},"₹ Money Manager"),
+      React.createElement("div",{style:{fontSize:12,color:"rgba(255,255,255,.35)",marginTop:4,letterSpacing:.8}})
+    ),
+
+    /* 6-dot indicator */
+    React.createElement("div",{
+      style:{
+        display:"flex",gap:14,marginBottom:28,
+        animation:shake?"pinShake .5s ease":"none",
+      }
+    },
+      [0,1,2,3,4,5].map(i=>React.createElement("div",{key:i,style:{
+        width:14,height:14,borderRadius:"50%",transition:"all .15s",
+        background:i<digits.length?"#0ea5e9":"transparent",
+        border:"2px solid "+(i<digits.length?"#0ea5e9":"rgba(255,255,255,.25)"),
+        boxShadow:i<digits.length?"0 0 8px #0ea5e988":"none",
+      }}))
+    ),
+
+    /* Error message */
+    React.createElement("div",{style:{
+      height:20,fontSize:13,color:"#f87171",fontWeight:500,
+      marginBottom:20,transition:"opacity .2s",opacity:err?1:0,
+      fontFamily:"'DM Sans',sans-serif",
+    }},err||" "),
+
+    /* Number pad */
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,width:240}},
+      ["1","2","3","4","5","6","7","8","9","","0","⌫"].map((k,i)=>{
+        if(k==="")return React.createElement("div",{key:i});
+        const isDel=k==="⌫";
+        return React.createElement("button",{
+          key:k,
+          onClick:()=>isDel?del():addDigit(k),
+          style:{
+            height:64,borderRadius:16,border:"1px solid rgba(255,255,255,.1)",
+            background:isDel?"rgba(239,68,68,.12)":"rgba(255,255,255,.06)",
+            color:isDel?"#f87171":"rgba(255,255,255,.9)",
+            fontSize:isDel?22:24,fontWeight:isDel?400:600,
+            fontFamily:"'Sora',sans-serif",cursor:"pointer",
+            transition:"all .12s",
+            backdropFilter:"blur(6px)",
+          },
+          onMouseEnter:e=>{e.currentTarget.style.background=isDel?"rgba(239,68,68,.22)":"rgba(255,255,255,.14)";e.currentTarget.style.borderColor="rgba(14,165,233,.5)";},
+          onMouseLeave:e=>{e.currentTarget.style.background=isDel?"rgba(239,68,68,.12)":"rgba(255,255,255,.06)";e.currentTarget.style.borderColor="rgba(255,255,255,.1)";},
+          onMouseDown:e=>{e.currentTarget.style.transform="scale(.93)";},
+          onMouseUp:e=>{e.currentTarget.style.transform="scale(1)";},
+        },k);
+      })
+    ),
+
+    /* Hint */
+    React.createElement("div",{style:{
+      marginTop:32,fontSize:11,color:"rgba(255,255,255,.2)",letterSpacing:.6,fontFamily:"'DM Sans',sans-serif"
+    }},"Enter your 6-digit PIN to unlock")
+  );
 };
 
 /* ── HASH ROUTING ─────────────────────────────────────────────────────────── */
@@ -16433,6 +16769,9 @@ const useIsMobile=()=>{
 function App(){
   const[state,dispatch]=usePersistentReducer(reducer,INIT);
   const[tab,setTab]=useRouting();
+  /* ── PIN Lock: locked if a PIN hash is stored AND session not yet unlocked ── */
+  const[locked,setLocked]=useState(()=>!!getPinHash()&&!isSessionUnlocked());
+  const onUnlock=React.useCallback(()=>setLocked(false),[]);
   const[jumpFilter,setJumpFilter]=useState(null);
   const onJumpToLedger=React.useCallback((filter)=>{setJumpFilter(filter);setTab("unified_ledger");},[]);
   const onClearJump=React.useCallback(()=>setJumpFilter(null),[]);
@@ -16669,6 +17008,9 @@ function App(){
       React.createElement("span",{style:{color:"var(--text8)",fontSize:9,marginTop:1,letterSpacing:.3}},"v"+APP_VERSION)
     )
   );
+
+  /* ── PIN guard: all hooks above, conditional render below ── */
+  if(locked)return React.createElement(PinLockScreen,{onUnlock});
 
   return React.createElement(React.Fragment,null,
     React.createElement("div",{style:{display:"flex",height:"100vh",background:"var(--bg)"}},

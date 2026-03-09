@@ -788,9 +788,11 @@ select.inp option{background:var(--inp-opt)}
 @keyframes db-rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
 @keyframes db-bar-grow{from{width:0}to{width:var(--bar-w)}}
 @keyframes db-pulse-ring{0%{transform:scale(1);opacity:.5}70%{transform:scale(1.6);opacity:0}100%{transform:scale(1.6);opacity:0}}
+@keyframes tx-flash{0%{box-shadow:inset 0 0 0 2px var(--accent),inset 0 0 24px var(--accentbg5)}40%{box-shadow:inset 0 0 0 2px var(--accent),inset 0 0 24px var(--accentbg5)}85%{box-shadow:inset 0 0 0 1px var(--accent)55,inset 0 0 10px transparent}100%{box-shadow:none}}
 .fu{animation:fadeUp .35s ease forwards}
 .si{animation:slideIn .25s ease forwards}
 .spinr{animation:spin 1s linear infinite;display:inline-block}
+.tx-flash-row{animation:tx-flash 2.8s ease forwards!important;position:relative;z-index:1}
 .db-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px 20px;transition:box-shadow .2s,border-color .2s}
 .db-card:hover{border-color:var(--border3);box-shadow:0 4px 24px rgba(0,0,0,.08)}
 .db-acct-card{background:var(--bg4);border:1px solid var(--border);border-radius:14px;padding:14px 16px;flex-shrink:0;transition:transform .2s,box-shadow .2s,border-color .2s;cursor:default}
@@ -1061,10 +1063,50 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.15.8";
+const APP_VERSION="3.15.12";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.15.12",date:"2026-03-09",title:"Jump-to-Transaction — Reliable Every Jump via Serial Number",changes:[
+    "Root cause of 'works once then stops': onJumpConsumed() was called inside TxLedger's useEffect, which immediately set localJumpTxId=null in the parent, which changed jumpTxId prop mid-effect, which triggered React's effect cleanup — cancelling the 200ms scroll/flash timer on every jump after the first",
+    "Fix: removed onJumpConsumed entirely from TxLedger, TxPanel, BankSection, CardSection — no consumer callback needed",
+    "App.onJumpToTx now stores a serial counter: setTxJump(prev=>({accType,accId,txId,serial:(prev?.serial||0)+1})) — increments on every click, even to the same tx",
+    "BankSection and CardSection store {txId,serial} in localJump state; these are captured before App clears txJump and stay stable for the lifetime of the mount",
+    "TxLedger effect deps changed from [jumpTxId] to [jumpTxId,jumpSerial] — guaranteed to re-fire on every jump including repeated jumps to the same transaction",
+    "jumpSerial threaded through the full chain: App → BankSection/CardSection/CashSection → TxPanel → TxLedger",
+    "Scroll timer is now the only async work in the effect; nothing modifies jumpTxId after the effect fires, so clearTimeout(t) in cleanup only runs on unmount",
+  ]},
+  {version:"3.15.11",date:"2026-03-09",title:"Jump-to-Transaction — Fix Race Condition (Show Only Jumped Tx)",changes:[
+    "Root cause identified: BankSection/CardSection called onClearAccountJump() in the same useEffect as setSel(), which immediately set txJump=null in App — so by the next render jumpTxId was already null before TxPanel could pass it to TxLedger",
+    "Fix: BankSection and CardSection now capture jumpTxId into local state (localJumpTxId) BEFORE calling onClearAccountJump, so the value survives App's state wipe",
+    "localJumpTxId is passed directly to TxPanel (removing the stale sel===jumpAccId guard that always evaluated to false after the clear)",
+    "TxPanel now threads onJumpConsumed through to TxLedger (was accepted but silently dropped in previous version)",
+    "TxLedger's onJumpConsumed callback fires after jump is activated, calling setLocalJumpTxId(null) in the parent to reset, preventing stale re-jumps",
+    "CashSection unaffected — it passes jumpTxId directly to TxLedger without an intermediate section state clear",
+  ]},
+  {version:"3.15.10",date:"2026-03-09",title:"Jump-to-Transaction — Isolation Filter (Show Only Jumped Transaction)",changes:[
+    "Fixed: jumping from All Transactions now shows ONLY the target transaction in the destination ledger, not all transactions with it scrolled into view",
+    "New jumpActive boolean state in TxLedger — when true, the filter bypasses all other criteria and returns only the row whose id matches jumpTxId",
+    "Jump sequence: clearFilters() → setJumpActive(true) → setSelId(jumpTxId) → scrollIntoView + flash animation",
+    "clearFilters() now also resets jumpActive, so any manual filter interaction after a jump correctly restores the full list",
+    "Desktop banner updated: '🔗 Jumped from All Transactions — showing only this transaction' with a filled '✕ Show All' button",
+    "Mobile banner updated: '🔗 Showing only this transaction — tap × to see all' with × dismiss",
+    "Both dismiss buttons call setJumpActive(false) + setSelId(null) to restore the full transaction list",
+    "Banner is now shown only when jumpActive is true (previously shown whenever jumpTxId was non-null, even after dismiss)",
+  ]},
+  {version:"3.15.9",date:"2026-03-09",title:"Jump-to-Transaction — Unified Ledger → Bank / Card / Cash Ledger",changes:[
+    "Every row in All Transactions now has a ⤴ jump button (desktop) and 'View' badge (mobile) that navigates directly to the exact transaction in its source ledger",
+    "Desktop: a new 'View' column (48px) added at the right of the Unified Ledger grid; each cell contains a ⤴ icon button that navigates on click",
+    "Mobile: '⤴ View' pill button appears beside the amount on each transaction card",
+    "Clicking jump: navigates to Bank Accounts / Credit Cards / Cash (whichever owns the transaction), auto-selects the correct account, clears all TxLedger filters, selects the target row, smooth-scrolls it to centre, and plays a 2.8s inset-glow flash animation (tx-flash-row CSS class)",
+    "Bank jump: BankSection already accepted jumpAccId/jumpTxId props — fixed the missing link where jumpTxId was not forwarded into TxPanel",
+    "Card jump: CardSection upgraded with jumpAccId, jumpTxId, onClearAccountJump props and account-selection useEffect, identical to BankSection",
+    "Cash jump: CashSection upgraded with jumpTxId prop forwarded directly into TxLedger (no account selection needed — there is only one cash account)",
+    "App: new txJump state ({accType, accId, txId}) and onJumpToTx callback; slice passed to each section by accType so each section only sees its own jump target",
+    "CSS: @keyframes tx-flash added — inset box-shadow accent glow fades over 2.8s; .tx-flash-row class applies the animation to the target row in TxLedger",
+    "Mobile: on jump to a bank or card, the section auto-switches from list view to detail view so the ledger is immediately visible",
+    "All jump operations use onClearTxJump to reset txJump after the section has consumed it, preventing stale re-jumps on re-mount",
+  ]},
   {version:"3.15.8",date:"2026-03-09",title:"Always-Fresh Online Strategy — 3-Layer Version Enforcement",changes:[
     "Layer 1 — Meta cache-control headers added to <head>: Cache-Control: no-cache/no-store/must-revalidate, Pragma: no-cache, Expires: 0 — instructs browsers and CDN proxies never to serve a stale copy of the HTML",
     "Layer 2 — Service Worker update triggers overhauled: reg.update() now fires immediately on every page load (was only periodic), plus on visibilitychange (tab regains focus), plus on the 'online' event (device reconnects); periodic heartbeat reduced from 60 min to 10 min",
@@ -2575,8 +2617,10 @@ const ImportTxModal=({onImport,onClose,categories,accType="bank"})=>{
 };
 
 /* ── LEDGER TABLE VIEW ─────────────────────────────────────────────────── */
-const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassUpdateStatus,onMassCategorize,categories,payees,txTypes,allAccounts,currentAccountId,accentColor,openBalance,accType="bank",isMobile=false})=>{
+const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassUpdateStatus,onMassCategorize,categories,payees,txTypes,allAccounts,currentAccountId,accentColor,openBalance,accType="bank",isMobile=false,jumpTxId=null,jumpSerial=null})=>{
   const[selId,setSelId]=useState(null);
+  const jumpRowRef=React.useRef(null);
+  const[jumpActive,setJumpActive]=useState(false); /* true = show ONLY the jumped-to tx */
   const[selectedIds,setSelectedIds]=useState(new Set());
   const[search,setSearch]=useState("");
   const[sortDir,setSortDir]=useState("desc");
@@ -2606,7 +2650,28 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassU
     else if(preset==="last30"){const d=new Date(now);d.setDate(d.getDate()-30);setDateFrom(fmt(d));setDateTo(fmt(now));}
     else if(preset==="last90"){const d=new Date(now);d.setDate(d.getDate()-90);setDateFrom(fmt(d));setDateTo(fmt(now));}
   };
-  const clearFilters=()=>{setFilterCats(new Set());setFilterPayees(new Set());setPayeeSearch("");setCatSearch("");setDateFrom("");setDateTo("");setFilterType("all");setSimilarFilter(null);};
+  const clearFilters=()=>{setFilterCats(new Set());setFilterPayees(new Set());setPayeeSearch("");setCatSearch("");setDateFrom("");setDateTo("");setFilterType("all");setSimilarFilter(null);setJumpActive(false);};
+
+  /* ── Jump-to-transaction: fired when a jumpTxId arrives from Unified Ledger ──
+       jumpSerial ensures this re-fires even when the same tx is jumped to twice */
+  React.useEffect(()=>{
+    if(!jumpTxId)return;
+    /* 1. Clear any existing search/filters, then activate isolation mode */
+    clearFilters();
+    setSearch("");
+    setJumpActive(true); /* show ONLY this transaction in the ledger */
+    /* 2. Select (highlight) the target row */
+    setSelId(jumpTxId);
+    /* 3. Scroll to it after the filtered list re-renders, then flash */
+    const t=setTimeout(()=>{
+      if(jumpRowRef.current){
+        jumpRowRef.current.scrollIntoView({behavior:"smooth",block:"center"});
+        jumpRowRef.current.classList.add("tx-flash-row");
+        setTimeout(()=>{if(jumpRowRef.current)jumpRowRef.current.classList.remove("tx-flash-row");},3000);
+      }
+    },200);
+    return()=>clearTimeout(t);
+  },[jumpTxId,jumpSerial]);
 
   /* ── Extract a matchable pattern from a transaction description ── */
   const extractSimilarPattern=(desc)=>{
@@ -2693,6 +2758,8 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassU
     return sortDir==="desc"?-dc:dc;
   });
   const filtered=sorted.filter(tx=>{
+    /* Jump isolation mode — show ONLY the target transaction */
+    if(jumpActive&&jumpTxId) return tx.id===jumpTxId;
     /* text search */
     if(search){const q=search.toLowerCase();const hit=(tx.desc||"").toLowerCase().includes(q)||(tx.payee||"").toLowerCase().includes(q)||(tx.cat||"").toLowerCase().includes(q)||(tx.txNum||"").toLowerCase().includes(q)||(tx.notes||"").toLowerCase().includes(q)||String(tx.amount).includes(q);if(!hit)return false;}
     /* category filter — match on main category name */
@@ -2753,7 +2820,16 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassU
           "⚡ Filter"+(activeFilterCount>0?" ("+activeFilterCount+")":"")
         )
       ),
-      /* Similar filter banner (mobile) */
+      /* Jump isolation banner (mobile) */
+      jumpTxId&&jumpActive&&React.createElement("div",{style:{
+        display:"flex",alignItems:"center",gap:8,padding:"6px 10px",
+        background:"var(--accentbg)",borderBottom:"1px solid var(--accent)",
+        fontSize:11,color:"var(--accent)",fontWeight:600,flexShrink:0,
+      }},
+        React.createElement("span",{style:{fontSize:13}},"🔗"),
+        React.createElement("span",{style:{flex:1}},"Showing only this transaction — tap × to see all"),
+        React.createElement("button",{onClick:()=>{setJumpActive(false);setSelId(null);},style:{background:"transparent",border:"none",color:"var(--accent)",cursor:"pointer",fontSize:14,lineHeight:1,padding:"0 2px"}},"×")
+      ),
       similarFilter&&React.createElement("div",{style:{
         display:"flex",alignItems:"center",gap:8,padding:"6px 10px",
         background:"rgba(109,40,217,.08)",borderBottom:"1px solid rgba(109,40,217,.25)",
@@ -2783,6 +2859,7 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassU
           const catCol=CAT_C[catMainName(tx.cat||"")]||"#8ba0c0";
           return React.createElement("div",{
             key:tx.id,
+            ref:jumpTxId===tx.id?(el)=>{jumpRowRef.current=el;}:null,
             onClick:()=>setSelId(isSel?null:tx.id),
             style:{
               padding:"11px 14px",
@@ -3034,6 +3111,26 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassU
   );
 
   return React.createElement("div",{style:{display:"flex",flexDirection:"column",flex:1,minHeight:0,borderRadius:12,border:"1px solid var(--border)",overflow:"hidden",background:"var(--bg3)"}},
+    /* Jump-in banner — shown when navigated from Unified Ledger */
+    jumpTxId&&jumpActive&&React.createElement("div",{style:{
+      display:"flex",alignItems:"center",gap:10,padding:"7px 14px",
+      background:"var(--accentbg)",borderBottom:"1px solid var(--accent)",
+      fontSize:12,color:"var(--accent)",fontWeight:500,flexShrink:0,
+    }},
+      React.createElement("span",{style:{fontSize:14}},"🔗"),
+      React.createElement("span",null,"Jumped from ",React.createElement("strong",null,"All Transactions"),
+        " — showing only this transaction"),
+      React.createElement("span",{style:{flex:1}}),
+      React.createElement("button",{
+        onClick:()=>{setJumpActive(false);setSelId(null);},
+        title:"Show all transactions",
+        style:{
+          background:"var(--accent)",color:"#000",border:"none",borderRadius:6,
+          padding:"3px 10px",fontSize:11,fontWeight:700,cursor:"pointer",
+          fontFamily:"'DM Sans',sans-serif",
+        }
+      },"✕ Show All")
+    ),
     /* ── Single unified scroll container ─────────────────────────────────
          ONE div scrolls both axes. The sticky header lives in the SAME
          scroll context as the body rows, so horizontal scrolling keeps
@@ -3099,6 +3196,7 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassU
         const globalIdx=sorted.length-(sorted.findIndex(t=>t.id===tx.id));
         return React.createElement("div",{
           key:tx.id,
+          ref:jumpTxId===tx.id?(el)=>{jumpRowRef.current=el;}:null,
           onClick:()=>setSelId(isSel?null:tx.id),
           className:"ldg-row"+(isSel?" ldg-sel":""),
           style:{
@@ -4156,7 +4254,7 @@ const TxForm=({onAdd,categories,payees,txTypes,allAccounts,currentAccountId,disp
 };
 
 /* ── INLINE TRANSACTION PANEL ────────────────────────────────────────── */
-const TxPanel=({account,label,onAddTx,onEditTx,onDeleteTx,onDupTx,onImportTx,onMassUpdateTx,onMassCatTx,accType="bank",accentColor="#0e7490",categories,payees,txTypes,allAccounts,openBalance,dispatch,state,isMobile=false})=>{
+const TxPanel=({account,label,onAddTx,onEditTx,onDeleteTx,onDupTx,onImportTx,onMassUpdateTx,onMassCatTx,accType="bank",accentColor="#0e7490",categories,payees,txTypes,allAccounts,openBalance,dispatch,state,isMobile=false,jumpTxId=null,jumpSerial=null})=>{
   const[addOpen,setAddOpen]=useState(false);
   if(!account)return React.createElement("div",{className:"si",style:{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:14,color:"var(--text6)",background:"var(--bg5)",borderRadius:14,border:"1px dashed var(--border)",minHeight:300}},
     React.createElement("div",{style:{fontSize:36}},"👈"),
@@ -4197,6 +4295,8 @@ const TxPanel=({account,label,onAddTx,onEditTx,onDeleteTx,onDupTx,onImportTx,onM
       categories,payees,txTypes,allAccounts,
       currentAccountId:account.id,
       accType,
+      jumpTxId,
+      jumpSerial,
       onNew:()=>setAddOpen(true),
       onEdit:onEditTx,
       onDelete:onDeleteTx,
@@ -4797,7 +4897,7 @@ const Dashboard=({data,isMobile})=>{
 };
 
 /* ── BANK SECTION ─ master-detail inline layout ──────────────────────── */
-const BankSection=({banks,dispatch,categories,payees,allBanks,allCards=[],cash,loans=[],isMobile})=>{
+const BankSection=({banks,dispatch,categories,payees,allBanks,allCards=[],cash,loans=[],isMobile,jumpAccId=null,jumpTxId=null,jumpSerial=null,onClearAccountJump})=>{
   const[sel,setSel]=useState(banks[0]?.id||null);
   const[addOpen,setAddOpen]=useState(false);
   const[f,setF]=useState({name:"",bank:"HDFC Bank",type:"Savings",balance:"",notes:""});
@@ -4806,6 +4906,16 @@ const BankSection=({banks,dispatch,categories,payees,allBanks,allCards=[],cash,l
   const[noteEdit,setNoteEdit]=useState(null); // {id, val}
   const[reorderMode,setReorderMode]=useState(false);
   const[mobileView,setMobileView]=useState("list"); // "list" | "detail"
+  /* local jump — captures txId+serial before App clears txJump */
+  const[localJump,setLocalJump]=useState({txId:null,serial:0});
+  /* ── Jump-in from Unified Ledger: select the account and switch to detail view ── */
+  React.useEffect(()=>{
+    if(!jumpAccId||!jumpTxId)return;
+    setLocalJump({txId:jumpTxId,serial:jumpSerial||0}); /* capture BEFORE App clear */
+    setSel(jumpAccId);
+    if(isMobile)setMobileView("detail");
+    if(onClearAccountJump)onClearAccountJump();
+  },[jumpAccId,jumpTxId,jumpSerial]);
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
   const save=()=>{if(!f.name||!f.balance)return;const id=uid();dispatch({type:"ADD_BANK",p:{id,transactions:[],...f,balance:+f.balance}});setF({name:"",bank:"HDFC Bank",type:"Savings",balance:"",notes:""});setSel(id);setAddOpen(false);};
   const selD=banks.find(b=>b.id===sel);
@@ -4917,6 +5027,8 @@ const BankSection=({banks,dispatch,categories,payees,allBanks,allCards=[],cash,l
         accentColor:"#0e7490",
         accType:"bank",
         categories,payees,txTypes:TX_TYPES_BANK,
+        jumpTxId:localJump.txId,
+        jumpSerial:localJump.serial,
         allAccounts:[
           ...allBanks.map(b=>({...b,accType:"bank",accTypeLbl:"🏦"})),
           {id:"__cash__",...cash,name:"Cash",accType:"cash",accTypeLbl:"💵"},
@@ -4953,12 +5065,22 @@ const BankSection=({banks,dispatch,categories,payees,allBanks,allCards=[],cash,l
 };
 
 /* ── CARD SECTION ─ master-detail inline layout ──────────────────────── */
-const CardSection=({cards,dispatch,categories,payees,allBanks,allCards=[],cash,loans=[],isMobile})=>{
+const CardSection=({cards,dispatch,categories,payees,allBanks,allCards=[],cash,loans=[],isMobile,jumpAccId=null,jumpTxId=null,jumpSerial=null,onClearAccountJump})=>{
   const[sel,setSel]=useState(cards[0]?.id||null);
   const[addOpen,setAddOpen]=useState(false);
   const[f,setF]=useState({name:"",bank:"",cardNumber:"",limit:"",outstanding:"",notes:"",billingDay:"",dueDay:""});
   const[noteEdit,setNoteEdit]=useState(null);
   const[mobileView,setMobileView]=useState("list");
+  /* local jump — captures txId+serial before App clears txJump */
+  const[localJump,setLocalJump]=useState({txId:null,serial:0});
+  /* ── Jump-in from Unified Ledger: select the account and switch to detail view ── */
+  React.useEffect(()=>{
+    if(!jumpAccId||!jumpTxId)return;
+    setLocalJump({txId:jumpTxId,serial:jumpSerial||0}); /* capture BEFORE App clear */
+    setSel(jumpAccId);
+    if(isMobile)setMobileView("detail");
+    if(onClearAccountJump)onClearAccountJump();
+  },[jumpAccId,jumpTxId,jumpSerial]);
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
   const save=()=>{if(!f.name||!f.limit)return;const id=uid();dispatch({type:"ADD_CARD",p:{id,transactions:[],...f,limit:+f.limit,outstanding:+(f.outstanding||0),billingDay:+(f.billingDay||0)||null,dueDay:+(f.dueDay||0)||null}});setF({name:"",bank:"",cardNumber:"",limit:"",outstanding:"",notes:"",billingDay:"",dueDay:""});setSel(id);setAddOpen(false);};
   const selD=cards.find(c=>c.id===sel);
@@ -5070,6 +5192,8 @@ const CardSection=({cards,dispatch,categories,payees,allBanks,allCards=[],cash,l
         accentColor:"#c2410c",
         accType:"card",
         categories,payees,txTypes:TX_TYPES_CARD,
+        jumpTxId:localJump.txId,
+        jumpSerial:localJump.serial,
         allAccounts:[
           ...allBanks.map(b=>({...b,accType:"bank",accTypeLbl:"🏦"})),
           {id:"__cash__",...cash,name:"Cash",accType:"cash",accTypeLbl:"💵"},
@@ -5110,7 +5234,7 @@ const CardSection=({cards,dispatch,categories,payees,allBanks,allCards=[],cash,l
 };
 
 /* ── CASH SECTION ────────────────────────────────────────────────────────── */
-const CashSection=({cash,dispatch,categories,payees,allBanks,allCards=[],loans=[],isMobile})=>{
+const CashSection=({cash,dispatch,categories,payees,allBanks,allCards=[],loans=[],isMobile,jumpTxId=null,jumpSerial=null})=>{
   const[addCashOpen,setAddCashOpen]=useState(false);
   const inc=cash.transactions.filter(t=>t.type==="credit").reduce((s,t)=>s+t.amount,0);
   const exp=cash.transactions.filter(t=>t.type==="debit").reduce((s,t)=>s+t.amount,0);
@@ -5145,6 +5269,8 @@ const CashSection=({cash,dispatch,categories,payees,allBanks,allCards=[],loans=[
           openBalance:cash.balance-cash.transactions.reduce((s,t)=>s+(t.type==="credit"?t.amount:-t.amount),0),
           accType:"cash",
           categories,payees,
+          jumpTxId,
+          jumpSerial,
           txTypes:TX_TYPES_CASH,
           allAccounts:[...allBanks.map(b=>({...b,accType:"bank",accTypeLbl:"🏦"})),{id:"__cash__",...cash,name:"Cash",accType:"cash",accTypeLbl:"💵"},...allCards.map(c=>({...c,accType:"card",accTypeLbl:"💳"})),...loans.map(l=>({...l,accType:"loan",accTypeLbl:"🏠",name:l.name+" (Loan)"}))],
           currentAccountId:"__cash__",
@@ -13025,7 +13151,7 @@ const NavIcon=({id,size=16})=>{
 /* ══════════════════════════════════════════════════════════════════════════
    UNIFIED TRANSACTION LEDGER — all bank + card + cash transactions combined
    ══════════════════════════════════════════════════════════════════════════ */
-const UnifiedLedgerSection=({banks,cards,cash,categories,payees,isMobile,initialFilter,onClearJump})=>{
+const UnifiedLedgerSection=({banks,cards,cash,categories,payees,isMobile,initialFilter,onClearJump,onJumpToTx})=>{
   /* ── Merge all transactions, tag each with source account info ── */
   const allTxns=React.useMemo(()=>{
     const out=[];
@@ -13424,7 +13550,14 @@ const UnifiedLedgerSection=({banks,cards,cash,categories,payees,isMobile,initial
                   tx.payee&&React.createElement("span",null,"· "+tx.payee)
                 )
               ),
-              React.createElement("div",{style:{fontSize:14,fontFamily:"'Sora',sans-serif",fontWeight:700,color:isDebit?"#ef4444":"#16a34a",flexShrink:0}},(isDebit?"−":"+")+INR(tx.amount))
+              React.createElement("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}},
+                React.createElement("div",{style:{fontSize:14,fontFamily:"'Sora',sans-serif",fontWeight:700,color:isDebit?"#ef4444":"#16a34a"}},(isDebit?"−":"+")+INR(tx.amount)),
+                onJumpToTx&&React.createElement("button",{
+                  onClick:e=>{e.stopPropagation();onJumpToTx(tx._accType,tx._accId,tx.id);},
+                  title:"View in "+tx._accName+" ledger",
+                  style:{fontSize:10,color:"var(--accent)",background:"var(--accentbg)",border:"1px solid var(--accent)55",borderRadius:6,padding:"2px 7px",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600,whiteSpace:"nowrap"}
+                },"⤴ View")
+              )
             ),
             tx.cat&&React.createElement("div",{style:{marginTop:4}},
               React.createElement("span",{style:{fontSize:10,color:col,background:col+"18",border:"1px solid "+col+"44",borderRadius:10,padding:"1px 7px",fontWeight:500}},catDisplayName(tx.cat))
@@ -13436,7 +13569,7 @@ const UnifiedLedgerSection=({banks,cards,cash,categories,payees,isMobile,initial
   }
 
   /* ── DESKTOP VIEW ── */
-  const COLS="38px 96px 180px 1fr 130px 130px 100px 100px";
+  const COLS="38px 96px 180px 1fr 130px 130px 100px 100px 48px";
   const MINW=960;
   return React.createElement("div",{className:"fu",style:{display:"flex",flexDirection:"column",height:"100%"}},
     /* Page header */
@@ -13477,7 +13610,8 @@ const UnifiedLedgerSection=({banks,cards,cash,categories,payees,isMobile,initial
             React.createElement("div",{style:{padding:"9px 4px"}},"Payee"),
             React.createElement("div",{style:{padding:"9px 4px"}},"Category"),
             React.createElement("div",{style:{padding:"9px 4px",textAlign:"right",color:"#ef4444"}},"Out"),
-            React.createElement("div",{style:{padding:"9px 4px",textAlign:"right",color:"#16a34a"}},"In")
+            React.createElement("div",{style:{padding:"9px 4px",textAlign:"right",color:"#16a34a"}},"In"),
+            React.createElement("div",{style:{padding:"9px 4px",textAlign:"center",color:"var(--accent)",fontSize:10}},"View")
           ),
           /* Empty state */
           filtered.length===0&&React.createElement("div",{style:{textAlign:"center",padding:"36px 20px",color:"var(--text6)"}},
@@ -13517,7 +13651,24 @@ const UnifiedLedgerSection=({banks,cards,cash,categories,payees,isMobile,initial
               /* Out */
               React.createElement("div",{style:{padding:"7px 4px",textAlign:"right",fontFamily:"'Sora',sans-serif",fontSize:12,fontWeight:600,color:isDebit?"#ef4444":"var(--text6)"}},isDebit?INR(tx.amount,2):""),
               /* In */
-              React.createElement("div",{style:{padding:"7px 4px",textAlign:"right",fontFamily:"'Sora',sans-serif",fontSize:12,fontWeight:600,color:!isDebit?"#16a34a":"var(--text6)"}},!isDebit?INR(tx.amount,2):"")
+              React.createElement("div",{style:{padding:"7px 4px",textAlign:"right",fontFamily:"'Sora',sans-serif",fontSize:12,fontWeight:600,color:!isDebit?"#16a34a":"var(--text6)"}},!isDebit?INR(tx.amount,2):""),
+              /* Jump-to button */
+              onJumpToTx&&React.createElement("div",{style:{padding:"4px 4px",display:"flex",alignItems:"center",justifyContent:"center"}},
+                React.createElement("button",{
+                  onClick:e=>{e.stopPropagation();onJumpToTx(tx._accType,tx._accId,tx.id);},
+                  title:"Open in "+(tx._accType==="bank"?"Bank Accounts":tx._accType==="card"?"Credit Cards":"Cash")+" — "+tx._accName,
+                  style:{
+                    width:28,height:28,borderRadius:7,border:"1px solid var(--accent)44",
+                    background:"var(--accentbg)",color:"var(--accent)",
+                    cursor:"pointer",fontSize:14,lineHeight:1,
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    transition:"all .15s",flexShrink:0,
+                    fontFamily:"'DM Sans',sans-serif",
+                  },
+                  onMouseEnter:e=>{e.currentTarget.style.background="var(--accent)";e.currentTarget.style.color="#000";},
+                  onMouseLeave:e=>{e.currentTarget.style.background="var(--accentbg)";e.currentTarget.style.color="var(--accent)";}
+                },"⤴")
+              )
             );
           })
         )
@@ -16285,6 +16436,13 @@ function App(){
   const[jumpFilter,setJumpFilter]=useState(null);
   const onJumpToLedger=React.useCallback((filter)=>{setJumpFilter(filter);setTab("unified_ledger");},[]);
   const onClearJump=React.useCallback(()=>setJumpFilter(null),[]);
+  /* ── Jump-to-specific-transaction (Unified Ledger → Banks/Cards/Cash) ── */
+  const[txJump,setTxJump]=useState(null);
+  const onJumpToTx=React.useCallback((accType,accId,txId)=>{
+    setTxJump(prev=>({accType,accId,txId,serial:((prev&&prev.serial)||0)+1}));
+    setTab(accType==="bank"?"banks":accType==="card"?"cards":"cash");
+  },[]);
+  const onClearTxJump=React.useCallback(()=>setTxJump(null),[]);
   const[themeId,setThemeId]=useState(loadTheme);
   const setTheme=id=>{setThemeId(id);applyTheme(id);saveTheme(id);};
   React.useEffect(()=>{applyTheme(themeId);},[]);
@@ -16524,9 +16682,9 @@ function App(){
       }
     },
       tab==="dashboard"&&React.createElement(Dashboard,{data:state,isMobile}),
-      tab==="banks"&&React.createElement(BankSection,{banks:state.banks,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,cash:state.cash,loans:state.loans||[],isMobile}),
-      tab==="cards"&&React.createElement(CardSection,{cards:state.cards,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,cash:state.cash,loans:state.loans||[],isMobile}),
-      tab==="cash"&&React.createElement(CashSection,{cash:state.cash,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,loans:state.loans||[],isMobile}),
+      tab==="banks"&&React.createElement(BankSection,{banks:state.banks,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,cash:state.cash,loans:state.loans||[],isMobile,jumpAccId:txJump?.accType==="bank"?txJump.accId:null,jumpTxId:txJump?.accType==="bank"?txJump.txId:null,jumpSerial:txJump?.accType==="bank"?txJump.serial:null,onClearAccountJump:onClearTxJump}),
+      tab==="cards"&&React.createElement(CardSection,{cards:state.cards,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,cash:state.cash,loans:state.loans||[],isMobile,jumpAccId:txJump?.accType==="card"?txJump.accId:null,jumpTxId:txJump?.accType==="card"?txJump.txId:null,jumpSerial:txJump?.accType==="card"?txJump.serial:null,onClearAccountJump:onClearTxJump}),
+      tab==="cash"&&React.createElement(CashSection,{cash:state.cash,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,loans:state.loans||[],isMobile,jumpTxId:txJump?.accType==="cash"?txJump.txId:null,jumpSerial:txJump?.accType==="cash"?txJump.serial:null}),
       tab==="inv_dash"&&React.createElement(InvestDashboard,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,isMobile}),
       tab==="inv_mf"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"mf",isMobile}),
       tab==="inv_shares"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"shares",isMobile}),
@@ -16538,7 +16696,7 @@ function App(){
       tab==="notes"&&React.createElement(NotesSection,{notes:state.notes||[],dispatch}),
       tab==="calculator"&&React.createElement(CalculatorSection,null),
       tab==="scheduled"&&React.createElement(ScheduledSection,{state,dispatch}),
-      tab==="unified_ledger"&&React.createElement(UnifiedLedgerSection,{banks:state.banks,cards:state.cards,cash:state.cash,categories:state.categories,payees:state.payees,isMobile,initialFilter:jumpFilter,onClearJump}),
+      tab==="unified_ledger"&&React.createElement(UnifiedLedgerSection,{banks:state.banks,cards:state.cards,cash:state.cash,categories:state.categories,payees:state.payees,isMobile,initialFilter:jumpFilter,onClearJump,onJumpToTx}),
       tab==="reports"&&React.createElement(ReportsSection,{data:state,isMobile,onJumpToLedger}),
       tab==="settings"&&React.createElement(SettingsSection,{state,dispatch,themeId,setTheme,isMobile,onResetAll:()=>{dispatch({type:"RESET_ALL"});try{localStorage.removeItem(LS_KEY);localStorage.removeItem(LS_THEME);}catch{}setTimeout(()=>window.location.reload(),100);}}),
       tab==="info"&&React.createElement(InfoSection,{isMobile})

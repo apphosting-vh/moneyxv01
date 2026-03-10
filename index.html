@@ -1068,10 +1068,17 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.20.3";
+const APP_VERSION="3.20.4";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.20.4",date:"2026-03-10",title:"NW Snapshots — Included in Backup, Restore & FSA File Storage",changes:[
+    "Manual Backup (⬇ Download Backup): nwSnapshots object is now explicitly included in the data envelope. Summary block also reports the count (e.g. '3 NW snapshots') so the backup is auditable.",
+    "Manual Restore (📂 Choose Backup File): dispatch RESTORE_ALL now passes nwSnapshots:d.nwSnapshots||{} so snapshots survive a full restore. Restore success message now shows snapshot count when present.",
+    "FSA auto-save (fsaWriteFile): nwSnapshots added to both summary and data blocks — the FSA file on disk now always carries the snapshot history.",
+    "FSA load (fsaReadFile): both the new-envelope path and the legacy raw-state path now return nwSnapshots with a ||{} safe fallback, so loading an older FSA file that predates snapshots doesn't wipe them.",
+    "Older backup files without nwSnapshots restore cleanly — the fallback {} means no snapshots are imported, existing in-app snapshots are cleared (expected — the backup is the source of truth on restore).",
+  ]},
   {version:"3.20.3",date:"2026-03-10",title:"Fix — Missing comma caused blank screen after snapshot floater",changes:["Fixed SyntaxError: missing comma after the data table closing paren made the snapshot reminder floater an unreachable bare expression outside the return statement — added the comma so it is correctly a child of the outer div."]},
 
   {version:"3.20.2",date:"2026-03-10",title:"Net Worth — Breakdown Hero Card + Snapshot Reminder Floater",changes:[
@@ -12781,11 +12788,13 @@ const SettingsSection=({state,dispatch,themeId,setTheme,onResetAll,isMobile})=>{
                     payees:state.payees.length,
                     scheduled:(state.scheduled||[]).length,
                     notes:(state.notes||[]).length,
+                    nwSnapshots:Object.keys(state.nwSnapshots||{}).length,
                   },
                   data:{
                     ...state,
                     notes:state.notes||[],
                     scheduled:state.scheduled||[],
+                    nwSnapshots:state.nwSnapshots||{},
                   }
                 };
                 const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
@@ -12836,11 +12845,12 @@ const SettingsSection=({state,dispatch,themeId,setTheme,onResetAll,isMobile})=>{
                         ...d,
                         notes:d.notes||[],
                         scheduled:d.scheduled||[],
+                        nwSnapshots:d.nwSnapshots||{},
                       }});
                       if(payload.theme){saveTheme(payload.theme);}
                       const s=payload.summary;
                       const msg=s
-                        ? "✓ Restored: "+s.bankTxns+" bank · "+s.cardTxns+" card · "+s.cashTxns+" cash txns · "+s.categories+" cats · "+s.payees+" payees · "+s.notes+" notes"
+                        ? "✓ Restored: "+s.bankTxns+" bank · "+s.cardTxns+" card · "+s.cashTxns+" cash txns · "+s.categories+" cats · "+s.payees+" payees · "+s.notes+" notes"+(s.nwSnapshots?" · "+s.nwSnapshots+" NW snapshots":"")
                         : "✓ Data restored successfully!";
                       setRestoreErr(msg+" Refreshing…");
                       setTimeout(()=>window.location.reload(),1800);
@@ -14164,11 +14174,13 @@ const fsaWriteFile=async(handle,data)=>{
         payees:(data.payees||[]).length,
         scheduled:(data.scheduled||[]).length,
         notes:(data.notes||[]).length,
+        nwSnapshots:Object.keys(data.nwSnapshots||{}).length,
       },
       data:{
         ...data,
         notes:data.notes||[],
         scheduled:data.scheduled||[],
+        nwSnapshots:data.nwSnapshots||{},
       }
     };
     const writable=await handle.createWritable();
@@ -14184,8 +14196,8 @@ const fsaReadFile=async(handle)=>{
     const parsed=JSON.parse(text);
     /* Support both the new envelope format { data:{…} } and the legacy
        raw-state format written by v3.17.0–3.17.2 */
-    if(parsed&&parsed.data&&parsed.data.banks)return parsed.data;
-    if(parsed&&parsed.banks)return parsed; // legacy raw state
+    if(parsed&&parsed.data&&parsed.data.banks)return{...parsed.data,nwSnapshots:parsed.data.nwSnapshots||{}};
+    if(parsed&&parsed.banks)return{...parsed,nwSnapshots:parsed.nwSnapshots||{}}; // legacy raw state
     return null;
   }catch(e){console.warn("[FSA] Read failed:",e);return null;}
 };

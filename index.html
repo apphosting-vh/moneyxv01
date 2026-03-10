@@ -1067,10 +1067,27 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.17.8";
+const APP_VERSION="3.18.0";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.18.0",date:"2026-03-10",title:"Bulk Delete Transactions in Ledger",changes:[
+    "New '🗑 Delete' button appears in the multi-select bulk action toolbar whenever one or more transactions are checked — sits alongside the existing Categorize, Mark Reconciled, Mark Unreconciled, and Mark Void bulk actions.",
+    "Clicking '🗑 Delete' opens a BulkDelModal confirmation dialog: shows a ⚠️ warning banner with the count and the net balance/outstanding impact of removing the selected transactions (e.g. 'Balance will change by −₹12,500').",
+    "Preview list inside the modal shows up to 8 of the selected transactions (date, description, signed amount) with an '…and N more' overflow count when >8 selected.",
+    "Balance adjustment is computed atomically: credits removed reduce the balance, debits removed increase it — matching the single-delete behaviour. Cards use outstanding instead of balance.",
+    "Three new reducer cases: MASS_DEL_BANK_TX (adjusts bank balance), MASS_DEL_CARD_TX (adjusts card outstanding), MASS_DEL_CASH_TX (adjusts cash balance) — each accepts a Set of transaction IDs.",
+    "After deletion, the selection is cleared and the highlighted row (selId) is reset — prevents stale highlights on deleted rows.",
+    "Feature works identically in Bank, Card, and Cash ledgers. Fully propagated: TxLedger → TxPanel (onMassDeleteTx prop) → BankSection / CardSection / CashSection.",
+  ]},
+  {version:"3.17.9",date:"2026-03-10",title:"Fix: Changing category default payee now cascades to existing transactions",changes:[
+    "Root cause: EDIT_CAT reducer had an early-return guard — 'if name unchanged, return immediately'. Since updating defaultPayee never changes the category name, the guard fired every time and transactions were never touched. Same bug existed in EDIT_SUBCAT for sub-category default payees.",
+    "Fix (EDIT_CAT): Early-return now only triggers when BOTH name AND defaultPayee are unchanged. When defaultPayee changes, the reducer scans all bank, card, cash and scheduled transactions tagged to the affected main category (and any of its sub-categories) and updates the payee field.",
+    "Fix (EDIT_SUBCAT): Same fix applied — when only defaultPayee changes on a sub-category, all transactions tagged to that specific 'Main::Sub' value are scanned and payee is updated.",
+    "Safe cascade rule: only transactions whose payee is BLANK or equals the OLD default payee are updated. Transactions where the user manually entered a different payee are left untouched. This prevents accidental overwrite of intentional per-transaction payee assignments.",
+    "Both rename (name cascade) and payee cascade can now run together in the same reducer dispatch — e.g. renaming a category AND changing its default payee in one save correctly updates both cat and payee on all matching transactions.",
+    "Cascade also applies to Scheduled transactions — recurring/future-dated entries tagged to the category are updated the same way as regular transactions.",
+  ]},
   {version:"3.17.8",date:"2026-03-10",title:"Fix: DD-MM-YYYY swap during Excel import — root cause found and fixed",changes:[
     "Root cause identified: cellDates:true in XL.read() instructed SheetJS to convert each date cell's Excel serial into a JS Date object BEFORE our code ever saw the string '10-02-2026'. The serial encodes what Excel's locale decided the date was when it was typed — if Excel (US locale or auto-detected) read '10-02-2026' as October 2, the serial is for October 2. Our parseDate never received the original text; it received a Date object for October 2 and correctly stored 2026-10-02, which displayed as '02-10-2026'. No amount of string-parsing logic in parseDate could fix this because the string was never seen.",
     "Fix: Changed all three XL.read() calls to {cellDates:false, cellText:true} — SheetJS no longer converts date cells to Date objects. Changed all three sheet_to_json() calls to {raw:false} — SheetJS now returns each cell's FORMATTED DISPLAY TEXT (the 'w' property) exactly as it appears in Excel. A date cell showing '10-02-2026' now arrives at parseDate as the string '10-02-2026', which Branch E correctly parses as day=10, month=02.",
@@ -2000,6 +2017,24 @@ const reducer=(s,a)=>{
     case"DUP_BANK_TX":return{...s,banks:s.banks.map(b=>b.id===a.accId?{...b,
       balance:b.balance+(a.tx.type==="credit"?a.tx.amount:-a.tx.amount),
       transactions:[...b.transactions,{...a.tx,id:uid()}]}:b)};
+    /* Bulk delete: ids is a Set of tx IDs; balance adjusted atomically */
+    case"MASS_DEL_BANK_TX":return{...s,banks:s.banks.map(b=>{
+      if(b.id!==a.accId)return b;
+      const toDelete=b.transactions.filter(t=>a.ids.has(t.id));
+      const netDelta=toDelete.reduce((d,t)=>d+(t.type==="credit"?t.amount:-t.amount),0);
+      return{...b,balance:b.balance-netDelta,transactions:b.transactions.filter(t=>!a.ids.has(t.id))};
+    })};
+    case"MASS_DEL_CARD_TX":return{...s,cards:s.cards.map(c=>{
+      if(c.id!==a.accId)return c;
+      const toDelete=c.transactions.filter(t=>a.ids.has(t.id));
+      const netDelta=toDelete.reduce((d,t)=>d+(t.type==="debit"?t.amount:-t.amount),0);
+      return{...c,outstanding:c.outstanding-netDelta,transactions:c.transactions.filter(t=>!a.ids.has(t.id))};
+    })};
+    case"MASS_DEL_CASH_TX":{
+      const toDelete=s.cash.transactions.filter(t=>a.ids.has(t.id));
+      const netDelta=toDelete.reduce((d,t)=>d+(t.type==="credit"?t.amount:-t.amount),0);
+      return{...s,cash:{...s.cash,balance:s.cash.balance-netDelta,transactions:s.cash.transactions.filter(t=>!a.ids.has(t.id))}};
+    }
     case"REORDER_BANKS":{const bs=[...s.banks];const[mv]=bs.splice(a.from,1);bs.splice(a.to,0,mv);return{...s,banks:bs};}
     case"EDIT_BANK":return{...s,banks:s.banks.map(b=>b.id===a.p.id?{...b,...a.p}:b)};
     case"DEL_BANK":return{...s,banks:s.banks.filter(b=>b.id!==a.id)};
@@ -2049,40 +2084,96 @@ const reducer=(s,a)=>{
     case"ADD_CAT":return{...s,categories:[...s.categories,{id:"c_"+uid(),name:a.name,color:a.color||"#8ba0c0",classType:a.classType||"Expense",defaultPayee:a.defaultPayee||"",subs:[]}]};
     case"DEL_CAT":return{...s,categories:s.categories.filter(c=>c.id!==a.id)};
     case"EDIT_CAT":{
-      /* Cascade rename: update every transaction whose cat starts with the old main-category name */
+      /* Cascade rename AND defaultPayee changes to every matching transaction */
       const _oldCat=s.categories.find(c=>c.id===a.p.id);
       const _oldCatName=_oldCat?_oldCat.name:"";
       const _newCatName=a.p.name!==undefined?a.p.name:_oldCatName;
+      const _oldDefPayee=_oldCat?(_oldCat.defaultPayee||""):"";
+      const _newDefPayee=a.p.defaultPayee!==undefined?(a.p.defaultPayee||""):_oldDefPayee;
+      const _nameChanged=!!_oldCatName&&_oldCatName!==_newCatName;
+      const _payeeChanged=_oldDefPayee!==_newDefPayee;
       const updCats=s.categories.map(c=>c.id===a.p.id?{...c,...a.p}:c);
-      if(!_oldCatName||_oldCatName===_newCatName)return{...s,categories:updCats};
+      /* No cascade needed — neither name nor defaultPayee changed */
+      if(!_nameChanged&&!_payeeChanged)return{...s,categories:updCats};
       const _renamecat=cat=>{if(!cat)return cat;if(cat===_oldCatName)return _newCatName;if(cat.startsWith(_oldCatName+"::"))return _newCatName+"::"+cat.slice(_oldCatName.length+2);return cat;};
-      const _updTxCat=t=>({...t,cat:_renamecat(t.cat||"")});
+      const _updTx=t=>{
+        const origCat=t.cat||"";
+        let upd={...t};
+        /* Cascade rename */
+        if(_nameChanged)upd={...upd,cat:_renamecat(origCat)};
+        /* Cascade defaultPayee: only touch txns tagged to this category whose payee is
+           blank OR was the old default payee — never overwrite a user-set payee */
+        if(_payeeChanged){
+          const belongsHere=(origCat===_oldCatName||origCat.startsWith(_oldCatName+"::"));
+          const txPayee=t.payee||"";
+          if(belongsHere&&(txPayee===""||txPayee===_oldDefPayee))upd={...upd,payee:_newDefPayee};
+        }
+        return upd;
+      };
+      const _updSched=sc=>{
+        const origCat=sc.cat||"";
+        let upd={...sc};
+        if(_nameChanged)upd={...upd,cat:_renamecat(origCat)};
+        if(_payeeChanged){
+          const belongsHere=(origCat===_oldCatName||origCat.startsWith(_oldCatName+"::"));
+          const txPayee=sc.payee||"";
+          if(belongsHere&&(txPayee===""||txPayee===_oldDefPayee))upd={...upd,payee:_newDefPayee};
+        }
+        return upd;
+      };
       return{...s,categories:updCats,
-        banks:s.banks.map(b=>({...b,transactions:b.transactions.map(_updTxCat)})),
-        cards:s.cards.map(c=>({...c,transactions:c.transactions.map(_updTxCat)})),
-        cash:{...s.cash,transactions:s.cash.transactions.map(_updTxCat)},
-        scheduled:(s.scheduled||[]).map(sc=>({...sc,cat:_renamecat(sc.cat||"")})),
+        banks:s.banks.map(b=>({...b,transactions:b.transactions.map(_updTx)})),
+        cards:s.cards.map(c=>({...c,transactions:c.transactions.map(_updTx)})),
+        cash:{...s.cash,transactions:s.cash.transactions.map(_updTx)},
+        scheduled:(s.scheduled||[]).map(_updSched),
       };
     }
     case"ADD_SUBCAT":return{...s,categories:s.categories.map(c=>c.id===a.catId?{...c,subs:[...c.subs,{id:"cs_"+uid(),name:a.name,defaultPayee:a.defaultPayee||""}]}:c)};
     case"DEL_SUBCAT":return{...s,categories:s.categories.map(c=>c.id===a.catId?{...c,subs:c.subs.filter(sc=>sc.id!==a.subId)}:c)};
     case"EDIT_SUBCAT":{
-      /* Cascade rename: update every transaction whose cat is "MainName::OldSubName" */
+      /* Cascade rename AND defaultPayee changes to every matching transaction */
       const _parentCat=s.categories.find(c=>c.id===a.catId);
       const _oldSub=_parentCat?((_parentCat.subs)||[]).find(sc=>sc.id===a.subId):null;
       const _oldSubName=_oldSub?_oldSub.name:"";
       const _newSubName=a.name!==undefined?a.name:_oldSubName;
+      const _oldSubDefPayee=_oldSub?(_oldSub.defaultPayee||""):"";
+      const _newSubDefPayee=a.defaultPayee!==undefined?(a.defaultPayee||""):_oldSubDefPayee;
+      const _subNameChanged=!!_oldSubName&&!!_parentCat&&_oldSubName!==_newSubName;
+      const _subPayeeChanged=_oldSubDefPayee!==_newSubDefPayee;
       const updSubCats=s.categories.map(c=>c.id===a.catId?{...c,subs:c.subs.map(sc=>sc.id===a.subId?{...sc,name:a.name!==undefined?a.name:sc.name,defaultPayee:a.defaultPayee!==undefined?a.defaultPayee:sc.defaultPayee||""}:sc)}:c);
-      if(!_oldSubName||!_parentCat||_oldSubName===_newSubName)return{...s,categories:updSubCats};
-      const _oldFull=_parentCat.name+"::"+_oldSubName;
-      const _newFull=_parentCat.name+"::"+_newSubName;
+      /* No cascade needed — neither name nor defaultPayee changed */
+      if(!_subNameChanged&&!_subPayeeChanged)return{...s,categories:updSubCats};
+      const _oldFull=_parentCat?_parentCat.name+"::"+_oldSubName:"";
+      const _newFull=_parentCat?_parentCat.name+"::"+_newSubName:"";
       const _renameSubcat=cat=>cat===_oldFull?_newFull:cat;
-      const _updTxSubcat=t=>({...t,cat:_renameSubcat(t.cat||"")});
+      const _updSubTx=t=>{
+        const origCat=t.cat||"";
+        let upd={...t};
+        /* Cascade rename */
+        if(_subNameChanged)upd={...upd,cat:_renameSubcat(origCat)};
+        /* Cascade defaultPayee: only touch txns tagged to this sub-category whose payee is
+           blank OR was the old sub-category default payee — never overwrite a user-set payee */
+        if(_subPayeeChanged&&origCat===_oldFull){
+          const txPayee=t.payee||"";
+          if(txPayee===""||txPayee===_oldSubDefPayee)upd={...upd,payee:_newSubDefPayee};
+        }
+        return upd;
+      };
+      const _updSubSched=sc=>{
+        const origCat=sc.cat||"";
+        let upd={...sc};
+        if(_subNameChanged)upd={...upd,cat:_renameSubcat(origCat)};
+        if(_subPayeeChanged&&origCat===_oldFull){
+          const txPayee=sc.payee||"";
+          if(txPayee===""||txPayee===_oldSubDefPayee)upd={...upd,payee:_newSubDefPayee};
+        }
+        return upd;
+      };
       return{...s,categories:updSubCats,
-        banks:s.banks.map(b=>({...b,transactions:b.transactions.map(_updTxSubcat)})),
-        cards:s.cards.map(c=>({...c,transactions:c.transactions.map(_updTxSubcat)})),
-        cash:{...s.cash,transactions:s.cash.transactions.map(_updTxSubcat)},
-        scheduled:(s.scheduled||[]).map(sc=>({...sc,cat:_renameSubcat(sc.cat||"")})),
+        banks:s.banks.map(b=>({...b,transactions:b.transactions.map(_updSubTx)})),
+        cards:s.cards.map(c=>({...c,transactions:c.transactions.map(_updSubTx)})),
+        cash:{...s.cash,transactions:s.cash.transactions.map(_updSubTx)},
+        scheduled:(s.scheduled||[]).map(_updSubSched),
       };
     }
     case"ADD_SCHEDULED":return{...s,scheduled:[...( s.scheduled||[]),{...a.p,id:uid()}]};
@@ -2826,7 +2917,7 @@ const ImportTxModal=({onImport,onClose,categories,accType="bank"})=>{
 };
 
 /* ── LEDGER TABLE VIEW ─────────────────────────────────────────────────── */
-const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassUpdateStatus,onMassCategorize,categories,payees,txTypes,allAccounts,currentAccountId,accentColor,openBalance,accType="bank",isMobile=false,jumpTxId=null,jumpSerial=null})=>{
+const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassUpdateStatus,onMassCategorize,onMassDelete,categories,payees,txTypes,allAccounts,currentAccountId,accentColor,openBalance,accType="bank",isMobile=false,jumpTxId=null,jumpSerial=null})=>{
   const[selId,setSelId]=useState(null);
   const jumpRowRef=React.useRef(null);
   const[jumpActive,setJumpActive]=useState(false); /* true = show ONLY the jumped-to tx */
@@ -2837,6 +2928,7 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassU
   const[confirmDel,setConfirmDel]=useState(null);
   const[importOpen,setImportOpen]=useState(false);
   const[bulkCatOpen,setBulkCatOpen]=useState(false);
+  const[bulkDelOpen,setBulkDelOpen]=useState(false);
   /* ── Filter state ── */
   const[filterCats,setFilterCats]=useState(new Set());
   const[dateFrom,setDateFrom]=useState("");
@@ -3536,6 +3628,7 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassU
             React.createElement("button",{onClick:()=>massUpdate("Reconciled"),style:tbBtn("#16a34a","rgba(22,163,74,.15)")},"✓ Mark Reconciled"),
             React.createElement("button",{onClick:()=>massUpdate("Unreconciled"),style:tbBtn("#b45309","rgba(180,83,9,.12)")},"○ Mark Unreconciled"),
             React.createElement("button",{onClick:()=>massUpdate("Void"),style:tbBtn("#6a8898","rgba(106,136,152,.12)")},"∅ Mark Void"),
+            React.createElement("button",{onClick:()=>setBulkDelOpen(true),style:tbBtn("#ef4444","rgba(239,68,68,.12)")},"🗑 Delete"),
             React.createElement("button",{onClick:clearSelection,style:tbBtn("var(--text4)","var(--bg3)")},"✕ Clear"),
             React.createElement("div",{style:{flex:1}})
           )
@@ -3612,6 +3705,19 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onNew,onImport,onMassU
         clearSelection();
       },
       onClose:()=>setBulkCatOpen(false)
+    }),
+    /* ── Bulk delete confirm modal */
+    bulkDelOpen&&React.createElement(BulkDelModal,{
+      selectedIds,
+      transactions,
+      accType,
+      onConfirm:()=>{
+        if(onMassDelete)onMassDelete(new Set(selectedIds));
+        setBulkDelOpen(false);
+        clearSelection();
+        setSelId(null);
+      },
+      onClose:()=>setBulkDelOpen(false)
     })
   );
 };
@@ -4216,6 +4322,89 @@ const BulkCatModal=({selectedIds,transactions,categories,payees,onApply,onClose}
   );
 };
 
+/* ── BulkDelModal ─────────────────────────────────────────────────────────
+   Confirms deletion of multiple selected transactions.
+   Shows count, net balance impact, and a scrollable preview list.       */
+const BulkDelModal=({selectedIds,transactions,accType,onConfirm,onClose})=>{
+  const selTxns=transactions.filter(t=>selectedIds.has(t.id));
+  const count=selTxns.length;
+  /* Net balance impact: credits removed = balance goes down, debits removed = balance goes up */
+  const netImpact=selTxns.reduce((d,t)=>d+(t.type==="credit"?-t.amount:t.amount),0);
+  /* For cards: debits removed = outstanding goes down (good), credits removed = outstanding goes up */
+  const cardImpact=selTxns.reduce((d,t)=>d+(t.type==="debit"?-t.amount:t.amount),0);
+  const impactVal=accType==="card"?cardImpact:netImpact;
+  const impactLabel=accType==="card"?"Outstanding":"Balance";
+  const impactColor=impactVal>0?"#16a34a":impactVal<0?"#ef4444":"var(--text5)";
+  const impactSign=impactVal>0?"+":"";
+  return React.createElement(Modal,{title:"🗑 Delete Transactions",onClose,w:480},
+    /* Warning banner */
+    React.createElement("div",{style:{
+      background:"rgba(239,68,68,.09)",border:"1px solid rgba(239,68,68,.3)",
+      borderRadius:10,padding:"12px 16px",marginBottom:16,
+      display:"flex",alignItems:"flex-start",gap:10
+    }},
+      React.createElement("span",{style:{fontSize:20,flexShrink:0}},"⚠️"),
+      React.createElement("div",null,
+        React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#ef4444",marginBottom:3}},
+          "Permanently delete "+count+" transaction"+(count>1?"s":"")+"?"
+        ),
+        React.createElement("div",{style:{fontSize:12,color:"var(--text5)",lineHeight:1.6}},
+          "This action cannot be undone. "+impactLabel+" will change by ",
+          React.createElement("span",{style:{fontWeight:700,color:impactColor}},
+            impactSign+INR(Math.abs(impactVal))
+          ),"."
+        )
+      )
+    ),
+    /* Preview list — capped at 8, with overflow count */
+    React.createElement("div",{style:{
+      maxHeight:220,overflowY:"auto",border:"1px solid var(--border)",
+      borderRadius:8,marginBottom:16,background:"var(--bg4)"
+    }},
+      selTxns.slice(0,8).map((t,i)=>React.createElement("div",{key:t.id,style:{
+        display:"flex",alignItems:"center",gap:10,
+        padding:"8px 12px",
+        borderBottom:i<Math.min(selTxns.length,8)-1?"1px solid var(--border2)":"none"
+      }},
+        React.createElement("span",{style:{
+          width:7,height:7,borderRadius:"50%",flexShrink:0,
+          background:t.type==="credit"?"#16a34a":"#ef4444"
+        }}),
+        React.createElement("span",{style:{flex:1,fontSize:12,color:"var(--text3)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},
+          t.desc||(t.payee||"—")
+        ),
+        React.createElement("span",{style:{fontSize:11,color:"var(--text5)",flexShrink:0,marginRight:4}},
+          dmyFmt(t.date)
+        ),
+        React.createElement("span",{style:{
+          fontSize:12,fontWeight:600,flexShrink:0,
+          color:t.type==="credit"?"#16a34a":"#ef4444"
+        }},
+          (t.type==="credit"?"+":"-")+INR(t.amount)
+        )
+      )),
+      count>8&&React.createElement("div",{style:{
+        padding:"8px 12px",fontSize:11,color:"var(--text5)",
+        textAlign:"center",fontStyle:"italic"
+      }},
+        "…and "+(count-8)+" more"
+      )
+    ),
+    /* Footer buttons */
+    React.createElement("div",{style:{display:"flex",flexWrap:"wrap",gap:8}},
+      React.createElement("button",{
+        onClick:onConfirm,
+        style:{
+          flex:"1 1 180px",padding:"10px 16px",borderRadius:9,border:"none",cursor:"pointer",
+          background:"rgba(239,68,68,.9)",color:"#fff",fontFamily:"'DM Sans',sans-serif",
+          fontSize:13,fontWeight:700,letterSpacing:.2
+        }
+      },"🗑 Delete "+count+" Transaction"+(count>1?"s":"")),
+      React.createElement(Btn,{v:"secondary",onClick:onClose,sx:{justifyContent:"center",minWidth:80}},"Cancel")
+    )
+  );
+};
+
 /* ── LEGACY TxRow (kept for Dashboard recent-tx display) ──────────────── */
 const TxRow=({tx})=>{
   const statusCol=STATUS_C[tx.status]||"var(--text5)";
@@ -4463,7 +4652,7 @@ const TxForm=({onAdd,categories,payees,txTypes,allAccounts,currentAccountId,disp
 };
 
 /* ── INLINE TRANSACTION PANEL ────────────────────────────────────────── */
-const TxPanel=({account,label,onAddTx,onEditTx,onDeleteTx,onDupTx,onImportTx,onMassUpdateTx,onMassCatTx,accType="bank",accentColor="#0e7490",categories,payees,txTypes,allAccounts,openBalance,dispatch,state,isMobile=false,jumpTxId=null,jumpSerial=null})=>{
+const TxPanel=({account,label,onAddTx,onEditTx,onDeleteTx,onDupTx,onImportTx,onMassUpdateTx,onMassCatTx,onMassDeleteTx,accType="bank",accentColor="#0e7490",categories,payees,txTypes,allAccounts,openBalance,dispatch,state,isMobile=false,jumpTxId=null,jumpSerial=null})=>{
   const[addOpen,setAddOpen]=useState(false);
   if(!account)return React.createElement("div",{className:"si",style:{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:14,color:"var(--text6)",background:"var(--bg5)",borderRadius:14,border:"1px dashed var(--border)",minHeight:300}},
     React.createElement("div",{style:{fontSize:36}},"👈"),
@@ -4512,7 +4701,8 @@ const TxPanel=({account,label,onAddTx,onEditTx,onDeleteTx,onDupTx,onImportTx,onM
       onDuplicate:onDupTx,
       onImport:onImportTx,
       onMassUpdateStatus:onMassUpdateTx,
-      onMassCategorize:onMassCatTx
+      onMassCategorize:onMassCatTx,
+      onMassDelete:onMassDeleteTx
     }),
     /* New transaction modal */
     addOpen&&React.createElement(TxModal,{
@@ -5254,6 +5444,7 @@ const BankSection=({banks,dispatch,categories,payees,allBanks,allCards=[],cash,l
         onImportTx:txns=>{if(selD)dispatch({type:"IMPORT_BULK_TX",accType:"bank",accId:selD.id,txns});},
         onMassUpdateTx:(ids,status)=>{if(selD)dispatch({type:"MASS_UPDATE_STATUS",accType:"bank",accId:selD.id,ids,status});},
         onMassCatTx:(ids,cat,payee)=>{if(selD)dispatch({type:"MASS_UPDATE_CAT",accType:"bank",accId:selD.id,ids,cat,payee});},
+        onMassDeleteTx:(ids)=>{if(selD)dispatch({type:"MASS_DEL_BANK_TX",accId:selD.id,ids});},
         onEditTx:(updated,old)=>{if(selD)dispatch({type:"EDIT_BANK_TX",accId:selD.id,tx:updated,old});},
         onDeleteTx:tx=>{if(selD)dispatch({type:"DEL_BANK_TX",accId:selD.id,tx});},
         onDupTx:tx=>{if(selD)dispatch({type:"DUP_BANK_TX",accId:selD.id,tx});}
@@ -5419,6 +5610,7 @@ const CardSection=({cards,dispatch,categories,payees,allBanks,allCards=[],cash,l
         onImportTx:txns=>{if(selD)dispatch({type:"IMPORT_BULK_TX",accType:"card",accId:selD.id,txns});},
         onMassUpdateTx:(ids,status)=>{if(selD)dispatch({type:"MASS_UPDATE_STATUS",accType:"card",accId:selD.id,ids,status});},
         onMassCatTx:(ids,cat,payee)=>{if(selD)dispatch({type:"MASS_UPDATE_CAT",accType:"card",accId:selD.id,ids,cat,payee});},
+        onMassDeleteTx:(ids)=>{if(selD)dispatch({type:"MASS_DEL_CARD_TX",accId:selD.id,ids});},
         onEditTx:(updated,old)=>{if(selD)dispatch({type:"EDIT_CARD_TX",accId:selD.id,tx:updated,old});},
         onDeleteTx:tx=>{if(selD)dispatch({type:"DEL_CARD_TX",accId:selD.id,tx});},
         onDupTx:tx=>{if(selD)dispatch({type:"DUP_CARD_TX",accId:selD.id,tx});}
@@ -5489,7 +5681,8 @@ const CashSection=({cash,dispatch,categories,payees,allBanks,allCards=[],loans=[
           onDuplicate:tx=>dispatch({type:"DUP_CASH_TX",tx}),
           onImport:txns=>dispatch({type:"IMPORT_BULK_TX",accType:"cash",accId:"__cash__",txns}),
           onMassUpdateStatus:(ids,status)=>dispatch({type:"MASS_UPDATE_STATUS",accType:"cash",accId:"__cash__",ids,status}),
-          onMassCategorize:(ids,cat,payee)=>dispatch({type:"MASS_UPDATE_CAT",accType:"cash",accId:"__cash__",ids,cat,payee})
+          onMassCategorize:(ids,cat,payee)=>dispatch({type:"MASS_UPDATE_CAT",accType:"cash",accId:"__cash__",ids,cat,payee}),
+          onMassDelete:(ids)=>dispatch({type:"MASS_DEL_CASH_TX",ids})
         }),
         addCashOpen&&React.createElement(TxModal,{
           onAdd:tx=>{

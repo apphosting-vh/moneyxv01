@@ -897,6 +897,133 @@ const TODAY=()=>new Date().toISOString().split("T")[0];
 const pct=(v,b)=>b?(((v-b)/b)*100).toFixed(1):"0.0";
 const daysLeft=d=>Math.max(0,Math.ceil((new Date(d)-new Date())/86400000));
 
+/* ══════════════════════════════════════════════════════════════════════════
+   IST DATE / MARKET HELPERS
+   NSE trading hours: 09:15 – 15:30 IST (UTC+5:30)
+   ══════════════════════════════════════════════════════════════════════════ */
+/** Returns today's date string in IST (YYYY-MM-DD). */
+const getISTDateStr=()=>{
+  const istMs=Date.now()+(5.5*60*60*1000);
+  return new Date(istMs).toISOString().split("T")[0];
+};
+/** True when IST wall-clock is at or past 15:30 (NSE market close). */
+const isAfterNSEClose=()=>{
+  const istMin=((new Date().getUTCHours()*60+new Date().getUTCMinutes())+330)%1440;
+  return istMin>=15*60+30;
+};
+/** True on Mon–Fri in IST (ignores public holidays — acceptable approximation). */
+const isTradingWeekday=()=>{
+  const istMs=Date.now()+(5.5*60*60*1000);
+  const d=new Date(istMs).getUTCDay(); // 0=Sun,6=Sat
+  return d>=1&&d<=5;
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SHARED TICKER PRICE FETCHER
+   Single source of truth for share price fetching — used by:
+     • InvestSection  (⟳ Refresh Live Prices button)
+     • InvestDashboard (⟳ Refresh Live Prices button)
+     • Auto EOD snapshot background task (App useEffect)
+   Fallback chain per ticker:
+     1. Stooq direct (CSV)
+     2. Stooq via corsproxy.io
+     3. Stooq via allorigins.win
+     4–7. Yahoo Finance v8 via corsproxy.io / allorigins / codetabs / thingproxy
+     8. Yahoo Finance v7 quote endpoint via corsproxy.io / allorigins
+   Returns a positive number or null.
+   ══════════════════════════════════════════════════════════════════════════ */
+const _pos=v=>{const n=parseFloat(v);return n>0?Math.round(n*100)/100:null;};
+const fetchTickerPrice=async(rawTicker)=>{
+  const ticker=(rawTicker||"").trim().toUpperCase();
+  if(!ticker)return null;
+
+  /* ── Stooq: direct then proxied ── */
+  const stooqUrl="https://stooq.com/q/l/?s="+encodeURIComponent(ticker.toLowerCase()+".in")+"&f=sd2t2ohlcv&h&e=csv";
+  for(const src of[
+    ()=>fetch(stooqUrl,{mode:"cors"}),
+    ()=>fetch("https://corsproxy.io/?"+encodeURIComponent(stooqUrl)),
+    ()=>fetch("https://api.allorigins.win/raw?url="+encodeURIComponent(stooqUrl)),
+  ]){
+    try{
+      const r=await src();if(!r.ok)continue;
+      const txt=await r.text();
+      let csv=txt;try{const j=JSON.parse(txt);if(j?.contents)csv=j.contents;}catch{}
+      const lines=csv.trim().split("\n");if(lines.length<2)continue;
+      const close=_pos(lines[1].split(",")[6]);
+      if(close)return close;
+    }catch{}
+  }
+
+  /* ── Yahoo Finance v8 through CORS proxies ── */
+  const yUrl=s=>"https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(s)+"?interval=1d&range=5d";
+  const yProxies=[
+    u=>"https://corsproxy.io/?"+encodeURIComponent(u),
+    u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
+    u=>"https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(u),
+    u=>"https://thingproxy.freeboard.io/fetch/"+u,
+  ];
+  for(const mkP of yProxies){
+    for(const sym of[ticker+".NS",ticker+".BO",ticker]){
+      try{
+        const r=await fetch(mkP(yUrl(sym)),{mode:"cors"});if(!r.ok)continue;
+        const txt=await r.text();
+        let json;try{json=JSON.parse(txt);}catch{continue;}
+        const payload=json?.contents?JSON.parse(json.contents):json;
+        const price=_pos(payload?.chart?.result?.[0]?.meta?.regularMarketPrice)||
+                    _pos(payload?.chart?.result?.[0]?.meta?.previousClose);
+        if(price)return price;
+      }catch{}
+    }
+  }
+
+  /* ── Yahoo Finance v7 quote endpoint ── */
+  const v7url="https://query1.finance.yahoo.com/v7/finance/quote?symbols="+
+    encodeURIComponent(ticker+".NS,"+ticker+".BO")+"&fields=regularMarketPrice,previousClose";
+  for(const proxy of[
+    "https://corsproxy.io/?"+encodeURIComponent(v7url),
+    "https://api.allorigins.win/raw?url="+encodeURIComponent(v7url),
+  ]){
+    try{
+      const r=await fetch(proxy,{mode:"cors"});if(!r.ok)continue;
+      const txt=await r.text();
+      let json;try{json=JSON.parse(txt);}catch{continue;}
+      const payload=json?.contents?JSON.parse(json.contents):json;
+      const results=payload?.quoteResponse?.result||[];
+      for(const q of results){
+        const price=_pos(q?.regularMarketPrice)||_pos(q?.previousClose);
+        if(price)return price;
+      }
+    }catch{}
+  }
+  return null;
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SHARED MF NAV FETCHER
+   Single source of truth for mfapi.in NAV fetch — used by:
+     • InvestSection  (⟳ Refresh NAV button)
+     • InvestDashboard (⟳ Refresh Live Prices button)
+     • Auto EOD NAV snapshot background task (App useEffect)
+   Returns { nav: number, navDate: "DD-MMM-YYYY" } or null.
+   ══════════════════════════════════════════════════════════════════════════ */
+const fetchOneNav=async(code)=>{
+  const base="https://api.mfapi.in/mf/"+code;
+  for(const url of[
+    base,
+    "https://corsproxy.io/?"+encodeURIComponent(base),
+    "https://api.allorigins.win/raw?url="+encodeURIComponent(base),
+  ]){
+    try{
+      const r=await fetch(url);if(!r.ok)continue;
+      const raw=await r.json();
+      const d=raw?.contents?JSON.parse(raw.contents):raw;
+      const nav=parseFloat(d?.data?.[0]?.nav);
+      if(nav>0)return{nav,navDate:d.data[0].date};
+    }catch{}
+  }
+  return null;
+};
+
 const INIT=()=>({
   categories:[
     {id:"c_inc",  name:"Income",      color:"#16a34a", classType:"Income",      subs:[{id:"cs_sal",name:"Salary"},{id:"cs_free",name:"Freelance"},{id:"cs_int",name:"Interest"},{id:"cs_div",name:"Dividends"}]},
@@ -1034,6 +1161,9 @@ const EMPTY_STATE=()=>({
   loans:[],
   notes:[],
   goals:[],
+  nwSnapshots:{},
+  eodPrices:{},
+  eodNavs:{},
   insightPrefs:{
     currentAge:"",retirementAge:45,
     fireMode:"auto",manualFireNumber:"",
@@ -1068,10 +1198,46 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.20.4";
+const APP_VERSION="3.22.1";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.22.1",date:"2026-03-11",title:"Fix — Blank Screen SyntaxError in InvestDashboard (Missing Comma After IIFE)",changes:[
+    "Fixed: Uncaught SyntaxError 'Unexpected token, expected \",\"' at Babel line 5649 — the per-asset stat row IIFE (()=>{...})() inside the InvestDashboard return was not followed by a comma before the next sibling React.createElement call.",
+    "Root cause: the IIFE that computes the MF day-change hero stat row (introduced in v3.22.0) was added without a trailing comma, making Babel unable to parse the next sibling element as a continuation of the parent React.createElement children list.",
+    "Fix: added the missing comma after })() so the IIFE result is correctly treated as one child in the sequence.",
+  ]},
+  {version:"3.22.0",date:"2026-03-11",title:"Mutual Funds — Daily NAV Snapshot, Day-Change Hero Card & Portfolio Value Chart",changes:[
+    "New state.eodNavs — persisted dictionary { 'YYYY-MM-DD': { schemeCode: nav } } recording end-of-day NAV for every MF scheme in the portfolio. Keyed by the actual navDate returned from mfapi.in (the official AMFI publication date). Pruned to 90 days. Included in backup/restore.",
+    "Auto-snapshot: existing EOD background useEffect in App now also fetches MF NAVs after 3:30 PM IST on trading weekdays. Uses full mfapi.in proxy chain (direct → corsproxy.io → allorigins). Each scheme's NAV is stored under its schemeCode. If NAV for today's navDate is already recorded, snap is skipped.",
+    "Shared fetchOneNav(code) helper — defined at module scope alongside fetchTickerPrice. Used by both the background EOD task and the InvestSection/InvestDashboard manual Refresh NAV buttons (eliminating the two duplicate inline fetch chains).",
+    "MF day-change hero card: shown at the top of the Mutual Funds tab when at least one prior-day EOD snapshot exists. Displays total MF portfolio value today vs previous snapshot date, with ▲/▼ change in ₹ and %. Three quick-stat pills below: today's total, invested cost, and unrealised gain.",
+    "MF portfolio history line chart: full-width SvgLine chart below the hero card, showing daily total MF portfolio value for every date in eodNavs (up to 90 data points). Value per date = sum of (eodNavs[date][schemeCode] × m.units) for all funds. X-axis labels show DD-MMM. Smooths to a line with gradient fill.",
+    "Per-fund day-change badge: each MF card now shows '▲ +0.45% today' or '▼ −0.12% today' in the NAV cell, derived from (currentNAV − prevDayNAV) / prevDayNAV. The previous day NAV lookup uses the most recent eodNavs date before today.",
+    "DEL_MF reducer updated: on fund deletion, strips the scheme's code key from every date bucket in eodNavs, and drops empty date buckets — no orphaned data.",
+    "InvestDashboard MF stat card updated: shows day-change sub-label '▲ +X% today' when prior-day NAV snapshot available for the aggregate MF portfolio.",
+  ]},
+  {version:"3.21.1",date:"2026-03-11",title:"Fix — EOD Price Data Purged When a Share is Deleted",changes:[
+    "DEL_SHARE reducer now cleans up eodPrices alongside removing the share itself.",
+    "On delete: finds the share's ticker, removes that ticker key from every date bucket in state.eodPrices, and drops any date buckets that become empty as a result.",
+    "Prevents orphaned EOD data accumulating in localStorage for shares that no longer exist in the portfolio.",
+  ]},
+  {version:"3.21.0",date:"2026-03-11",title:"Shares — Automatic Daily EOD Price Snapshot & Day-Change Badge",changes:[
+    "New: state.eodPrices — a persisted dictionary { 'YYYY-MM-DD': { TICKER: closePrice } } that records end-of-day closing prices for every share in the portfolio. Stored in localStorage, survives reload, included in backup/restore.",
+    "Auto-snapshot: a background useEffect in App fires silently after NSE market close (3:30 PM IST) on trading weekdays (Mon–Fri). It checks once on app load, then re-checks every 5 minutes. If today's EOD is not yet recorded AND the time is past 3:30 PM IST AND it is a weekday, it fetches all share prices using the full multi-source fallback chain (Stooq direct → Stooq via corsproxy.io → Stooq via allorigins → Yahoo via 4 proxies) and saves the result via SET_EOD_PRICES. No user interaction required.",
+    "New shared fetchTickerPrice(ticker) helper function — defined once at module scope, used by both the background EOD system and the InvestDashboard/InvestSection manual refresh buttons (they now delegate to this function internally, eliminating the duplicate inline fetch chains).",
+    "Day-change badge on each share card: shows '▲ +1.23% today' (green) or '▼ −0.45% today' (red) in the Current Price cell. Compares sh.currentPrice against the most recent EOD close date that is strictly before today in IST. Badge is hidden when no prior-day EOD snapshot exists yet.",
+    "SET_EOD_PRICES reducer: stores the prices dict for a given date and automatically prunes entries older than 30 calendar days so localStorage never bloats.",
+    "IST helpers: getISTDateStr() returns today's date in YYYY-MM-DD using IST (UTC+5:30); isAfterNSEClose() returns true after 15:30 IST; isTradingWeekday() returns true Mon–Fri in IST.",
+    "eodPrices:{} added to EMPTY_STATE, loadState merge, backup summary + data envelope, and restore dispatch — backward-compatible with existing backups (falls back to {}).",
+  ]},
+  {version:"3.20.5",date:"2026-03-11",title:"Fix — Live Price & NAV Fetch Broken on GitHub Pages (CORS)",changes:[
+    "Root cause: Stooq direct fetch works from localhost but is blocked by CORS on deployed origins (GitHub Pages). mfapi.in had zero proxy fallback — one network error silently returned stale data.",
+    "Fix (mfapi.in / MF NAV): Both fetchNAV (InvestSection) and navPromise (InvestDashboard refreshAll) now use a 3-step fallback chain: (1) direct fetch → (2) corsproxy.io → (3) allorigins.win. allorigins JSON wrapper ({contents:...}) is unwrapped automatically.",
+    "Fix (Stooq / Share Prices): tryStooq() in both InvestSection and InvestDashboard now has 3 attempts: (1) direct CORS → (2) Stooq URL via corsproxy.io → (3) Stooq URL via allorigins.win. CSV parsing handles allorigins JSON wrapping.",
+    "Fix (Yahoo Finance proxies): Added api.codetabs.com/v1/proxy as a 4th proxy in tryYahooViaProxy() in both components, giving 4 independent proxy options per Yahoo ticker.",
+    "Net effect: fetches survive Stooq CORS blocks, mfapi.in transient failures, and any single proxy being down — all in both the Investment Dashboard 'Refresh Live Prices' button and the per-section buttons in Shares / Mutual Funds tabs.",
+  ]},
   {version:"3.20.4",date:"2026-03-10",title:"NW Snapshots — Included in Backup, Restore & FSA File Storage",changes:[
     "Manual Backup (⬇ Download Backup): nwSnapshots object is now explicitly included in the data envelope. Summary block also reports the count (e.g. '3 NW snapshots') so the backup is auditable.",
     "Manual Restore (📂 Choose Backup File): dispatch RESTORE_ALL now passes nwSnapshots:d.nwSnapshots||{} so snapshots survive a full restore. Restore success message now shows snapshot count when present.",
@@ -2150,10 +2316,39 @@ const reducer=(s,a)=>{
     case"ADD_MF":return{...s,mf:[...s.mf,a.p]};
     case"EDIT_MF":return{...s,mf:s.mf.map(m=>m.id===a.p.id?{...m,...a.p}:m)};
     case"UPD_MF_NAV":return{...s,mf:a.p};
-    case"DEL_MF":return{...s,mf:s.mf.filter(m=>m.id!==a.id)};
+    case"DEL_MF":{
+      const _delCode=(s.mf.find(m=>m.id===a.id)||{}).schemeCode||"";
+      const _cleanNavs={};
+      Object.entries(s.eodNavs||{}).forEach(([date,navs])=>{
+        const n={...navs};
+        if(_delCode)delete n[_delCode];
+        if(Object.keys(n).length>0)_cleanNavs[date]=n;
+      });
+      return{...s,mf:s.mf.filter(m=>m.id!==a.id),eodNavs:_cleanNavs};
+    }
+    /* ── MF EOD NAV snapshots ── */
+    case"SET_EOD_NAVS":{
+      const updated={...(s.eodNavs||{}),[a.date]:a.navs};
+      /* Prune to last 90 days */
+      const keys=Object.keys(updated).sort();
+      const pruned={};
+      keys.slice(-90).forEach(k=>{pruned[k]=updated[k];});
+      return{...s,eodNavs:pruned};
+    }
     case"ADD_SHARE":return{...s,shares:[...s.shares,a.p]};
     case"EDIT_SHARE":return{...s,shares:s.shares.map(sh=>sh.id===a.p.id?{...sh,...a.p}:sh)};
-    case"DEL_SHARE":return{...s,shares:s.shares.filter(sh=>sh.id!==a.id)};
+    case"DEL_SHARE":{
+      const _delSh=s.shares.find(sh=>sh.id===a.id);
+      const _ticker=_delSh?((_delSh.ticker||"").trim().toUpperCase()):"";
+      /* Strip this ticker from every EOD date bucket; drop empty buckets */
+      const _cleanEod={};
+      Object.entries(s.eodPrices||{}).forEach(([date,prices])=>{
+        const p={...prices};
+        if(_ticker)delete p[_ticker];
+        if(Object.keys(p).length>0)_cleanEod[date]=p;
+      });
+      return{...s,shares:s.shares.filter(sh=>sh.id!==a.id),eodPrices:_cleanEod};
+    }
     case"ADD_FD":return{...s,fd:[...s.fd,a.p]};
     case"ADD_RE":return{...s,re:[...s.re,a.p]};
     case"EDIT_RE":return{...s,re:s.re.map(r=>r.id===a.p.id?{...r,...a.p}:r)};
@@ -2404,6 +2599,16 @@ const reducer=(s,a)=>{
     case"SET_INSIGHT_PREFS":return{...s,insightPrefs:{...s.insightPrefs,...a.p}};
     case"SET_NW_SNAPSHOT":return{...s,nwSnapshots:{...(s.nwSnapshots||{}),[a.month]:a.nw}};
     case"DEL_NW_SNAPSHOT":{const snaps={...(s.nwSnapshots||{})};delete snaps[a.month];return{...s,nwSnapshots:snaps};}
+    /* ── EOD price snapshots ── */
+    case"SET_EOD_PRICES":{
+      /* Merge new prices for the given date */
+      const updated={...(s.eodPrices||{}),[a.date]:a.prices};
+      /* Prune to last 30 calendar days to keep localStorage lean */
+      const keys=Object.keys(updated).sort();
+      const pruned={};
+      keys.slice(-30).forEach(k=>{pruned[k]=updated[k];});
+      return{...s,eodPrices:pruned};
+    }
     case"ADD_GOAL":return{...s,goals:[...(s.goals||[]),{...a.p,id:uid(),createdAt:new Date().toISOString()}]};
     case"EDIT_GOAL":return{...s,goals:(s.goals||[]).map(g=>g.id===a.p.id?{...g,...a.p}:g)};
     case"DEL_GOAL":return{...s,goals:(s.goals||[]).filter(g=>g.id!==a.id)};
@@ -6106,7 +6311,7 @@ const ImportFDModal=({onImport,onClose})=>{
 /* ══════════════════════════════════════════════════════════════════════════
    INVESTMENT DASHBOARD
    ══════════════════════════════════════════════════════════════════════════ */
-const InvestDashboard=({mf,shares,fd,re=[],dispatch,isMobile})=>{
+const InvestDashboard=({mf,shares,fd,re=[],dispatch,isMobile,eodNavs={}})=>{
   /* ── Refresh state ── */
   const[refreshing,setRefreshing]=useState(false);
   const[refreshStatus,setRefreshStatus]=useState(null); /* {ok,msg,ts,navOk,sharesOk} */
@@ -6159,103 +6364,57 @@ const InvestDashboard=({mf,shares,fd,re=[],dispatch,isMobile})=>{
   }).sort((a,b)=>b.pnlPct-a.pnlPct);
 
   /* ── Unified refresh: MF NAV + Share prices in parallel ────────────────
+     MF NAV sources (tried in order per scheme):
+       1. mfapi.in direct
+       2. mfapi.in via corsproxy.io  (fallback for GitHub Pages CORS)
+       3. mfapi.in via allorigins.win (third fallback)
      Share price sources (tried in order per ticker):
-       1. Stooq   — direct CORS-friendly CSV endpoint (.IN suffix for NSE)
+       1. Stooq direct — CSV endpoint (.IN suffix for NSE)
+       1b. Stooq via corsproxy.io  — fallback if direct blocked
+       1c. Stooq via allorigins.win — second Stooq proxy fallback
        2. Yahoo Finance v8 via corsproxy.io
        3. Yahoo Finance v8 via allorigins.win
-       4. Yahoo Finance v7 quote endpoint via proxy
+       4. Yahoo Finance v8 via codetabs.com
+       5. Yahoo Finance v8 via thingproxy.freeboard.io
+       6. Yahoo Finance v7 quote endpoint via proxies
   ──────────────────────────────────────────────────────────────────────── */
   const refreshAll=async()=>{
     setRefreshing(true);
     setRefreshStatus(null);
     const pos=v=>{const n=parseFloat(v);return n>0?Math.round(n*100)/100:null;};
 
-    /* ── NAV fetch (mfapi.in) ── */
+    /* ── NAV fetch — delegates to shared fetchOneNav helper ── */
     const navPromise=(async()=>{
       if(!mf.length)return{ok:true,updated:0};
       try{
         const upd=await Promise.all(mf.map(async m=>{
           try{
-            const r=await fetch("https://api.mfapi.in/mf/"+m.schemeCode);
-            const d=await r.json();
-            const nav=parseFloat(d.data[0].nav);
-            return{...m,nav,navDate:d.data[0].date,currentValue:nav*m.units};
+            const res=await fetchOneNav(m.schemeCode);
+            if(!res)return m;
+            return{...m,nav:res.nav,navDate:res.navDate,currentValue:res.nav*m.units};
           }catch{return m;}
         }));
         dispatch({type:"UPD_MF_NAV",p:upd});
+        /* Also save EOD NAV snapshot keyed by navDate */
+        const navsByCode={};
+        upd.forEach(m=>{if(m.nav>0&&m.navDate)navsByCode[m.schemeCode]=m.nav;});
+        if(Object.keys(navsByCode).length>0){
+          const navDate=upd.find(m=>m.navDate)?.navDate||"";
+          if(navDate)dispatch({type:"SET_EOD_NAVS",date:navDate,navs:navsByCode});
+        }
         const updated=upd.filter(m=>m.nav>0).length;
         return{ok:updated>0,updated};
       }catch{return{ok:false,updated:0};}
     })();
 
-    /* ── Share price fetch — multi-source fallback ── */
+    /* ── Share price fetch — delegates to shared fetchTickerPrice helper ── */
     const sharesPromise=(async()=>{
       if(!shares.length)return{ok:true,updated:0,failed:0};
       let updated=0,failed=0;
-
-      const tryStooq=async(ticker)=>{
-        const sym=ticker.toLowerCase()+".in";
-        try{
-          const r=await fetch("https://stooq.com/q/l/?s="+encodeURIComponent(sym)+"&f=sd2t2ohlcv&h&e=csv",{mode:"cors"});
-          if(!r.ok)return null;
-          const txt=await r.text();
-          const lines=txt.trim().split("\n");
-          if(lines.length<2)return null;
-          return pos(lines[1].split(",")[6]);
-        }catch{return null;}
-      };
-
-      const tryYahooViaProxy=async(ticker)=>{
-        const yUrl=sym=>"https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=5d";
-        const proxies=[
-          u=>"https://corsproxy.io/?"+encodeURIComponent(u),
-          u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
-          u=>"https://thingproxy.freeboard.io/fetch/"+u,
-        ];
-        for(const makeProxy of proxies){
-          for(const sym of[ticker+".NS",ticker+".BO",ticker]){
-            try{
-              const r=await fetch(makeProxy(yUrl(sym)),{mode:"cors"});
-              if(!r.ok)continue;
-              const txt=await r.text();
-              let json;try{json=JSON.parse(txt);}catch{continue;}
-              const payload=json?.contents?JSON.parse(json.contents):json;
-              const meta=payload?.chart?.result?.[0]?.meta;
-              const price=pos(meta?.regularMarketPrice)||pos(meta?.previousClose);
-              if(price)return price;
-            }catch{}
-          }
-        }
-        return null;
-      };
-
-      const tryYahooQuote=async(ticker)=>{
-        const syms=[ticker+".NS",ticker+".BO"].join(",");
-        const url="https://query1.finance.yahoo.com/v7/finance/quote?symbols="+encodeURIComponent(syms)+"&fields=regularMarketPrice,previousClose";
-        for(const proxy of[
-          "https://corsproxy.io/?"+encodeURIComponent(url),
-          "https://api.allorigins.win/raw?url="+encodeURIComponent(url),
-        ]){
-          try{
-            const r=await fetch(proxy,{mode:"cors"});
-            if(!r.ok)continue;
-            const txt=await r.text();
-            let json;try{json=JSON.parse(txt);}catch{continue;}
-            const payload=json?.contents?JSON.parse(json.contents):json;
-            const results=payload?.quoteResponse?.result||[];
-            for(const q of results){
-              const price=pos(q?.regularMarketPrice)||pos(q?.previousClose);
-              if(price)return price;
-            }
-          }catch{}
-        }
-        return null;
-      };
-
       for(const sh of shares){
         const ticker=(sh.ticker||"").trim().toUpperCase();
         if(!ticker){failed++;continue;}
-        const price=await tryStooq(ticker)||await tryYahooViaProxy(ticker)||await tryYahooQuote(ticker);
+        const price=await fetchTickerPrice(ticker);
         if(price){
           dispatch({type:"EDIT_SHARE",p:{...sh,currentPrice:price,priceTs:new Date().toISOString(),priceStale:false}});
           updated++;
@@ -6361,12 +6520,26 @@ const InvestDashboard=({mf,shares,fd,re=[],dispatch,isMobile})=>{
     ),
 
     /* ── Per-asset stat row */
-    React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
-      React.createElement(StatCard,{label:"Mutual Funds",val:INR(mfVal),sub:(mfVal-mfCost>=0?"▲ ":"▼ ")+INR(Math.abs(mfVal-mfCost))+" P&L",col:"#6d28d9",icon:"📊"}),
-      React.createElement(StatCard,{label:"Shares",val:INR(shVal),sub:(shVal-shCost>=0?"▲ ":"▼ ")+pct(shVal,shCost)+"% return",col:"#16a34a",icon:"📈"}),
-      React.createElement(StatCard,{label:"Fixed Deposits",val:INR(fdPrinc),sub:fd.length+" deposits",col:"#b45309",icon:"🏦"}),
-      React.createElement(StatCard,{label:"Projected FD Gains",val:"+"+INR(fdMat-fdPrinc),sub:"At maturity",col:"#0e7490",icon:"🎯"})
-    ),
+    (()=>{
+      /* Compute aggregate MF day-change from eodNavs */
+      const todayIST=getISTDateStr();
+      const prevNavDate=Object.keys(eodNavs||{}).filter(d=>d<todayIST).sort().slice(-1)[0];
+      let mfDayChgPct=null;
+      if(prevNavDate){
+        const prevTotal=mf.reduce((s,m)=>{const n=eodNavs[prevNavDate][m.schemeCode];return s+(n?n*m.units:0);},0);
+        if(prevTotal>0&&mfVal>0)mfDayChgPct=((mfVal-prevTotal)/prevTotal*100);
+      }
+      return React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
+        React.createElement(StatCard,{label:"Mutual Funds",val:INR(mfVal),
+          sub:mfDayChgPct!==null
+            ?(mfDayChgPct>=0?"▲ +":"▼ ")+Math.abs(mfDayChgPct).toFixed(2)+"% today"
+            :(mfVal-mfCost>=0?"▲ ":"▼ ")+INR(Math.abs(mfVal-mfCost))+" P&L",
+          col:"#6d28d9",icon:"📊"}),
+        React.createElement(StatCard,{label:"Shares",val:INR(shVal),sub:(shVal-shCost>=0?"▲ ":"▼ ")+pct(shVal,shCost)+"% return",col:"#16a34a",icon:"📈"}),
+        React.createElement(StatCard,{label:"Fixed Deposits",val:INR(fdPrinc),sub:fd.length+" deposits",col:"#b45309",icon:"🏦"}),
+        React.createElement(StatCard,{label:"Projected FD Gains",val:"+"+INR(fdMat-fdPrinc),sub:"At maturity",col:"#0e7490",icon:"🎯"})
+      );
+    })(),
 
     /* ── Middle row: allocation + MF performance */
     React.createElement("div",{style:{display:"grid",gridTemplateColumns:isMobile?"1fr":"280px 1fr",gap:14,marginBottom:14}},
@@ -6499,7 +6672,7 @@ const InvestDashboard=({mf,shares,fd,re=[],dispatch,isMobile})=>{
   );
 };
 
-const InvestSection=({mf,shares,fd,re=[],dispatch,defaultTab="mf"})=>{
+const InvestSection=({mf,shares,fd,re=[],dispatch,defaultTab="mf",eodPrices={},eodNavs={}})=>{
   const[tab,setTab]=useState(defaultTab);const[open,setOpen]=useState(false);const[navLoad,setNavLoad]=useState(false);
   React.useEffect(()=>{setTab(defaultTab);},[defaultTab]);
   const[srch,setSrch]=useState("");const[results,setResults]=useState([]);const[searching,setSearching]=useState(false);
@@ -6515,116 +6688,40 @@ const InvestSection=({mf,shares,fd,re=[],dispatch,defaultTab="mf"})=>{
   const[priceLoad,setPriceLoad]=useState(false);
   const[priceStatus,setPriceStatus]=useState(null); /* {ok:bool, msg:string, ts:Date} */
 
-  const fetchNAV=async()=>{setNavLoad(true);const upd=await Promise.all(mf.map(async m=>{try{const r=await fetch("https://api.mfapi.in/mf/"+m.schemeCode);const d=await r.json();const nav=parseFloat(d.data[0].nav);return{...m,nav,navDate:d.data[0].date,currentValue:nav*m.units};}catch{return m;}}));dispatch({type:"UPD_MF_NAV",p:upd});setNavLoad(false);};
+  const fetchNAV=async()=>{
+    setNavLoad(true);
+    const upd=await Promise.all(mf.map(async m=>{
+      try{
+        const res=await fetchOneNav(m.schemeCode);
+        if(!res)return m;
+        return{...m,nav:res.nav,navDate:res.navDate,currentValue:res.nav*m.units};
+      }catch{return m;}
+    }));
+    dispatch({type:"UPD_MF_NAV",p:upd});
+    /* Save EOD NAV snapshot keyed by the navDate published by mfapi */
+    const navsByCode={};
+    upd.forEach(m=>{if(m.nav>0&&m.navDate)navsByCode[m.schemeCode]=m.nav;});
+    if(Object.keys(navsByCode).length>0){
+      const navDate=upd.find(m=>m.navDate)?.navDate||"";
+      if(navDate)dispatch({type:"SET_EOD_NAVS",date:navDate,navs:navsByCode});
+    }
+    setNavLoad(false);
+  };
 
-  /* ── Live price fetch: multi-source fallback chain ─────────────────────
-     Sources tried in order for each ticker:
-     1. Stooq  - direct, no CORS issues, returns CSV, NSE tickers end in .IN
-     2. Yahoo Finance v8 via corsproxy.io  - CORS proxy for Yahoo
-     3. Yahoo Finance v8 via allorigins.win - second CORS proxy fallback
-     4. Yahoo Finance v8 via api.allorigins.win/raw - third fallback
-  ──────────────────────────────────────────────────────────────────────── */
+  /* ── Live price fetch — delegates to shared fetchTickerPrice helper ── */
   const fetchSharePrices=async()=>{
     if(!shares.length)return;
     setPriceLoad(true);setPriceStatus(null);
     let updated=0,failed=0;
 
-    /* Helper: parse a positive number or return null */
-    const pos=v=>{const n=parseFloat(v);return n>0?Math.round(n*100)/100:null;};
-
-    /* ── Source 1: Stooq (direct, no CORS restriction) ── */
-    const tryStooq=async(ticker)=>{
-      /* Stooq uses lowercase tickers with .in suffix for NSE India */
-      const sym=ticker.toLowerCase()+".in";
-      try{
-        const r=await fetch("https://stooq.com/q/l/?s="+encodeURIComponent(sym)+"&f=sd2t2ohlcv&h&e=csv",{mode:"cors"});
-        if(!r.ok)return null;
-        const txt=await r.text();
-        /* CSV: Symbol,Date,Time,Open,High,Low,Close,Volume */
-        const lines=txt.trim().split("\n");
-        if(lines.length<2)return null;
-        const parts=lines[1].split(",");
-        const close=pos(parts[6]);   // Close column
-        return close;
-      }catch{return null;}
-    };
-
-    /* ── Source 2 & 3: Yahoo Finance v8 through a CORS proxy ── */
-    const tryYahooViaProxy=async(ticker)=>{
-      const nse=ticker+".NS";
-      const yUrl=(sym)=>"https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=5d";
-      const proxies=[
-        (u)=>"https://corsproxy.io/?"+encodeURIComponent(u),
-        (u)=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
-        (u)=>"https://thingproxy.freeboard.io/fetch/"+u,
-      ];
-      for(const makeProxy of proxies){
-        for(const sym of[nse,ticker+".BO",ticker]){
-          try{
-            const r=await fetch(makeProxy(yUrl(sym)),{mode:"cors"});
-            if(!r.ok)continue;
-            const txt=await r.text();
-            /* allorigins wraps in {contents:"..."} sometimes */
-            let json;
-            try{json=JSON.parse(txt);}catch{continue;}
-            const payload=json?.contents?JSON.parse(json.contents):json;
-            const meta=payload?.chart?.result?.[0]?.meta;
-            const price=pos(meta?.regularMarketPrice)||pos(meta?.previousClose);
-            if(price)return price;
-          }catch{}
-        }
-      }
-      return null;
-    };
-
-    /* ── Source 3: Yahoo Finance v7 quote endpoint via proxy ── */
-    const tryYahooQuote=async(ticker)=>{
-      const syms=[ticker+".NS",ticker+".BO"].join(",");
-      const url="https://query1.finance.yahoo.com/v7/finance/quote?symbols="+encodeURIComponent(syms)+"&fields=regularMarketPrice,previousClose";
-      const proxies=[
-        "https://corsproxy.io/?"+encodeURIComponent(url),
-        "https://api.allorigins.win/raw?url="+encodeURIComponent(url),
-      ];
-      for(const p of proxies){
-        try{
-          const r=await fetch(p,{mode:"cors"});
-          if(!r.ok)continue;
-          const txt=await r.text();
-          let json;
-          try{json=JSON.parse(txt);}catch{continue;}
-          const payload=json?.contents?JSON.parse(json.contents):json;
-          const results=payload?.quoteResponse?.result||[];
-          for(const q of results){
-            const price=pos(q?.regularMarketPrice)||pos(q?.previousClose);
-            if(price)return price;
-          }
-        }catch{}
-      }
-      return null;
-    };
-
-    const fetchOnePrice=async(sh)=>{
-      const ticker=(sh.ticker||"").trim().toUpperCase();
-      if(!ticker)return{...sh,priceStale:true};
-
-      /* Try each source in order until one succeeds */
-      const price=
-        await tryStooq(ticker)||
-        await tryYahooViaProxy(ticker)||
-        await tryYahooQuote(ticker);
-
-      if(price){
-        updated++;
-        return{...sh,currentPrice:price,priceTs:new Date().toISOString(),priceStale:false};
-      }
-      failed++;
-      return{...sh,priceStale:true};
-    };
-
     /* Fetch one at a time to avoid hammering proxies */
     const upd=[];
     for(const sh of shares){
-      upd.push(await fetchOnePrice(sh));
+      const ticker=(sh.ticker||"").trim().toUpperCase();
+      if(!ticker){failed++;upd.push({...sh,priceStale:true});continue;}
+      const price=await fetchTickerPrice(ticker);
+      if(price){updated++;upd.push({...sh,currentPrice:price,priceTs:new Date().toISOString(),priceStale:false});}
+      else{failed++;upd.push({...sh,priceStale:true});}
     }
 
     upd.forEach(sh=>dispatch({type:"EDIT_SHARE",p:sh}));
@@ -6714,6 +6811,83 @@ const InvestSection=({mf,shares,fd,re=[],dispatch,defaultTab="mf"})=>{
       React.createElement("div",{style:{display:"flex",justifyContent:"flex-end",marginBottom:12}},
         React.createElement(Btn,{v:"success",sz:"sm",onClick:fetchNAV,disabled:navLoad},navLoad?React.createElement(React.Fragment,null,React.createElement("span",{className:"spinr"},"⟳")," Fetching…"):"⟳ Refresh NAV (Live)")
       ),
+      /* ── MF day-change hero card + portfolio value chart ── */
+      (()=>{
+        const todayIST=getISTDateStr();
+        /* All eodNavs dates sorted ascending */
+        const allDates=Object.keys(eodNavs||{}).sort();
+        const prevDate=allDates.filter(d=>d<todayIST).slice(-1)[0];
+        /* Compute total portfolio value for each recorded date */
+        const chartPts=allDates.map(date=>{
+          const navSnap=eodNavs[date]||{};
+          const val=mf.reduce((s,m)=>{const n=navSnap[m.schemeCode];return s+(n?n*m.units:0);},0);
+          /* Convert navDate (DD-MMM-YYYY from mfapi) to short DD-MMM label */
+          const parts=date.split("-");
+          const label=parts.length===3?parts[0]+"-"+parts[1]:date.slice(5);
+          return{value:val,label};
+        }).filter(p=>p.value>0);
+        const prevTotal=prevDate?mf.reduce((s,m)=>{const n=(eodNavs[prevDate]||{})[m.schemeCode];return s+(n?n*m.units:0);},0):null;
+        const mfTotalNow=mf.reduce((s,m)=>s+(m.currentValue&&m.currentValue>0?m.currentValue:m.invested),0);
+        const mfCoANow=mf.reduce((s,m)=>s+(m.avgNav&&m.avgNav>0?m.units*m.avgNav:m.invested),0);
+        const dayChgAbs=prevTotal&&prevTotal>0?mfTotalNow-prevTotal:null;
+        const dayChgPct=prevTotal&&prevTotal>0?((mfTotalNow-prevTotal)/prevTotal*100):null;
+        const overallGain=mfTotalNow-mfCoANow;
+        const showHero=chartPts.length>=1||prevDate;
+        if(!showHero||!mf.length)return null;
+        return React.createElement("div",{style:{marginBottom:16}},
+          /* Hero card */
+          React.createElement(Card,{sx:{marginBottom:12,background:"linear-gradient(135deg,var(--card2),var(--card))",position:"relative",overflow:"hidden"}},
+            React.createElement("div",{style:{position:"absolute",right:-20,top:-20,width:130,height:130,borderRadius:"50%",background:"rgba(109,40,217,.07)"}}),
+            React.createElement("div",{style:{marginBottom:14}},
+              React.createElement("div",{style:{fontSize:10,color:"var(--text5)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}},"Mutual Fund Portfolio · Day Change"),
+              React.createElement("div",{style:{display:"flex",alignItems:"baseline",gap:14,flexWrap:"wrap"}},
+                React.createElement("div",{style:{fontSize:32,fontFamily:"'Sora',sans-serif",fontWeight:800,color:"#6d28d9"}},INR(mfTotalNow)),
+                dayChgPct!==null&&React.createElement("div",{style:{
+                  display:"flex",alignItems:"center",gap:6,
+                  background:dayChgPct>=0?"rgba(22,163,74,.12)":"rgba(239,68,68,.12)",
+                  border:"1px solid "+(dayChgPct>=0?"rgba(22,163,74,.3)":"rgba(239,68,68,.3)"),
+                  borderRadius:20,padding:"4px 12px",
+                }},
+                  React.createElement("span",{style:{fontSize:14,fontWeight:800,color:dayChgPct>=0?"#16a34a":"#ef4444"}},
+                    (dayChgPct>=0?"▲ +":"▼ ")+Math.abs(dayChgPct).toFixed(2)+"%"
+                  ),
+                  React.createElement("span",{style:{fontSize:12,color:dayChgPct>=0?"#16a34a":"#ef4444",opacity:.85}},
+                    (dayChgAbs>=0?"+":"")+INR(dayChgAbs)
+                  )
+                )
+              )
+            ),
+            /* Three quick-stat pills */
+            React.createElement("div",{style:{display:"flex",gap:20,flexWrap:"wrap"}},
+              React.createElement("div",null,
+                React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.6,marginBottom:2}},"Today's Value"),
+                React.createElement("div",{style:{fontSize:15,fontWeight:700,color:"#6d28d9",fontFamily:"'Sora',sans-serif"}},INR(mfTotalNow))
+              ),
+              React.createElement("div",null,
+                React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.6,marginBottom:2}},"Cost of Acquisition"),
+                React.createElement("div",{style:{fontSize:15,fontWeight:700,color:"var(--text4)",fontFamily:"'Sora',sans-serif"}},INR(mfCoANow))
+              ),
+              React.createElement("div",null,
+                React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.6,marginBottom:2}},"Total Gain / Loss"),
+                React.createElement("div",{style:{fontSize:15,fontWeight:700,color:overallGain>=0?"#16a34a":"#ef4444",fontFamily:"'Sora',sans-serif"}},
+                  (overallGain>=0?"+":"")+INR(overallGain)+" ("+mfCoANow>0?((overallGain/mfCoANow*100).toFixed(2)):"0.00"+"%)")
+              ),
+              prevDate&&React.createElement("div",null,
+                React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.6,marginBottom:2}},"Prev Snapshot"),
+                React.createElement("div",{style:{fontSize:13,color:"var(--text5)"}},prevDate+" · "+INR(prevTotal))
+              )
+            )
+          ),
+          /* Portfolio history line chart */
+          chartPts.length>=2&&React.createElement(Card,{sx:{marginBottom:4,padding:"16px 16px 6px"}},
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+              React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"var(--text3)",fontFamily:"'Sora',sans-serif"}},"📈 Portfolio Value History"),
+              React.createElement("div",{style:{fontSize:10,color:"var(--text6)"}},chartPts.length+" data points · last 90 days")
+            ),
+            React.createElement(SvgLine,{data:chartPts,h:160,color:"#6d28d9"})
+          )
+        );
+      })(),
       !mf.length?React.createElement(Empty,{icon:"📊",text:"No mutual funds added yet"}):
       React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14}},
         mf.map(m=>{
@@ -6721,6 +6895,11 @@ const InvestSection=({mf,shares,fd,re=[],dispatch,defaultTab="mf"})=>{
           const currentVal=m.currentValue&&m.currentValue>0?m.currentValue:m.invested;
           const gain=currentVal-trueCoA;
           const gp=trueCoA>0?(((currentVal-trueCoA)/trueCoA)*100).toFixed(1):"0.0";
+          /* Per-fund day-change from eodNavs */
+          const todayIST2=getISTDateStr();
+          const prevNavDt=Object.keys(eodNavs||{}).filter(d=>d<todayIST2).sort().slice(-1)[0];
+          const prevNav=prevNavDt?((eodNavs[prevNavDt]||{})[m.schemeCode]||null):null;
+          const navDayChgPct=prevNav&&m.nav>0?((m.nav-prevNav)/prevNav*100):null;
           return React.createElement(Card,{key:m.id},
             React.createElement("div",{style:{fontSize:13,fontWeight:600,color:"var(--text2)",marginBottom:12,lineHeight:1.45}},m.name),
             /* 4-cell metric grid */
@@ -6735,7 +6914,12 @@ const InvestSection=({mf,shares,fd,re=[],dispatch,defaultTab="mf"})=>{
               ),
               React.createElement("div",null,
                 React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},m.navDate?"Today's NAV ("+m.navDate+")":"Today's NAV"),
-                React.createElement("div",{style:{fontWeight:600,color:m.nav?"#0e7490":"var(--text5)"}},m.nav?"₹"+m.nav.toFixed(2):"--")
+                React.createElement("div",null,
+                  React.createElement("div",{style:{fontWeight:600,color:m.nav?"#0e7490":"var(--text5)"}},m.nav?"₹"+m.nav.toFixed(2):"--"),
+                  navDayChgPct!==null&&React.createElement("div",{style:{fontSize:10,fontWeight:700,marginTop:2,color:navDayChgPct>=0?"#16a34a":"#ef4444"}},
+                    (navDayChgPct>=0?"▲ +":"▼ ")+Math.abs(navDayChgPct).toFixed(2)+"% today"
+                  )
+                )
               ),
               React.createElement("div",null,
                 React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},"Current Value"),
@@ -6795,6 +6979,12 @@ const InvestSection=({mf,shares,fd,re=[],dispatch,defaultTab="mf"})=>{
           const isGain=pnl>=0;
           const priceDiff=sh.currentPrice-sh.buyPrice;
           const hasLivePrice=!!sh.priceTs;
+          /* ── Day-change vs most-recent EOD snapshot (prior to today in IST) ── */
+          const todayIST=getISTDateStr();
+          const prevEODDate=Object.keys(eodPrices||{}).filter(d=>d<todayIST).sort().slice(-1)[0];
+          const prevClose=prevEODDate?(eodPrices[prevEODDate][(sh.ticker||"").trim().toUpperCase()]||null):null;
+          const dayChgPct=prevClose&&sh.currentPrice>0?((sh.currentPrice-prevClose)/prevClose*100):null;
+          const dayChgAbs=prevClose?sh.currentPrice-prevClose:null;
           return React.createElement(Card,{key:sh.id},
             /* ── Header: company + ticker + market value */
             React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}},
@@ -6818,7 +7008,13 @@ const InvestSection=({mf,shares,fd,re=[],dispatch,defaultTab="mf"})=>{
               ),
               React.createElement("div",{style:{padding:"9px 12px",background:"var(--bg4)",textAlign:"right"}},
                 React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.4,marginBottom:3}},hasLivePrice?"Live Price":"Current Price"),
-                React.createElement("div",{style:{fontSize:15,fontWeight:700,fontFamily:"'Sora',sans-serif",color:isGain?"#16a34a":"#ef4444"}},"₹"+Number(sh.currentPrice).toLocaleString("en-IN"))
+                React.createElement("div",{style:{fontSize:15,fontWeight:700,fontFamily:"'Sora',sans-serif",color:isGain?"#16a34a":"#ef4444"}},"₹"+Number(sh.currentPrice).toLocaleString("en-IN")),
+                dayChgPct!==null&&React.createElement("div",{style:{
+                  fontSize:10,fontWeight:700,marginTop:3,
+                  color:dayChgPct>=0?"#16a34a":"#ef4444",
+                }},
+                  (dayChgPct>=0?"▲ +":"▼ ")+Math.abs(dayChgPct).toFixed(2)+"% today"
+                )
               )
             ),
             /* ── P&L box: qty×current - qty×buy */
@@ -6839,6 +7035,20 @@ const InvestSection=({mf,shares,fd,re=[],dispatch,defaultTab="mf"})=>{
                     (isGain?"+":"")+pnlPct.toFixed(2)+"% · ₹"+(priceDiff>=0?"+":"")+Number(priceDiff).toFixed(2)+" per share"
                   )
                 )
+              )
+            ),
+            /* ── Day-change context strip (prev close anchor) ── */
+            prevClose&&React.createElement("div",{style:{
+              display:"flex",justifyContent:"space-between",alignItems:"center",
+              padding:"5px 10px",borderRadius:7,marginBottom:8,
+              background:"var(--accentbg2)",border:"1px solid var(--border2)",
+            }},
+              React.createElement("span",{style:{fontSize:10,color:"var(--text6)"}},
+                "Prev close · "+prevEODDate
+              ),
+              React.createElement("span",{style:{fontSize:10,fontWeight:600,color:"var(--text4)"}},
+                "₹"+Number(prevClose).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})+
+                (dayChgAbs!==null?" ("+(dayChgAbs>=0?"+":"")+Number(dayChgAbs).toFixed(2)+")"  :"")
               )
             ),
             /* Note anchor */
@@ -12789,12 +12999,16 @@ const SettingsSection=({state,dispatch,themeId,setTheme,onResetAll,isMobile})=>{
                     scheduled:(state.scheduled||[]).length,
                     notes:(state.notes||[]).length,
                     nwSnapshots:Object.keys(state.nwSnapshots||{}).length,
+                    eodDays:Object.keys(state.eodPrices||{}).length,
+                    eodNavDays:Object.keys(state.eodNavs||{}).length,
                   },
                   data:{
                     ...state,
                     notes:state.notes||[],
                     scheduled:state.scheduled||[],
                     nwSnapshots:state.nwSnapshots||{},
+                    eodPrices:state.eodPrices||{},
+                    eodNavs:state.eodNavs||{},
                   }
                 };
                 const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
@@ -12846,6 +13060,8 @@ const SettingsSection=({state,dispatch,themeId,setTheme,onResetAll,isMobile})=>{
                         notes:d.notes||[],
                         scheduled:d.scheduled||[],
                         nwSnapshots:d.nwSnapshots||{},
+                        eodPrices:d.eodPrices||{},
+                        eodNavs:d.eodNavs||{},
                       }});
                       if(payload.theme){saveTheme(payload.theme);}
                       const s=payload.summary;
@@ -14039,6 +14255,8 @@ const loadState=()=>{
       notes:(parsed.notes||def.notes||[]),
       goals:(parsed.goals||def.goals||[]),
       nwSnapshots:(parsed.nwSnapshots||def.nwSnapshots||{}),
+      eodPrices:(parsed.eodPrices||{}),
+      eodNavs:(parsed.eodNavs||{}),
     };
   }catch(e){console.warn("Failed to load state:",e);return null;}
 };
@@ -18270,6 +18488,74 @@ function App(){
       due.forEach(sc=>dispatch({type:"EXECUTE_SCHEDULED",sc}));
     }
   },[]);
+
+  /* ── AUTO EOD SNAPSHOT — runs silently after NSE close (15:30 IST) ──────────
+     Uses refs so the interval always reads the latest state without restarting.
+     Fires once on mount then every 5 min. No user interaction required.
+     ─────────────────────────────────────────────────────────────────────────── */
+  const _sharesRef=React.useRef(state.shares);
+  const _eodRef=React.useRef(state.eodPrices);
+  const _mfRef=React.useRef(state.mf);
+  const _eodNavsRef=React.useRef(state.eodNavs);
+  React.useEffect(()=>{_sharesRef.current=state.shares;},[state.shares]);
+  React.useEffect(()=>{_eodRef.current=state.eodPrices;},[state.eodPrices]);
+  React.useEffect(()=>{_mfRef.current=state.mf;},[state.mf]);
+  React.useEffect(()=>{_eodNavsRef.current=state.eodNavs;},[state.eodNavs]);
+  React.useEffect(()=>{
+    const doEODSnap=async()=>{
+      try{
+        if(!navigator.onLine)return;
+        /* Only after NSE close (15:30 IST) on trading weekdays */
+        if(!isAfterNSEClose()||!isTradingWeekday())return;
+        const today=getISTDateStr();
+
+        /* ── Share price EOD snapshot ── */
+        const shares=_sharesRef.current;
+        if(shares&&shares.length){
+          if(!(_eodRef.current&&_eodRef.current[today])){
+            const prices={};
+            for(const sh of shares){
+              const ticker=(sh.ticker||"").trim().toUpperCase();
+              if(!ticker)continue;
+              const price=await fetchTickerPrice(ticker);
+              if(price)prices[ticker]=price;
+            }
+            if(Object.keys(prices).length>0){
+              dispatch({type:"SET_EOD_PRICES",date:today,prices});
+              console.log("[MM] EOD share snapshot saved for",today,"—",Object.keys(prices).length,"tickers");
+            }
+          }
+        }
+
+        /* ── MF NAV EOD snapshot ── */
+        const mf=_mfRef.current;
+        if(mf&&mf.length){
+          /* Fetch NAVs; mfapi returns navDate (the official AMFI date).
+             Skip if we already have a snapshot for that navDate. */
+          const navsByCode={};
+          let navDate="";
+          for(const m of mf){
+            if(!m.schemeCode)continue;
+            const res=await fetchOneNav(m.schemeCode);
+            if(res&&res.nav>0){
+              navsByCode[m.schemeCode]=res.nav;
+              if(!navDate)navDate=res.navDate;
+            }
+          }
+          if(navDate&&Object.keys(navsByCode).length>0){
+            /* Only store if we don't already have this navDate */
+            if(!(_eodNavsRef.current&&_eodNavsRef.current[navDate])){
+              dispatch({type:"SET_EOD_NAVS",date:navDate,navs:navsByCode});
+              console.log("[MM] EOD MF NAV snapshot saved for",navDate,"—",Object.keys(navsByCode).length,"schemes");
+            }
+          }
+        }
+      }catch(e){console.warn("[MM] EOD snapshot error:",e);}
+    };
+    doEODSnap();
+    const iv=setInterval(doEODSnap,5*60*1000); // re-check every 5 min
+    return()=>clearInterval(iv);
+  },[]);
   const isMobile=useIsMobile();
   const theme=THEMES.find(t=>t.id===themeId)||THEMES[0];
   const isLight=!theme.dark;
@@ -18657,11 +18943,11 @@ function App(){
       tab==="banks"&&React.createElement(BankSection,{banks:state.banks,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,cash:state.cash,loans:state.loans||[],isMobile,jumpAccId:txJump?.accType==="bank"?txJump.accId:null,jumpTxId:txJump?.accType==="bank"?txJump.txId:null,jumpSerial:txJump?.accType==="bank"?txJump.serial:null,onClearAccountJump:onClearTxJump}),
       tab==="cards"&&React.createElement(CardSection,{cards:state.cards,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,cash:state.cash,loans:state.loans||[],isMobile,jumpAccId:txJump?.accType==="card"?txJump.accId:null,jumpTxId:txJump?.accType==="card"?txJump.txId:null,jumpSerial:txJump?.accType==="card"?txJump.serial:null,onClearAccountJump:onClearTxJump}),
       tab==="cash"&&React.createElement(CashSection,{cash:state.cash,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,loans:state.loans||[],isMobile,jumpTxId:txJump?.accType==="cash"?txJump.txId:null,jumpSerial:txJump?.accType==="cash"?txJump.serial:null}),
-      tab==="inv_dash"&&React.createElement(InvestDashboard,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,isMobile}),
-      tab==="inv_mf"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"mf",isMobile}),
-      tab==="inv_shares"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"shares",isMobile}),
-      tab==="inv_fd"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"fd",isMobile}),
-      tab==="inv_re"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"re",isMobile}),
+      tab==="inv_dash"&&React.createElement(InvestDashboard,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{}}),
+      tab==="inv_mf"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"mf",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{}}),
+      tab==="inv_shares"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"shares",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{}}),
+      tab==="inv_fd"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"fd",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{}}),
+      tab==="inv_re"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"re",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{}}),
       tab==="loans"&&React.createElement(LoanSection,{loans:state.loans,dispatch,allBanks:state.banks,allCards:state.cards,cash:state.cash,categories:state.categories,payees:state.payees,isMobile}),
       tab==="goals"&&React.createElement(GoalsSection,{goals:state.goals||[],dispatch,isMobile}),
       tab==="insights"&&React.createElement(InsightsSection,{banks:state.banks,cards:state.cards,cash:state.cash,categories:state.categories,dispatch,isMobile,goals:state.goals,mf:state.mf,shares:state.shares,fd:state.fd,re:state.re,loans:state.loans,prefs:state.insightPrefs,onJumpToLedger,nwSnapshots:state.nwSnapshots||{}}),

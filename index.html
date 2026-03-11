@@ -1117,6 +1117,7 @@ const INIT=()=>({
   notes:[],
   goals:[],
   nwSnapshots:{},
+  hiddenTabs:[],
   insightPrefs:{
     currentAge:"",retirementAge:45,
     fireMode:"auto",manualFireNumber:"",
@@ -1164,6 +1165,7 @@ const EMPTY_STATE=()=>({
   nwSnapshots:{},
   eodPrices:{},
   eodNavs:{},
+  hiddenTabs:[],
   insightPrefs:{
     currentAge:"",retirementAge:45,
     fireMode:"auto",manualFireNumber:"",
@@ -1198,7 +1200,7 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.22.8";
+const APP_VERSION="3.23.0";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
@@ -1341,12 +1343,28 @@ const CHANGELOG=[
     "Breakdown tab: SVG asset allocation donut (6 slices: Banks, Cash, MF, Shares, FD, Real Estate) with net worth centred inside; Top Contributors list (all individual accounts/investments ranked by value with animated fill bars and % of total assets); Liabilities breakdown (Credit Cards vs Loans with % share).",
     "Projections tab: 12-month forward projection chart (dashed line continuation of the historical series, based on avg of last 3 months net flow); Milestone Tracker — progress bars for ₹1L, ₹2.5L, ₹5L, ₹10L, ₹25L, ₹50L milestones with ✅ achieved or estimated months remaining; FIRE Projection Detail — FIRE target, amount still needed, estimated years to FIRE at current pace, full progress bar.",
   ]},
+  {version:"3.23.0",date:"2026-03-11",title:"Info Tab: How to Use This App guide for new users",changes:[
+    "New card added at the top of the Info tab: How to Use This App.",
+    "Covers all 18 navigable tabs grouped into Accounts, Investments, and More sections.",
+    "Each tab entry shows its icon, name, one-line purpose, and 2-3 bullet tips on key actions.",
+    "Getting Started quick-start steps walk new users through the recommended setup flow.",
+    "Card uses collapsible section groups so the page stays compact; all sections open by default.",
+  ]},
+  {version:"3.22.9",date:"2026-03-11",title:"Settings: Tab Management — Show or Hide Nav Tabs",changes:[
+    "New Settings tab Tab Management added after Insights Config.",
+    "Shows every navigable tab as a checkbox row: check to show, uncheck to hide from the sidebar.",
+    "Dashboard, Settings, and Info tabs are permanently locked visible and cannot be hidden.",
+    "Tabs grouped by section: Accounts, Investments, and More.",
+    "Hiding the active tab automatically redirects to Dashboard.",
+    "hiddenTabs:[] added to INIT, EMPTY_STATE, loadState, and SET_HIDDEN_TABS reducer case.",
+    "App computes visibleNAV filtered by hiddenTabs for both sidebar renderers.",
+  ]},
   {version:"3.22.8",date:"2026-03-11",title:"Budget Year Cards: Collapse by Default + Single Column Layout",changes:[
-    "Last 3 Years cards now collapse/expand like month cards: current year open by default, prior years collapsed.",
-    "Year card header is fully clickable (cursor pointer) with a rotating chevron to toggle expand/collapse.",
-    "KPI strip, progress bar, category rows, investment section, and footer are all hidden when the card is collapsed.",
-    "Year cards grid changed from 3-column (repeat(3,1fr)) to a single column so all three cards stack vertically.",
-    "Section sub-label updated to mention the click-to-expand behaviour.",
+    "Last 3 Years cards now collapse/expand: current year open by default, prior years collapsed.",
+    "Year card header is clickable with a rotating chevron toggle.",
+    "KPI strip, progress bar, category rows, investment section, and footer hidden when collapsed.",
+    "Year cards changed from 3-column grid to single column so all three cards stack vertically.",
+    "Section sub-label updated to mention click-to-expand behaviour.",
   ]},
   {version:"3.22.7",date:"2026-03-11",title:"Budget: Current Month Card Pinned to Top, Past Months in Descending Order",changes:[
     "Current month card is now always first in the Planned vs Actual grid.",
@@ -2637,6 +2655,7 @@ const reducer=(s,a)=>{
     }
     case"SET_INSIGHT_PREFS":return{...s,insightPrefs:{...s.insightPrefs,...a.p}};
     case"SET_NW_SNAPSHOT":return{...s,nwSnapshots:{...(s.nwSnapshots||{}),[a.month]:a.nw}};
+    case"SET_HIDDEN_TABS":return{...s,hiddenTabs:a.hiddenTabs||[]};
     case"DEL_NW_SNAPSHOT":{const snaps={...(s.nwSnapshots||{})};delete snaps[a.month];return{...s,nwSnapshots:snaps};}
     /* ── EOD price snapshots ── */
     case"SET_EOD_PRICES":{
@@ -12615,6 +12634,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
     {id:"categories",label:"Categories",icon:"🏷"},
     {id:"payees",label:"Payees",icon:"👤"},
     {id:"insightprefs",label:"Insights Config",icon:"🎯"},
+    {id:"tabmgmt",     label:"Tab Management",icon:"🗂"},
     {id:"backup",label:"Data & Backup",icon:"💾"},
   ];
 
@@ -12895,6 +12915,107 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
 
       /* ══ DATA & BACKUP ══ */
       stab==="insightprefs"&&React.createElement(InsightPrefsPanel,{state,dispatch}),
+
+      /* ══ TAB MANAGEMENT ══ */
+      stab==="tabmgmt"&&(()=>{
+        const ALWAYS_VISIBLE=new Set(["dashboard","settings","info"]);
+        const TAB_GROUPS=[
+          {group:"Accounts",items:[
+            {id:"banks",      label:"Bank Accounts",   icon:"🏦"},
+            {id:"cards",      label:"Credit Cards",     icon:"💳"},
+            {id:"cash",       label:"Cash Account",     icon:"💵"},
+            {id:"loans",      label:"Loan Accounts",    icon:"🏠"},
+            {id:"scheduled",  label:"Scheduled",        icon:"🗓"},
+            {id:"unified_ledger",label:"All Transactions",icon:"📋"},
+          ]},
+          {group:"Investments",items:[
+            {id:"inv_dash",   label:"Overview",         icon:"📊"},
+            {id:"inv_mf",     label:"Mutual Funds",     icon:"📈"},
+            {id:"inv_shares", label:"Shares",           icon:"📉"},
+            {id:"inv_fd",     label:"Fixed Deposits",   icon:"🏦"},
+            {id:"inv_re",     label:"Real Estate",      icon:"🏘"},
+          ]},
+          {group:"More",items:[
+            {id:"goals",      label:"Financial Goals",  icon:"🎯"},
+            {id:"insights",   label:"Insights",         icon:"💡"},
+            {id:"notes",      label:"Notes",            icon:"📝"},
+            {id:"calculator", label:"Calculator",       icon:"🔢"},
+            {id:"reports",    label:"Reports",          icon:"📊"},
+          ]},
+        ];
+        const hidden=new Set(state.hiddenTabs||[]);
+        const totalHideable=TAB_GROUPS.reduce((s,g)=>s+g.items.length,0);
+        const visibleCount=totalHideable-hidden.size;
+        const toggle=id=>{
+          const next=new Set(hidden);
+          if(next.has(id))next.delete(id);else next.add(id);
+          dispatch({type:"SET_HIDDEN_TABS",hiddenTabs:[...next]});
+        };
+        return React.createElement("div",{className:"fu"},
+          React.createElement("div",{style:{marginBottom:20}},
+            React.createElement("h3",{style:{fontFamily:"'Sora',sans-serif",fontSize:18,fontWeight:700,color:"var(--text)",marginBottom:4}},"Tab Management"),
+            React.createElement("p",{style:{color:"var(--text5)",fontSize:13,lineHeight:1.6}},"Choose which tabs appear in the sidebar. Hidden tabs are still accessible by showing them again here.")
+          ),
+          /* Summary pill */
+          React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:20,padding:"10px 14px",background:"var(--accentbg2)",borderRadius:10,border:"1px solid var(--border2)"}},
+            React.createElement("span",{style:{fontSize:20}},"🗂"),
+            React.createElement("div",null,
+              React.createElement("div",{style:{fontSize:13,fontWeight:600,color:"var(--text3)"}},"Showing "+visibleCount+" of "+totalHideable+" tabs"),
+              React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},"Dashboard, Settings and Info are always visible")
+            )
+          ),
+          /* Group cards */
+          TAB_GROUPS.map(({group,items})=>
+            React.createElement("div",{key:group,style:{marginBottom:16,background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden"}},
+              /* Group header */
+              React.createElement("div",{style:{padding:"10px 16px",background:"var(--card2)",borderBottom:"1px solid var(--border2)",fontSize:11,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.8}},group),
+              /* Tab rows */
+              React.createElement("div",{style:{padding:"6px 0"}},
+                items.map(({id,label,icon})=>{
+                  const isHidden=hidden.has(id);
+                  return React.createElement("label",{
+                    key:id,
+                    style:{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",cursor:"pointer",transition:"background .12s",borderBottom:"1px solid var(--border2)"},
+                    onMouseEnter:e=>{e.currentTarget.style.background="var(--accentbg2)";},
+                    onMouseLeave:e=>{e.currentTarget.style.background="transparent";},
+                  },
+                    /* Custom checkbox */
+                    React.createElement("div",{
+                      onClick:()=>toggle(id),
+                      style:{
+                        width:18,height:18,borderRadius:5,flexShrink:0,
+                        border:"2px solid "+(isHidden?"var(--border)":"var(--accent)"),
+                        background:isHidden?"transparent":"var(--accent)",
+                        display:"flex",alignItems:"center",justifyContent:"center",
+                        transition:"all .15s",cursor:"pointer",
+                      }
+                    },
+                      !isHidden&&React.createElement("svg",{width:10,height:10,viewBox:"0 0 10 10",fill:"none"},
+                        React.createElement("polyline",{points:"1.5,5 4,7.5 8.5,2",stroke:"white",strokeWidth:1.8,strokeLinecap:"round",strokeLinejoin:"round"})
+                      )
+                    ),
+                    /* Icon + label */
+                    React.createElement("span",{style:{fontSize:16,lineHeight:1}},icon),
+                    React.createElement("span",{style:{flex:1,fontSize:13,fontWeight:500,color:isHidden?"var(--text5)":"var(--text)",transition:"color .15s"}},label),
+                    /* Status pill */
+                    React.createElement("span",{style:{
+                      fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:10,
+                      background:isHidden?"rgba(239,68,68,.1)":"rgba(22,163,74,.1)",
+                      color:isHidden?"#ef4444":"#16a34a",
+                      border:"1px solid "+(isHidden?"rgba(239,68,68,.25)":"rgba(22,163,74,.25)")
+                    }},isHidden?"Hidden":"Visible")
+                  );
+                })
+              )
+            )
+          ),
+          /* Locked tabs info */
+          React.createElement("div",{style:{marginTop:8,padding:"10px 14px",background:"var(--bg4)",borderRadius:10,border:"1px solid var(--border2)",fontSize:12,color:"var(--text5)",display:"flex",alignItems:"center",gap:8}},
+            React.createElement("span",{style:{fontSize:16}},"🔒"),
+            "Dashboard, Settings and Info are permanently visible and cannot be hidden."
+          )
+        );
+      })(),
 
       stab==="backup"&&React.createElement("div",{className:"fu"},
         React.createElement("div",{style:{marginBottom:24}},
@@ -14302,6 +14423,7 @@ const loadState=()=>{
       nwSnapshots:(parsed.nwSnapshots||def.nwSnapshots||{}),
       eodPrices:(parsed.eodPrices||{}),
       eodNavs:(parsed.eodNavs||{}),
+      hiddenTabs:(parsed.hiddenTabs||[]),
     };
   }catch(e){console.warn("Failed to load state:",e);return null;}
 };
@@ -18400,6 +18522,110 @@ const InfoSection=React.memo(({isMobile})=>{
       React.createElement("p",{style:{fontSize:13,color:"var(--text5)",lineHeight:1.6,margin:0}},"Developer details, version history, copyright, and terms of authorised use for ₹ Money Manager.")
     ),
 
+    /* ── How to Use This App ── */
+    (()=>{
+      const[openGroup,setOpenGroup]=React.useState({start:true,accounts:true,investments:true,more:true});
+      const toggle=k=>setOpenGroup(p=>({...p,[k]:!p[k]}));
+      const GrpHdr=({k,label,icon,count})=>React.createElement("div",{
+        onClick:()=>toggle(k),
+        style:{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:8,cursor:"pointer",
+          background:"var(--accentbg2)",border:"1px solid var(--border2)",marginBottom:openGroup[k]?8:0,
+          userSelect:"none",transition:"background .15s"},
+        onMouseEnter:e=>{e.currentTarget.style.background="var(--accentbg)";},
+        onMouseLeave:e=>{e.currentTarget.style.background="var(--accentbg2)";},
+      },
+        React.createElement("span",{style:{fontSize:16}},icon),
+        React.createElement("span",{style:{flex:1,fontSize:13,fontWeight:700,color:"var(--text2)",fontFamily:"'Sora',sans-serif"}},label),
+        React.createElement("span",{style:{fontSize:10,color:"var(--text5)",marginRight:6}},count+" tabs"),
+        React.createElement("span",{style:{fontSize:11,color:"var(--text5)",transform:openGroup[k]?"rotate(180deg)":"rotate(0deg)",display:"inline-block",transition:"transform .2s"}},"▼")
+      );
+      const TabCard=({icon,name,desc,tips})=>React.createElement("div",{style:{
+        display:"flex",gap:12,alignItems:"flex-start",
+        padding:"11px 14px",borderRadius:10,background:"var(--bg4)",
+        border:"1px solid var(--border2)",marginBottom:8,
+      }},
+        React.createElement("div",{style:{
+          width:36,height:36,borderRadius:9,background:"var(--accentbg)",
+          display:"flex",alignItems:"center",justifyContent:"center",
+          fontSize:18,flexShrink:0,
+        }},icon),
+        React.createElement("div",{style:{flex:1,minWidth:0}},
+          React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"var(--text)",fontFamily:"'Sora',sans-serif",marginBottom:3}},name),
+          React.createElement("div",{style:{fontSize:12,color:"var(--text4)",lineHeight:1.6,marginBottom:tips.length?6:0}},desc),
+          tips.length>0&&React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:3}},
+            tips.map((t,i)=>React.createElement("div",{key:i,style:{display:"flex",gap:6,alignItems:"flex-start"}},
+              React.createElement("span",{style:{color:"var(--accent)",fontSize:11,flexShrink:0,marginTop:2}},"•"),
+              React.createElement("span",{style:{fontSize:11,color:"var(--text5)",lineHeight:1.5}},t)
+            ))
+          )
+        )
+      );
+
+      const GROUPS=[
+        {k:"accounts",icon:"🏦",label:"Accounts & Transactions",tabs:[
+          {icon:"🏠",name:"Dashboard",desc:"Your financial command centre — net worth, account balances, recent transactions, and a cash-flow snapshot at a glance.",tips:["Check net worth and month-to-date income vs expenses here every morning.","Click any account card to jump straight to its ledger.","Scroll down to see recent transactions across all accounts."]},
+          {icon:"🏦",name:"Bank Accounts",desc:"Manage all your savings, current, salary, and NRE bank accounts. Add transactions manually or import from Excel/CSV bank statements.",tips:["Use Add Account to create each bank account with its opening balance.","Tap Import Transactions to bulk-load from your bank's Excel statement.","Use the Filter bar to search by date range, category, or keyword."]},
+          {icon:"💳",name:"Credit Cards",desc:"Track every credit card — outstanding balance, credit limit, billing cycle, and all card transactions.",tips:["Add a card with its current outstanding amount as the opening balance.","Record every purchase as a debit transaction to keep outstanding accurate.","Pay Card Bill creates a transfer from your bank and clears the outstanding."]},
+          {icon:"💵",name:"Cash Account",desc:"Track physical cash on hand. Record cash income, expenses, and ATM withdrawals.",tips:["Set the opening cash balance in Settings first.","ATM withdrawals should be a debit in Bank and a credit in Cash.","Use the Transfer feature to move money between cash and bank."]},
+          {icon:"🏠",name:"Loan Accounts",desc:"Track all loans — home, vehicle, personal, education. Shows outstanding balance, EMI, and a full amortization schedule.",tips:["Add each loan with its current outstanding (not original principal).","Use Pay EMI to debit your bank/cash and reduce the loan outstanding in one step.","Tap Amortization to see the full repayment schedule month by month."]},
+          {icon:"🗓",name:"Scheduled",desc:"Set up recurring transactions — monthly SIPs, rent, EMIs, subscriptions — so they execute automatically on due dates.",tips:["Create a scheduled entry with frequency (daily/weekly/monthly/yearly) and next due date.","The app auto-executes due transactions on launch; you can also run them manually.","Month-wise groups show total inflow and outflow for each upcoming month."]},
+          {icon:"📋",name:"All Transactions",desc:"A unified ledger combining every transaction from all banks, cards, and cash in one searchable, filterable view.",tips:["Use the Filter panel to slice by date range, account, category, payee, or type.","Multi-select rows to bulk-categorise, reconcile, void, or delete transactions.","Jump to the source account of any transaction using the account chip on each row."]},
+        ]},
+        {k:"investments",icon:"📈",label:"Investments",tabs:[
+          {icon:"📊",name:"Investment Overview",desc:"A portfolio dashboard showing total invested value, current value, overall P&L, and XIRR across all asset classes.",tips:["Click Refresh Live Prices to fetch the latest share prices and MF NAVs.","The donut chart breaks down your portfolio allocation by asset class.","Use the top KPI cards to monitor overall gain/loss and annualised returns."]},
+          {icon:"📈",name:"Mutual Funds",desc:"Track all MF folios — SIP or lump-sum. Records scheme name, AMFI code, units, purchase NAV, and current NAV.",tips:["Enter the AMFI scheme code to enable live NAV refresh from mfapi.in.","Add each SIP instalment as a separate entry to get accurate XIRR.","The P&L column shows absolute gain and percentage return per folio."]},
+          {icon:"📉",name:"Shares",desc:"Track your stock portfolio. Enter ticker symbols (NSE) and the app fetches live prices via Stooq and Yahoo Finance.",tips:["Use the NSE ticker symbol (e.g. RELIANCE, TCS) for live price refresh.","Record the average buy price to track unrealised gain per holding.","Refresh Live Prices fetches current market prices for all holdings at once."]},
+          {icon:"🏦",name:"Fixed Deposits",desc:"Record all FDs with principal, interest rate, tenure, and maturity date. Auto-calculates maturity value and days remaining.",tips:["Add each FD separately — even from the same bank — for individual tracking.","The maturity value is auto-calculated using compound or simple interest.","Sort by maturity date to plan liquidity needs ahead of time."]},
+          {icon:"🏘",name:"Real Estate",desc:"Log property holdings with purchase price, current estimated value, and rental income to include in net worth.",tips:["Update the current value periodically to keep net worth accurate.","Add rental income as a credit transaction in your bank account too.","Real estate value is included in the net worth calculation on the Dashboard."]},
+        ]},
+        {k:"more",icon:"💡",label:"Planning & Tools",tabs:[
+          {icon:"🎯",name:"Financial Goals",desc:"Set savings goals with a target amount, deadline, and linked account. Visualise progress with a live progress bar.",tips:["Link a goal to the bank account where you are building that corpus.","Set a realistic monthly savings amount and the app shows estimated completion date.","Use multiple goals for emergency fund, vacation, house down-payment, etc."]},
+          {icon:"💡",name:"Insights",desc:"Deep analytical tabs: Budget vs Actual, Cash Flow, Spending Breakdown, Subscriptions, FIRE projection, and Net Worth trends.",tips:["Configure your monthly budget targets in Settings then check the Budget tab here.","The FIRE tab estimates your retirement date based on savings rate and corpus target.","Jump from any category row directly to All Transactions filtered to that category."]},
+          {icon:"📝",name:"Notes",desc:"A free-form notepad for financial reminders, account details, passwords (offline only), and any personal finance notes.",tips:["Colour-code notes by category — bills, goals, reminders, passwords, etc.","Notes are stored offline like all other data — never synced to any server.","Pin important notes to keep them at the top of the list."]},
+          {icon:"🔢",name:"Calculator",desc:"A built-in financial calculator for quick arithmetic — useful when entering transactions or checking totals.",tips:["Supports standard arithmetic plus percentage calculations.","Calculation history is shown below the display for reference.","Use it alongside the ledger to verify import totals or split bills."]},
+          {icon:"📊",name:"Reports",desc:"Detailed reports: category summary, cash-flow trends, net worth history, income vs expense, quarterly breakdown, and more.",tips:["Switch between Snapshot (charts), Detailed (tables), and Heatmap views per report.","Click any category row to jump to All Transactions filtered to that category and period.","Export a full HTML report for a permanent record using the Export button."]},
+          {icon:"⚙",name:"Settings",desc:"Configure accounts, categories, payees, themes, PIN lock, backup/restore, file storage, tab visibility, and budget targets.",tips:["Start here first: add your bank accounts, credit cards, and opening balances.","Use Data and Backup regularly to download a JSON backup to your device.","Tab Management lets you hide tabs you do not use to keep the sidebar clean."]},
+          {icon:"ℹ",name:"Info",desc:"App version, developer info, copyright notice, permitted use terms, privacy policy, and this usage guide.",tips:["Check here for the current version and full changelog.","Review the Data and Privacy section to understand how your data is stored."]},
+        ]},
+      ];
+
+      return Block({icon:"❓",title:"How to Use This App",accent:"#0284c7",children:React.createElement("div",null,
+
+        /* Getting Started steps */
+        React.createElement("div",{style:{
+          background:"linear-gradient(135deg,rgba(2,132,199,.07),rgba(2,132,199,.02))",
+          border:"1px solid rgba(2,132,199,.2)",borderRadius:12,padding:"14px 16px",marginBottom:18,
+        }},
+          React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"var(--accent)",textTransform:"uppercase",letterSpacing:.7,marginBottom:10}},"Quick Start — Recommended Setup for New Users"),
+          [
+            "Open Settings and add your bank accounts with their current balances.",
+            "Add credit cards, entering the current outstanding amount.",
+            "Set your cash balance in Settings, then record recent cash transactions.",
+            "Add any loans (home, vehicle, personal) with outstanding amounts.",
+            "In Investments, add your MF folios, stock holdings, and fixed deposits.",
+            "Go to Insights Config in Settings and set monthly budget targets per category.",
+            "Come back to Dashboard to see your complete financial picture in one place.",
+          ].map((t,i)=>React.createElement("div",{key:i,style:{display:"flex",gap:10,alignItems:"flex-start",marginBottom:7}},
+            React.createElement("div",{style:{
+              width:20,height:20,borderRadius:"50%",background:"var(--accent)",
+              color:"white",fontSize:10,fontWeight:800,flexShrink:0,
+              display:"flex",alignItems:"center",justifyContent:"center",marginTop:1,
+            }},i+1),
+            React.createElement("span",{style:{fontSize:12,color:"var(--text3)",lineHeight:1.6}},t)
+          ))
+        ),
+
+        /* Tab groups */
+        GROUPS.map(({k,icon,label,tabs})=>React.createElement("div",{key:k,style:{marginBottom:12}},
+          GrpHdr({k,icon,label,count:tabs.length}),
+          openGroup[k]&&React.createElement("div",{style:{paddingLeft:4}},
+            tabs.map(t=>TabCard(t))
+          )
+        ))
+
+      )});
+    })(),
+
     /* ── Developer Card ── */
     Block({icon:"👨‍💻",title:"Developer",accent:"var(--accent)",children:React.createElement("div",null,
       Row({label:"Name",       value:"Vivek Hegde Hulimane"}),
@@ -18644,6 +18870,13 @@ function App(){
   const toggleNav=()=>setNavCollapsed(c=>{
     const n=!c;try{localStorage.setItem("mm_nav_col",n?"1":"0");}catch{}return n;
   });
+
+  /* ── Hidden tabs: filter NAV and auto-redirect if active tab is hidden ── */
+  const hiddenTabs=new Set(state.hiddenTabs||[]);
+  const visibleNAV=NAV.filter(n=>n.section==="header"||!hiddenTabs.has(n.id));
+  React.useEffect(()=>{
+    if(tab!=="dashboard"&&hiddenTabs.has(tab))setTab("dashboard");
+  },[tab,state.hiddenTabs]);
 
   /* ── AUTO-UPDATE BANNER ──────────────────────────────────────────────────
      Listens for the 'mm:update-ready' custom event dispatched by the SW
@@ -19134,7 +19367,7 @@ function App(){
     ),
     /* Nav icons */
     React.createElement("nav",{style:{flex:1,padding:"8px 0",overflowY:"auto",width:"100%",display:"flex",flexDirection:"column",alignItems:"center"}},
-      NAV.map(n=>{
+      visibleNAV.map(n=>{
         if(n.section==="header") return React.createElement("div",{key:n.id,style:{
           width:32,height:1,background:"var(--border2)",margin:"10px auto 6px",
         }});
@@ -19204,7 +19437,7 @@ function App(){
       },"‹")
     ),
     React.createElement("nav",{style:{flex:1,padding:"10px 8px",overflowY:"auto"}},
-      NAV.map(n=>{
+      visibleNAV.map(n=>{
         if(n.section==="header") return React.createElement("div",{key:n.id,style:{
           marginTop:14,marginBottom:4,padding:"5px 12px 3px",
           display:"flex",alignItems:"center",gap:7

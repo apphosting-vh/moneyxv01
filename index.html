@@ -935,84 +935,111 @@ const isTradingWeekday=()=>{
 const _pos=v=>{const n=parseFloat(v);return n>0?Math.round(n*100)/100:null;};
 
 /* ── _fetchX: fetch with AbortController timeout + cache:no-store
-   Bypasses SW cached responses and prevents indefinite hangs in PWA mode.
-   For cross-origin URLs, credentials:omit is enforced so CORS proxies don't
-   receive cookies or auth headers (fixes PWA standalone CORS preflight failures).
-   Default timeout 8 s per attempt.                                         */
-const _fetchX=(url,opts={},ms=8000)=>{
+   For cross-origin URLs, credentials:omit is enforced (avoids CORS preflight
+   failures with third-party proxies in PWA standalone mode).
+   Default connection timeout: 5s per attempt.                               */
+const _fetchX=(url,opts={},ms=5000)=>{
   const ctrl=new AbortController();
   const tid=setTimeout(()=>ctrl.abort(),ms);
-  /* Detect cross-origin: external HTTPS URLs that aren't our own origin */
   const isExt=typeof location!=="undefined"&&url.startsWith("http")&&!url.startsWith(location.origin);
   const baseOpts=isExt?{credentials:"omit"}:{};
   return fetch(url,{...baseOpts,...opts,signal:ctrl.signal,cache:"no-store"})
     .finally(()=>clearTimeout(tid));
 };
 
+/* ── _readBody: race r.text() against a 4s timeout.
+   Fixes the key PWA bug: a proxy can send HTTP 200 headers then stall the
+   body stream. The AbortController in _fetchX has already cleared once
+   headers arrive, so r.text() can hang indefinitely.  This helper ensures
+   the body read itself also has a hard deadline.                            */
+const _readBody=(r,ms=4000)=>Promise.race([
+  r.text(),
+  new Promise((_,rej)=>setTimeout(()=>rej(new Error("body timeout")),ms)),
+]);
+
+/* ── _unwrap: extract text from proxy-wrapped or raw responses.
+   allorigins wraps in {contents:"..."}, codetabs returns raw text.         */
+const _unwrap=txt=>{
+  try{const j=JSON.parse(txt);if(typeof j?.contents==="string")return j.contents;}catch{}
+  return txt;
+};
+
 const fetchTickerPrice=async(rawTicker)=>{
   const ticker=(rawTicker||"").trim().toUpperCase();
   if(!ticker)return null;
 
-  /* ── Stooq: proxied attempts (direct CORS blocked in PWA standalone mode) ── */
-  const stooqUrl="https://stooq.com/q/l/?s="+encodeURIComponent(ticker.toLowerCase()+".in")+"&f=sd2t2ohlcv&h&e=csv";
-  for(const getResp of[
-    ()=>_fetchX(stooqUrl,{mode:"cors"}),
-    ()=>_fetchX("https://corsproxy.io/?"+encodeURIComponent(stooqUrl)),
-    ()=>_fetchX("https://api.allorigins.win/raw?url="+encodeURIComponent(stooqUrl)),
-    ()=>_fetchX("https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(stooqUrl)),
-  ]){
-    try{
-      const r=await getResp();if(!r.ok)continue;
-      const txt=await r.text();
-      let csv=txt;try{const j=JSON.parse(txt);if(j?.contents)csv=j.contents;}catch{}
-      const lines=csv.trim().split("\n");if(lines.length<2)continue;
-      const close=_pos(lines[1].split(",")[6]);
-      if(close)return close;
-    }catch{}
-  }
+  /* Overall cap: 28s per ticker regardless of how many attempts hang */
+  let _resolve;
+  const capTimer=new Promise(r=>{_resolve=r;setTimeout(()=>_resolve(null),28000);});
+  const _fetch=async()=>{
 
-  /* ── Yahoo Finance v8 through CORS proxies ── */
-  const yUrl=s=>"https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(s)+"?interval=1d&range=5d";
-  const yProxies=[
-    u=>"https://corsproxy.io/?"+encodeURIComponent(u),
-    u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
-    u=>"https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(u),
-    u=>"https://thingproxy.freeboard.io/fetch/"+u,
-  ];
-  for(const mkP of yProxies){
-    for(const sym of[ticker+".NS",ticker+".BO",ticker]){
+    /* ── Stooq via CORS proxies only (direct stooq.com always fails in PWA mode) ── */
+    const stooqUrl="https://stooq.com/q/l/?s="+encodeURIComponent(ticker.toLowerCase()+".in")+"&f=sd2t2ohlcv&h&e=csv";
+    for(const proxyUrl of[
+      "https://corsproxy.io/?"+encodeURIComponent(stooqUrl),
+      "https://api.allorigins.win/raw?url="+encodeURIComponent(stooqUrl),
+      "https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(stooqUrl),
+    ]){
       try{
-        const r=await _fetchX(mkP(yUrl(sym)));if(!r.ok)continue;
-        const txt=await r.text();
-        let json;try{json=JSON.parse(txt);}catch{continue;}
-        const payload=json?.contents?JSON.parse(json.contents):json;
-        const price=_pos(payload?.chart?.result?.[0]?.meta?.regularMarketPrice)||
-                    _pos(payload?.chart?.result?.[0]?.meta?.previousClose);
-        if(price)return price;
+        const r=await _fetchX(proxyUrl);if(!r.ok)continue;
+        const csv=_unwrap(await _readBody(r));
+        const lines=csv.trim().split("\n");if(lines.length<2)continue;
+        const close=_pos(lines[1].split(",")[6]);
+        if(close){_resolve(close);return close;}
       }catch{}
     }
-  }
 
-  /* ── Yahoo Finance v7 quote endpoint ── */
-  const v7url="https://query1.finance.yahoo.com/v7/finance/quote?symbols="+
-    encodeURIComponent(ticker+".NS,"+ticker+".BO")+"&fields=regularMarketPrice,previousClose";
-  for(const proxy of[
-    "https://corsproxy.io/?"+encodeURIComponent(v7url),
-    "https://api.allorigins.win/raw?url="+encodeURIComponent(v7url),
-  ]){
-    try{
-      const r=await _fetchX(proxy);if(!r.ok)continue;
-      const txt=await r.text();
-      let json;try{json=JSON.parse(txt);}catch{continue;}
-      const payload=json?.contents?JSON.parse(json.contents):json;
-      const results=payload?.quoteResponse?.result||[];
-      for(const q of results){
-        const price=_pos(q?.regularMarketPrice)||_pos(q?.previousClose);
-        if(price)return price;
+    /* ── Yahoo Finance v8 — query1 + query2 hosts, 3 CORS proxies, 3 symbol suffixes ── */
+    const yHosts=["query1.finance.yahoo.com","query2.finance.yahoo.com"];
+    const yProxyFns=[
+      u=>"https://corsproxy.io/?"+encodeURIComponent(u),
+      u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
+      u=>"https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(u),
+    ];
+    for(const host of yHosts){
+      for(const mkP of yProxyFns){
+        for(const sym of[ticker+".NS",ticker+".BO",ticker]){
+          try{
+            const yUrl="https://"+host+"/v8/finance/chart/"+encodeURIComponent(sym)+"?interval=1d&range=5d";
+            const r=await _fetchX(mkP(yUrl));if(!r.ok)continue;
+            const txt=await _readBody(r);
+            let json;try{json=JSON.parse(txt);}catch{continue;}
+            const payload=json?.contents?JSON.parse(json.contents):json;
+            const price=_pos(payload?.chart?.result?.[0]?.meta?.regularMarketPrice)||
+                        _pos(payload?.chart?.result?.[0]?.meta?.previousClose);
+            if(price){_resolve(price);return price;}
+          }catch{}
+        }
       }
-    }catch{}
-  }
-  return null;
+    }
+
+    /* ── Yahoo Finance v7 quote endpoint ── */
+    for(const host of yHosts){
+      const v7url="https://"+host+"/v7/finance/quote?symbols="+
+        encodeURIComponent(ticker+".NS,"+ticker+".BO")+"&fields=regularMarketPrice,previousClose";
+      for(const proxy of[
+        "https://corsproxy.io/?"+encodeURIComponent(v7url),
+        "https://api.allorigins.win/raw?url="+encodeURIComponent(v7url),
+      ]){
+        try{
+          const r=await _fetchX(proxy);if(!r.ok)continue;
+          const txt=await _readBody(r);
+          let json;try{json=JSON.parse(txt);}catch{continue;}
+          const payload=json?.contents?JSON.parse(json.contents):json;
+          const results=payload?.quoteResponse?.result||[];
+          for(const q of results){
+            const price=_pos(q?.regularMarketPrice)||_pos(q?.previousClose);
+            if(price){_resolve(price);return price;}
+          }
+        }catch{}
+      }
+    }
+
+    _resolve(null);
+    return null;
+  };
+
+  return Promise.race([_fetch(),capTimer]);
 };
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -1218,7 +1245,7 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.23.4";
+const APP_VERSION="3.23.5";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
@@ -1360,6 +1387,14 @@ const CHANGELOG=[
     "Trend tab: 12-month net worth line chart with best/worst month callout chips; Asset vs Liability dual-line chart (assets=green solid, liabilities=red dashed — uses existing SvgLine color2 prop); Monthly savings rate bar chart with target reference line (green bars = at/above target, red = below); detailed month-by-month table with Net Worth, Monthly Δ, and Savings Rate columns.",
     "Breakdown tab: SVG asset allocation donut (6 slices: Banks, Cash, MF, Shares, FD, Real Estate) with net worth centred inside; Top Contributors list (all individual accounts/investments ranked by value with animated fill bars and % of total assets); Liabilities breakdown (Credit Cards vs Loans with % share).",
     "Projections tab: 12-month forward projection chart (dashed line continuation of the historical series, based on avg of last 3 months net flow); Milestone Tracker — progress bars for ₹1L, ₹2.5L, ₹5L, ₹10L, ₹25L, ₹50L milestones with ✅ achieved or estimated months remaining; FIRE Projection Detail — FIRE target, amount still needed, estimated years to FIRE at current pace, full progress bar.",
+  ]},
+  {version:"3.23.5",date:"2026-03-12",title:"Fix: Share price refresh stuck in fetching state in PWA mode",changes:[
+    "Root cause: r.text() body-read was not covered by the AbortController timeout -- a proxy could return HTTP 200 headers then stall the body, hanging the await r.text() call indefinitely while the 8s abort had already cleared. With 18 sequential attempts this appeared permanently stuck.",
+    "Fix 1: new _readBody(response, ms) helper races r.text() against an independent 4s timeout, so a stalled body read is killed just like a stalled connection.",
+    "Fix 2: removed the direct stooq.com attempt (mode:cors) -- it always fails in PWA standalone mode before the proxy chain even starts, wasting 5s.",
+    "Fix 3: per-attempt timeout reduced from 8s to 5s.",
+    "Fix 4: query2.finance.yahoo.com added to Yahoo Finance fallback alongside query1 -- doubles the Yahoo endpoints tried (8 proxies x 3 symbols for v8).",
+    "Fix 5: overall per-ticker hard cap of 28s via Promise.race -- even if every attempt hangs, the ticker resolves with null after 28s instead of waiting forever.",
   ]},
   {version:"3.23.4",date:"2026-03-12",title:"Fix: Refresh Live Prices in Chrome PWA app mode -- comprehensive fix",changes:[
     "Root cause (definitive): the SW intercepted cross-origin fetch calls to CORS proxies and could serve a cached network-error, silently killing all price fetches in PWA standalone mode.",

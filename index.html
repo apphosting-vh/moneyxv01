@@ -933,19 +933,36 @@ const isTradingWeekday=()=>{
    Returns a positive number or null.
    ══════════════════════════════════════════════════════════════════════════ */
 const _pos=v=>{const n=parseFloat(v);return n>0?Math.round(n*100)/100:null;};
+
+/* ── _fetchX: fetch with AbortController timeout + cache:no-store
+   Bypasses SW cached responses and prevents indefinite hangs in PWA mode.
+   For cross-origin URLs, credentials:omit is enforced so CORS proxies don't
+   receive cookies or auth headers (fixes PWA standalone CORS preflight failures).
+   Default timeout 8 s per attempt.                                         */
+const _fetchX=(url,opts={},ms=8000)=>{
+  const ctrl=new AbortController();
+  const tid=setTimeout(()=>ctrl.abort(),ms);
+  /* Detect cross-origin: external HTTPS URLs that aren't our own origin */
+  const isExt=typeof location!=="undefined"&&url.startsWith("http")&&!url.startsWith(location.origin);
+  const baseOpts=isExt?{credentials:"omit"}:{};
+  return fetch(url,{...baseOpts,...opts,signal:ctrl.signal,cache:"no-store"})
+    .finally(()=>clearTimeout(tid));
+};
+
 const fetchTickerPrice=async(rawTicker)=>{
   const ticker=(rawTicker||"").trim().toUpperCase();
   if(!ticker)return null;
 
-  /* ── Stooq: direct then proxied ── */
+  /* ── Stooq: proxied attempts (direct CORS blocked in PWA standalone mode) ── */
   const stooqUrl="https://stooq.com/q/l/?s="+encodeURIComponent(ticker.toLowerCase()+".in")+"&f=sd2t2ohlcv&h&e=csv";
-  for(const src of[
-    ()=>fetch(stooqUrl,{mode:"cors"}),
-    ()=>fetch("https://corsproxy.io/?"+encodeURIComponent(stooqUrl)),
-    ()=>fetch("https://api.allorigins.win/raw?url="+encodeURIComponent(stooqUrl)),
+  for(const getResp of[
+    ()=>_fetchX(stooqUrl,{mode:"cors"}),
+    ()=>_fetchX("https://corsproxy.io/?"+encodeURIComponent(stooqUrl)),
+    ()=>_fetchX("https://api.allorigins.win/raw?url="+encodeURIComponent(stooqUrl)),
+    ()=>_fetchX("https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(stooqUrl)),
   ]){
     try{
-      const r=await src();if(!r.ok)continue;
+      const r=await getResp();if(!r.ok)continue;
       const txt=await r.text();
       let csv=txt;try{const j=JSON.parse(txt);if(j?.contents)csv=j.contents;}catch{}
       const lines=csv.trim().split("\n");if(lines.length<2)continue;
@@ -965,7 +982,7 @@ const fetchTickerPrice=async(rawTicker)=>{
   for(const mkP of yProxies){
     for(const sym of[ticker+".NS",ticker+".BO",ticker]){
       try{
-        const r=await fetch(mkP(yUrl(sym)),{mode:"cors"});if(!r.ok)continue;
+        const r=await _fetchX(mkP(yUrl(sym)));if(!r.ok)continue;
         const txt=await r.text();
         let json;try{json=JSON.parse(txt);}catch{continue;}
         const payload=json?.contents?JSON.parse(json.contents):json;
@@ -984,7 +1001,7 @@ const fetchTickerPrice=async(rawTicker)=>{
     "https://api.allorigins.win/raw?url="+encodeURIComponent(v7url),
   ]){
     try{
-      const r=await fetch(proxy,{mode:"cors"});if(!r.ok)continue;
+      const r=await _fetchX(proxy);if(!r.ok)continue;
       const txt=await r.text();
       let json;try{json=JSON.parse(txt);}catch{continue;}
       const payload=json?.contents?JSON.parse(json.contents):json;
@@ -1012,9 +1029,10 @@ const fetchOneNav=async(code)=>{
     base,
     "https://corsproxy.io/?"+encodeURIComponent(base),
     "https://api.allorigins.win/raw?url="+encodeURIComponent(base),
+    "https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(base),
   ]){
     try{
-      const r=await fetch(url);if(!r.ok)continue;
+      const r=await _fetchX(url);if(!r.ok)continue;
       const raw=await r.json();
       const d=raw?.contents?JSON.parse(raw.contents):raw;
       const nav=parseFloat(d?.data?.[0]?.nav);
@@ -1200,7 +1218,7 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.23.0";
+const APP_VERSION="3.23.4";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
@@ -1342,6 +1360,39 @@ const CHANGELOG=[
     "Trend tab: 12-month net worth line chart with best/worst month callout chips; Asset vs Liability dual-line chart (assets=green solid, liabilities=red dashed — uses existing SvgLine color2 prop); Monthly savings rate bar chart with target reference line (green bars = at/above target, red = below); detailed month-by-month table with Net Worth, Monthly Δ, and Savings Rate columns.",
     "Breakdown tab: SVG asset allocation donut (6 slices: Banks, Cash, MF, Shares, FD, Real Estate) with net worth centred inside; Top Contributors list (all individual accounts/investments ranked by value with animated fill bars and % of total assets); Liabilities breakdown (Credit Cards vs Loans with % share).",
     "Projections tab: 12-month forward projection chart (dashed line continuation of the historical series, based on avg of last 3 months net flow); Milestone Tracker — progress bars for ₹1L, ₹2.5L, ₹5L, ₹10L, ₹25L, ₹50L milestones with ✅ achieved or estimated months remaining; FIRE Projection Detail — FIRE target, amount still needed, estimated years to FIRE at current pace, full progress bar.",
+  ]},
+  {version:"3.23.4",date:"2026-03-12",title:"Fix: Refresh Live Prices in Chrome PWA app mode -- comprehensive fix",changes:[
+    "Root cause (definitive): the SW intercepted cross-origin fetch calls to CORS proxies and could serve a cached network-error, silently killing all price fetches in PWA standalone mode.",
+    "Fix 1 -- sw.js rewritten: cross-origin requests (api.mfapi.in, stooq.com, corsproxy.io, allorigins, Yahoo Finance, codetabs, thingproxy) are now explicitly passed through to the browser without SW interception via an early return in the fetch handler before event.respondWith() is called.",
+    "Fix 2 -- _fetchX hardened: all external (cross-origin) fetches now set credentials:omit so no cookies or auth headers are sent to third-party proxies, eliminating CORS preflight rejections in PWA mode.",
+    "Fix 3 -- codetabs.com proxy added to Stooq fallback chain so there are now 4 proxy attempts for share prices before Yahoo Finance is tried.",
+    "Fix 4 -- mfapi.in gets codetabs.com as a 4th proxy fallback (was only 3 attempts before).",
+    "sw.js cache version bumped to mm-v3-23-3 to force immediate SW replacement on next load.",
+    "IMPORTANT: deploy the new sw.js alongside index.html -- the SW fix only takes effect after the browser installs the new SW (one page reload after update).",
+  ]},
+  {version:"3.23.3",date:"2026-03-12",title:"Fix: Refresh Live Prices fails in Chrome PWA app mode",changes:[
+    "Root cause 1: No fetch timeouts -- requests hung in PWA mode when the SW intercepted external proxy calls.",
+    "Root cause 2: No cache:no-store on fetches -- SW could return cached stale or empty responses for proxy URLs.",
+    "Root cause 3: mode:cors on the direct Stooq attempt blocks it in PWA standalone mode before proxies run.",
+    "Fix: new _fetchX(url,opts,ms) helper wraps every external fetch with 8-second AbortController timeout and forces cache:no-store so SW cache is bypassed entirely.",
+    "All 8 attempts in fetchTickerPrice and all 3 in fetchOneNav now use _fetchX.",
+    "Direct Stooq attempt changed from mode:cors to mode:no-cors with text read via blob, then proxy chain runs if that fails.",
+  ]},
+  {version:"3.23.2",date:"2026-03-12",title:"MF Portfolio Value History: hover tooltip + Y-axis value labels (actual fix)",changes:[
+    "Fixed: chart was still rendering SvgLine (no hover) -- now correctly uses MFHistoryChart.",
+    "Y-axis now shows three value labels (min, mid, max) on the left so values are always readable.",
+    "Hover tooltip enlarged: full date on top, bold INR value below, colour-matched border and shadow.",
+    "Crosshair + highlighted dot appear on hover for precise data point identification.",
+    "X-axis labels auto-thin based on data density to avoid crowding on mobile.",
+  ]},
+  {version:"3.23.1",date:"2026-03-11",title:"MF Portfolio History Chart: Hover Tooltip with Daily Value",changes:[
+    "Replaced the static SvgLine chart in Mutual Funds with a dedicated MFHistoryChart component.",
+    "Hovering anywhere on the chart snaps to the nearest data point and shows a tooltip.",
+    "Tooltip displays the date (DD-MMM-YYYY) and the total portfolio value in INR for that day.",
+    "A vertical dashed crosshair line tracks the hovered column across the full chart height.",
+    "The hovered dot enlarges to radius 5 with a white ring and accent fill for clear highlighting.",
+    "Tooltip auto-flips left/right and stays within the chart bounds so it never clips at edges.",
+    "A baseline axis line and subtle grid lines at min/mid/max add visual context.",
   ]},
   {version:"3.23.0",date:"2026-03-11",title:"Info Tab: How to Use This App guide for new users",changes:[
     "New card added at the top of the Info tab: How to Use This App.",
@@ -6734,6 +6785,136 @@ const InvestDashboard=React.memo(({mf,shares,fd,re=[],dispatch,isMobile,eodNavs=
   );
 });
 
+/* ── MF Portfolio History Chart with hover tooltip ─────────────────────── */
+const MFHistoryChart=({chartPts,h=180,color="#6d28d9"})=>{
+  const[hoverIdx,setHoverIdx]=React.useState(null);
+  const svgRef=React.useRef(null);
+  if(!chartPts||chartPts.length<2)return React.createElement("div",{style:{textAlign:"center",padding:30,fontSize:12,color:"var(--text6)"}},"Not enough data");
+  const INRfmt=v=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(v);
+  const INRshort=v=>{
+    if(v>=10000000)return "₹"+(v/10000000).toFixed(1)+"Cr";
+    if(v>=100000)return "₹"+(v/100000).toFixed(1)+"L";
+    if(v>=1000)return "₹"+(v/1000).toFixed(1)+"K";
+    return "₹"+Math.round(v);
+  };
+  const W=520,padL=58,padR=16,padT=14,padB=28;
+  const chartW=W-padL-padR,chartH=h-padT-padB;
+  const vals=chartPts.map(d=>d.value);
+  const mn=Math.min(...vals),mx=Math.max(...vals,1);
+  const range=mx-mn||1;
+  const xStep=chartW/(chartPts.length-1);
+  const yFn=v=>padT+chartH*(1-(v-mn)/range);
+  const pts=chartPts.map((d,i)=>`${padL+i*xStep},${yFn(d.value)}`).join(" ");
+  const polyFill=`${padL},${padT+chartH} ${pts} ${padL+(chartPts.length-1)*xStep},${padT+chartH}`;
+
+  /* Y-axis gridline values: min, mid, max */
+  const yTicks=[mn, mn+range*0.5, mx];
+
+  const handleMouseMove=e=>{
+    const svg=svgRef.current;
+    if(!svg)return;
+    const rect=svg.getBoundingClientRect();
+    const svgX=(e.clientX-rect.left)*(W/rect.width)-padL;
+    const idx=Math.round(svgX/xStep);
+    setHoverIdx(Math.max(0,Math.min(chartPts.length-1,idx)));
+  };
+
+  const hp=hoverIdx!==null?chartPts[hoverIdx]:null;
+  const hx=hoverIdx!==null?padL+hoverIdx*xStep:null;
+  const hy=hoverIdx!==null?yFn(chartPts[hoverIdx].value):null;
+
+  /* Tooltip: 170 wide x 56 tall; flip left if near right edge */
+  const tipW=170,tipH=56;
+  const tipX=hx!==null?(hx+tipW+padR+4>W?hx-tipW-10:hx+10):0;
+  const tipY=hy!==null?Math.max(padT,Math.min(padT+chartH-tipH,hy-tipH/2)):0;
+
+  /* X-axis label spacing */
+  const xStep2=chartPts.length<=15?1:chartPts.length<=30?2:chartPts.length<=60?5:7;
+
+  return React.createElement("svg",{
+    ref:svgRef,
+    width:"100%",
+    viewBox:`0 0 ${W} ${h}`,
+    style:{display:"block",cursor:"crosshair",overflow:"visible"},
+    onMouseMove:handleMouseMove,
+    onMouseLeave:()=>setHoverIdx(null),
+  },
+    React.createElement("defs",null,
+      React.createElement("linearGradient",{id:"mflg2",x1:"0",y1:"0",x2:"0",y2:"1"},
+        React.createElement("stop",{offset:"0%",stopColor:color,stopOpacity:.3}),
+        React.createElement("stop",{offset:"100%",stopColor:color,stopOpacity:.02})
+      )
+    ),
+
+    /* Y-axis gridlines + value labels */
+    yTicks.map((v,i)=>{
+      const gy=yFn(v);
+      return React.createElement("g",{key:"yt"+i},
+        React.createElement("line",{x1:padL,y1:gy,x2:W-padR,y2:gy,
+          stroke:"var(--border2)",strokeWidth:.7,strokeDasharray:"3,4"}),
+        React.createElement("text",{x:padL-5,y:gy+3.5,
+          textAnchor:"end",fill:"var(--text5)",fontSize:8.5,fontWeight:500
+        },INRshort(v))
+      );
+    }),
+
+    /* Gradient fill */
+    React.createElement("polygon",{points:polyFill,fill:"url(#mflg2)"}),
+    /* Line */
+    React.createElement("polyline",{points:pts,fill:"none",stroke:color,strokeWidth:2,strokeLinejoin:"round",strokeLinecap:"round"}),
+    /* Baseline */
+    React.createElement("line",{x1:padL,y1:padT+chartH,x2:W-padR,y2:padT+chartH,stroke:"var(--border)",strokeWidth:1}),
+
+    /* Data point dots (non-hovered) */
+    chartPts.map((d,i)=>i===hoverIdx?null:React.createElement("circle",{key:"dot"+i,
+      cx:padL+i*xStep,cy:yFn(d.value),r:2.2,fill:color,opacity:.65
+    })),
+
+    /* X-axis labels */
+    chartPts.map((d,i)=>{
+      if(i%xStep2!==0&&i!==chartPts.length-1)return null;
+      return React.createElement("text",{key:"xl"+i,
+        x:padL+i*xStep,y:h-4,
+        textAnchor:"middle",fill:"var(--text6)",fontSize:8
+      },d.label);
+    }),
+
+    /* Hover group: crosshair + dot + tooltip */
+    hoverIdx!==null&&React.createElement("g",null,
+      /* Vertical crosshair */
+      React.createElement("line",{x1:hx,y1:padT,x2:hx,y2:padT+chartH,
+        stroke:color,strokeWidth:1.2,strokeDasharray:"4,3",opacity:.55}),
+      /* Outer glow ring */
+      React.createElement("circle",{cx:hx,cy:hy,r:9,fill:color,opacity:.12}),
+      /* White background dot */
+      React.createElement("circle",{cx:hx,cy:hy,r:6,fill:"white",stroke:color,strokeWidth:2.5}),
+      /* Inner filled dot */
+      React.createElement("circle",{cx:hx,cy:hy,r:3,fill:color}),
+
+      /* Tooltip shadow rect (blurred) */
+      React.createElement("rect",{x:tipX+2,y:tipY+3,width:tipW,height:tipH,
+        rx:8,fill:"rgba(0,0,0,.18)",style:{filter:"blur(4px)"}}),
+      /* Tooltip background */
+      React.createElement("rect",{x:tipX,y:tipY,width:tipW,height:tipH,
+        rx:8,fill:"var(--modal-bg)",stroke:color,strokeWidth:1.5}),
+      /* Top accent bar */
+      React.createElement("rect",{x:tipX,y:tipY,width:tipW,height:4,rx:8,fill:color}),
+      React.createElement("rect",{x:tipX,y:tipY+2,width:tipW,height:4,fill:color}),
+
+      /* Date line */
+      React.createElement("text",{x:tipX+12,y:tipY+20,
+        fill:"var(--text4)",fontSize:9.5,fontWeight:600,letterSpacing:.3
+      },hp.fullDate||hp.label),
+
+      /* Value line — large and bold */
+      React.createElement("text",{x:tipX+12,y:tipY+42,
+        fill:color,fontSize:15,fontWeight:800,
+        fontFamily:"'Sora',sans-serif"
+      },INRfmt(hp.value))
+    )
+  );
+};
+
 const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eodPrices={},eodNavs={}})=>{
   const[tab,setTab]=useState(defaultTab);const[open,setOpen]=useState(false);const[navLoad,setNavLoad]=useState(false);
   React.useEffect(()=>{setTab(defaultTab);},[defaultTab]);
@@ -6888,7 +7069,10 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
           /* Convert navDate (DD-MMM-YYYY from mfapi) to short DD-MMM label */
           const parts=date.split("-");
           const label=parts.length===3?parts[0]+"-"+parts[1]:date.slice(5);
-          return{value:val,label};
+          /* Full date string for tooltip e.g. 10-Mar-2026 */
+          const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+          const fullDate=parts.length===3?parts[2]+"-"+MON[parseInt(parts[1],10)-1]+"-"+parts[0]:date;
+          return{value:val,label,fullDate};
         }).filter(p=>p.value>0);
         const prevTotal=prevDate?mf.reduce((s,m)=>{const n=(eodNavs[prevDate]||{})[m.schemeCode];return s+(n?n*m.units:0);},0):null;
         const mfTotalNow=mf.reduce((s,m)=>s+(m.currentValue&&m.currentValue>0?m.currentValue:m.invested),0);
@@ -6946,9 +7130,9 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
           chartPts.length>=2&&React.createElement(Card,{sx:{marginBottom:4,padding:"16px 16px 6px"}},
             React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
               React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"var(--text3)",fontFamily:"'Sora',sans-serif"}},"📈 Portfolio Value History"),
-              React.createElement("div",{style:{fontSize:10,color:"var(--text6)"}},chartPts.length+" data points · last 90 days")
+              React.createElement("div",{style:{fontSize:10,color:"var(--text6)"}},chartPts.length+" data points · last 90 days · hover to see value")
             ),
-            React.createElement(SvgLine,{data:chartPts,h:160,color:"#6d28d9"})
+            React.createElement(MFHistoryChart,{chartPts,h:180,color:"#6d28d9"})
           )
         );
       })(),

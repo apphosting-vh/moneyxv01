@@ -1,200 +1,118 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   Money Manager — Service Worker  (sw.js)
+   ₹ Money Manager — Service Worker  v3.23.3
    ══════════════════════════════════════════════════════════════════════════
 
-   AUTO-UPDATE STRATEGY
-   ────────────────────
-   • CACHE_NAME is versioned. When you push a new release, bump this string.
-     The old cache is deleted on activate, forcing a clean slate.
+   CRITICAL FIX (v3.23.3): Cross-origin requests (live price / NAV API calls)
+   are NO LONGER intercepted by this SW.  Previously the SW could serve a
+   cached network-error response for corsproxy.io / allorigins / mfapi.in,
+   which silently broke "Refresh Live Prices" in Chrome PWA (standalone) mode.
 
-   • Navigation requests (the HTML page itself) use NETWORK-FIRST:
-     – Try the network → if reachable, serve fresh HTML + store in cache.
-     – If offline → fall back to cached HTML.
-     This ensures the browser always notices when new HTML is deployed.
-
-   • All other requests (CDN scripts, fonts, images) use CACHE-FIRST:
-     – If already cached → serve instantly (fast, offline-capable).
-     – Otherwise fetch from network and cache the response.
-
-   UPDATE FLOW
-   ───────────
-   1. New HTML pushed to GitHub Pages.
-   2. Next time the app is opened (or reg.update() fires in background),
-      the browser fetches sw.js. The CACHE_NAME has changed → new SW installs.
-   3. New SW enters "waiting" state (old SW still controls the page).
-   4. HTML page receives the 'updatefound' event → dispatches 'mm:update-ready'
-      custom event to the React app.
-   5. React renders the update banner: "New version available — tap to update".
-   6. User taps "Update Now" (or banner auto-applies if no user interaction).
-   7. Page sends {type:'SKIP_WAITING'} message → new SW calls skipWaiting().
-   8. Browser fires 'controllerchange' → page reloads automatically.
-   9. New SW activates, deletes old caches, serves fresh app.
-
+   Strategy:
+   • Cross-origin requests  → return immediately (browser handles CORS natively)
+   • HTML document          → network-first, fallback to cache
+   • Same-origin assets     → cache-first, fallback to network
    ══════════════════════════════════════════════════════════════════════════ */
 
-/* ── 1. CACHE VERSION ──────────────────────────────────────────────────────
-   IMPORTANT: Bump this string with every GitHub Pages deployment.
-   Pattern: mm-v{app-version}-{deploy-counter}
-   e.g.  mm-v2.0.1-1  →  mm-v2.0.2-1  →  mm-v2.0.2-2
-   ─────────────────────────────────────────────────────────────────────── */
-const CACHE_NAME = 'mm-v3.23.0';
+const CACHE_NAME = 'mm-v3-23-4';
 
-/* ── 2. PRECACHE URLS ──────────────────────────────────────────────────────
-   These are fetched and stored during the install phase so the app can
-   open offline from the very first visit.
-   ─────────────────────────────────────────────────────────────────────── */
+/* Assets to precache on install */
 const PRECACHE_URLS = [
   './',
-  './index.html',
-  /* CDN dependencies — cache on first request rather than precache,
-     to avoid install failures if any CDN is temporarily unreachable. */
+  './manifest.json',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
 ];
 
-/* ── 3. INSTALL ────────────────────────────────────────────────────────────
-   Open the new versioned cache and precache the shell.
-   Do NOT call skipWaiting() here — we let the client trigger it so the
-   user can choose when the update applies (preventing mid-session disruption).
-   ─────────────────────────────────────────────────────────────────────── */
+/* ── Install: precache shell assets ───────────────────────────────────── */
 self.addEventListener('install', event => {
-  console.log('[SW] Installing', CACHE_NAME);
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(PRECACHE_URLS).catch(err => {
-        /* Non-fatal: if precache fails (e.g. offline first install),
-           the fetch handler will populate the cache on demand. */
-        console.warn('[SW] Precache partial failure (non-fatal):', err);
-      });
-    })
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(PRECACHE_URLS.map(u => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
+      .catch(() => self.skipWaiting()) /* don't block install if icons missing */
   );
-  /* DO NOT skipWaiting() here — handled via SKIP_WAITING message below */
 });
 
-/* ── 4. ACTIVATE ───────────────────────────────────────────────────────────
-   Delete every cache whose name doesn't match CACHE_NAME (these are from
-   previous deployments). Then claim all open clients so this SW serves
-   them immediately without requiring another reload.
-   ─────────────────────────────────────────────────────────────────────── */
+/* ── Activate: purge old caches ────────────────────────────────────────── */
 self.addEventListener('activate', event => {
-  console.log('[SW] Activating', CACHE_NAME);
   event.waitUntil(
-    caches.keys().then(cacheNames =>
-      Promise.all(
-        cacheNames
-          .filter(name => name !== CACHE_NAME)
-          .map(name => {
-            console.log('[SW] Deleting old cache:', name);
-            return caches.delete(name);
-          })
-      )
-    ).then(() => {
-      console.log('[SW] Now controlling all clients');
-      return self.clients.claim();
-    })
+    caches.keys()
+      .then(keys => Promise.all(
+        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+      ))
+      .then(() => self.clients.claim())
   );
 });
 
-/* ── 5. FETCH ──────────────────────────────────────────────────────────────
-   Two strategies:
+/* ── Message: SKIP_WAITING from update banner ──────────────────────────── */
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
 
-   A) Navigation (HTML page) → NETWORK FIRST
-      Always try to get a fresh copy of the app shell from GitHub Pages.
-      Cache the fresh response so it's available offline.
-      Only fall back to cache when the network is genuinely unavailable.
-
-   B) Everything else (CDN scripts, fonts, API calls) → CACHE FIRST
-      Serve from cache instantly if available (fast, offline-capable).
-      Fall back to network and cache the result for next time.
-      Do NOT cache opaque cross-origin responses (they can hide errors).
-   ─────────────────────────────────────────────────────────────────────── */
+/* ── Fetch: THE critical handler ───────────────────────────────────────── */
 self.addEventListener('fetch', event => {
-  const { request } = event;
+  const url = new URL(event.request.url);
 
-  /* Ignore non-GET and chrome-extension requests */
-  if (request.method !== 'GET') return;
-  if (request.url.startsWith('chrome-extension://')) return;
+  /* ════════════════════════════════════════════════════════════════════════
+     RULE 1 — Cross-origin requests are NEVER intercepted.
+     This covers all live-price and NAV API calls:
+       • api.mfapi.in          (Mutual Fund NAVs)
+       • stooq.com             (Share prices — direct)
+       • corsproxy.io          (CORS proxy layer)
+       • api.allorigins.win    (CORS proxy layer)
+       • api.codetabs.com      (CORS proxy layer)
+       • thingproxy.freeboard.io (CORS proxy layer)
+       • query1.finance.yahoo.com (Yahoo Finance prices)
+       • fonts.googleapis.com  (Google Fonts — already cross-origin)
+       • fonts.gstatic.com     (Google Fonts assets)
+     Returning without calling event.respondWith() tells the browser to
+     handle the request natively, with full CORS support and no SW cache.
+     ════════════════════════════════════════════════════════════════════════ */
+  if (url.origin !== self.location.origin) return;
 
-  /* ── A: Navigation → Network First ── */
-  if (request.mode === 'navigate') {
+  /* Only handle GET requests for same-origin resources */
+  if (event.request.method !== 'GET') return;
+
+  /* ════════════════════════════════════════════════════════════════════════
+     RULE 2 — Navigation / HTML: network-first.
+     Always try to fetch the freshest HTML from the server. If offline,
+     serve the cached copy. The app's meta Cache-Control tags also push
+     the browser and proxies not to cache the HTML.
+     ════════════════════════════════════════════════════════════════════════ */
+  if (event.request.mode === 'navigate' ||
+      event.request.destination === 'document' ||
+      url.pathname.endsWith('.html') ||
+      url.pathname === '/') {
     event.respondWith(
-      fetch(request, { cache: 'no-cache' })  /* force revalidation */
-        .then(networkResponse => {
-          if (networkResponse && networkResponse.status === 200) {
-            const clone = networkResponse.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
+      fetch(event.request, { cache: 'no-cache' })
+        .then(response => {
+          if (response && response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
           }
-          return networkResponse;
+          return response;
         })
-        .catch(() => {
-          /* Network unavailable → serve cached HTML */
-          console.log('[SW] Offline: serving cached HTML');
-          return caches.match(request).then(cached =>
-            cached || caches.match('./')
-          );
-        })
+        .catch(() => caches.match(event.request))
     );
     return;
   }
 
-  /* ── B: Assets → Cache First ── */
+  /* ════════════════════════════════════════════════════════════════════════
+     RULE 3 — Same-origin static assets (icons, manifest): cache-first.
+     These rarely change; serve from cache when available.
+     ════════════════════════════════════════════════════════════════════════ */
   event.respondWith(
-    caches.match(request).then(cached => {
+    caches.match(event.request).then(cached => {
       if (cached) return cached;
-
-      return fetch(request).then(networkResponse => {
-        /* Only cache valid same-origin or CORS responses */
-        if (
-          networkResponse &&
-          networkResponse.status === 200 &&
-          networkResponse.type !== 'opaque'
-        ) {
-          const clone = networkResponse.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
+      return fetch(event.request).then(response => {
+        if (response && response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
         }
-        return networkResponse;
-      }).catch(() => {
-        /* Asset not in cache and network unavailable — nothing we can do */
-        console.warn('[SW] Asset fetch failed and not cached:', request.url);
+        return response;
       });
     })
   );
-});
-
-/* ── 6. MESSAGE HANDLER ────────────────────────────────────────────────────
-   SKIP_WAITING  → Sent by the React app's "Update Now" button.
-                   Moves this SW from "waiting" to "activating", which then
-                   fires 'controllerchange' in the page → page reloads.
-
-   SYNC_PRICES   → Forward price-sync trigger to all open windows/tabs.
-   ─────────────────────────────────────────────────────────────────────── */
-self.addEventListener('message', event => {
-  if (!event.data) return;
-
-  if (event.data.type === 'SKIP_WAITING') {
-    console.log('[SW] SKIP_WAITING received — activating immediately');
-    self.skipWaiting();
-  }
-
-  if (event.data.type === 'SYNC_PRICES') {
-    self.clients.matchAll({ type: 'window' }).then(clients =>
-      clients.forEach(client =>
-        client.postMessage({ type: 'SYNC_PRICES' })
-      )
-    );
-  }
-});
-
-/* ── 7. BACKGROUND PERIODIC SYNC (optional, where supported) ──────────────
-   If the browser supports Background Sync, this fires even when the app
-   is not open, triggering an update check when the device goes online.
-   ─────────────────────────────────────────────────────────────────────── */
-self.addEventListener('periodicsync', event => {
-  if (event.tag === 'mm-update-check') {
-    event.waitUntil(
-      self.clients.matchAll({ type: 'window' }).then(clients => {
-        clients.forEach(client =>
-          client.postMessage({ type: 'SYNC_PRICES' })
-        );
-      })
-    );
-  }
 });

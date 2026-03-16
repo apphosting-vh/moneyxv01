@@ -1628,10 +1628,38 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.25.6";
+const APP_VERSION="3.25.9";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.25.9",date:"2026-03-16",title:"Shares — 2× Chart & Card Size",changes:[
+    "All ShareHistoryChart SVG dimensions doubled: viewBox W 600→1200, h 240→480, padL 68→136, padR 32→64, padT 18→36, padB 32→64.",
+    "All stroke weights doubled: main line 2.2→4.4, cost-basis dashes 1.4→2.8, gridlines 0.7→1.4, baseline 1→2, crosshair 1.2→2.4.",
+    "All dot/hover element radii doubled: data dots r 2.4→4.8, glow ring r 9→18, white hover dot r 6→12 (stroke 2.5→5), inner dot r 3→6.",
+    "All font sizes doubled: Y-axis labels 9.5→19, X-axis labels 9.5→19, cost-basis tag 7.5→15.",
+    "Tooltip fully doubled: tipW 196→392, tipH 80→160, rx 8→16, border 1.5→3, accent bar 4→8px tall; text positions scaled accordingly (date y+40, value y+84 at 30px, P&L y+122 at 18px).",
+    "Share card grid minimum width doubled: 360px→720px, gap 14→20.",
+    "Chart wrapper padding doubled: 14px→20px; border-radius 12→14; header/legend font sizes doubled (10→14, 9→12); legend line/dash swatch thicknesses doubled.",
+  ]},
+  {version:"3.25.8",date:"2026-03-16",title:"Shares — Larger 30-Day Holding Value Chart",changes:[
+    "Chart height increased from 148px to 240px (62% taller) for much better readability.",
+    "SVG canvas widened from W=520 to W=600 with proportionally larger left/right padding, giving the Y-axis labels more room.",
+    "Y-axis and X-axis label font sizes increased from 8px to 9.5px so date and value labels are clearly legible.",
+    "Share card grid column minimum widened from 270px to 360px so cards fill the extra chart space without squishing.",
+    "Chart wrapper padding increased and border-radius bumped to 12px for a more polished look.",
+    "Hover tooltip widened to 196px × 80px to match the taller chart proportions.",
+  ]},
+  {version:"3.25.7",date:"2026-03-16",title:"Shares — 30-Day Holding Value Chart per Share Card",changes:[
+    "New: each share card in the Investments → Shares tab now displays a 30-Day Holding Value chart directly below the prev-close context strip.",
+    "Y-axis shows the total holding value (qty × EOD closing price) in ₹; X-axis shows the date labels (DD-MMM) for up to the last 30 trading days that have recorded EOD price snapshots for that ticker.",
+    "A dashed amber reference line marks the cost basis (qty × buy price) across the full chart width, making it immediately obvious whether the position is above or below breakeven.",
+    "Chart header shows a ▲/▼ % badge comparing the latest vs earliest recorded value in the window, plus a day-count pill.",
+    "Legend strip below the header identifies the green/red holding-value line and the amber dashed cost-basis line with its ₹ value.",
+    "Interactive hover: crosshair + glow dot + tooltip showing the date, holding value in ₹, and P&L vs cost basis (₹ + %).",
+    "New dedicated ShareHistoryChart component — unique per-card SVG gradient IDs (shlg_{share_id}) prevent gradient bleed across multiple open cards.",
+    "Chart is silently skipped (null render) when fewer than 2 EOD snapshots exist for the ticker — no placeholder or error shown.",
+    "Gradient color automatically adapts: green when current price > buy price (gain), red when below (loss), matching the existing P&L box color scheme.",
+  ]},
   {version:"3.22.4",date:"2026-03-11",title:"FSA — Launch-time File Storage Status Modal & Success Toast",changes:[
     "New: FSA Warning Modal — on app launch (desktop only, fsaSupported() = true), the app now checks the IDB file handle and shows a centered dialog if file storage is not connected. Covers two cases: (a) no handle ever configured — 'File Storage Not Connected', with an 'Open Settings' button that navigates directly to Settings → Data & Backup; (b) handle exists but browser permission lapsed — 'File Storage Permission Needed', with a 'Re-grant Permission' button that calls doFsaGrant() inline. Both cases share a 'Dismiss' button and a 'Don't remind me again' checkbox that persists to localStorage (mm_fsa_no_warn). The modal has a semi-transparent blurred backdrop; clicking the backdrop also dismisses it.",
     "New: FSA Success Toast — when the app launches and the IDB handle already has 'granted' permission (file is connected and ready), a green slide-in toast appears bottom-right confirming 'File storage connected' with the filename shown. Auto-dismisses after 4 seconds; also has a manual × close button.",
@@ -7616,6 +7644,183 @@ const MFHistoryChart=({chartPts,h=180,color="#6d28d9"})=>{
   );
 };
 
+/* ══════════════════════════════════════════════════════════════════════════
+   SHARE HOLDING VALUE HISTORY CHART  (2× size)
+   Renders a per-share 30-day line chart showing (qty × EOD closing price)
+   on the Y-axis and dates on the X-axis. A dashed amber cost-basis line
+   (qty × buyPrice) is drawn as a reference across the full chart width.
+   Supports interactive hover: crosshair + animated tooltip showing date,
+   holding value, and P&L vs cost basis.
+   ══════════════════════════════════════════════════════════════════════════ */
+const ShareHistoryChart=({pts,qty,buyPrice,color="#16a34a",gradId="shlg0"})=>{
+  const[hoverIdx,setHoverIdx]=React.useState(null);
+  const svgRef=React.useRef(null);
+  if(!pts||pts.length<2)return null;
+
+  const INRshort=v=>{
+    if(v>=10000000)return"₹"+(v/10000000).toFixed(2)+"Cr";
+    if(v>=100000)return"₹"+(v/100000).toFixed(2)+"L";
+    if(v>=1000)return"₹"+(v/1000).toFixed(1)+"K";
+    return"₹"+Math.round(v);
+  };
+  const INRfmt=v=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(v);
+  const fmtLbl=dateStr=>{
+    const mn=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const m=parseInt(dateStr.slice(5,7));
+    const d=dateStr.slice(8);
+    return d+"-"+mn[m-1];
+  };
+
+  /* ── All dimensions exactly 2× the previous values ── */
+  const W=1200,padL=136,padR=64,padT=36,padB=64;
+  const h=480;
+  const chartW=W-padL-padR,chartH=h-padT-padB;
+  const costBasis=qty*buyPrice;
+
+  const vals=pts.map(d=>d.value);
+  /* Include cost basis in the min/max so the reference line is always visible */
+  const allVals=[...vals,costBasis];
+  const rawMn=Math.min(...allVals),rawMx=Math.max(...allVals,1);
+  /* Add 4% padding above and below so line never clips at the edges */
+  const pad4=(rawMx-rawMn)*0.04;
+  const mn=rawMn-pad4,mx=rawMx+pad4;
+  const range=mx-mn||1;
+
+  const xStep=chartW/(pts.length-1);
+  const yFn=v=>padT+chartH*(1-(v-mn)/range);
+
+  const ptStr=pts.map((d,i)=>`${padL+i*xStep},${yFn(d.value)}`).join(" ");
+  const polyFill=`${padL},${padT+chartH} ${ptStr} ${padL+(pts.length-1)*xStep},${padT+chartH}`;
+  const yCostBasis=yFn(costBasis);
+
+  /* 3 Y-axis ticks: min, mid, max of actual holding values (not padded) */
+  const yTicks=[rawMn,rawMn+(rawMx-rawMn)*0.5,rawMx];
+
+  const handleMouseMove=e=>{
+    const svg=svgRef.current;if(!svg)return;
+    const rect=svg.getBoundingClientRect();
+    const svgX=(e.clientX-rect.left)*(W/rect.width)-padL;
+    const idx=Math.round(svgX/xStep);
+    setHoverIdx(Math.max(0,Math.min(pts.length-1,idx)));
+  };
+
+  const hp=hoverIdx!==null?pts[hoverIdx]:null;
+  const hx=hoverIdx!==null?padL+hoverIdx*xStep:null;
+  const hy=hoverIdx!==null?yFn(pts[hoverIdx].value):null;
+
+  /* Tooltip: 2× wider and taller */
+  const tipW=392,tipH=160;
+  const tipX=hx!==null?(hx+tipW+padR+12>W?hx-tipW-20:hx+20):0;
+  const tipY=hy!==null?Math.max(padT,Math.min(padT+chartH-tipH,hy-tipH/2)):0;
+
+  /* X-axis label stride — keep labels readable regardless of data density */
+  const stride=pts.length<=10?1:pts.length<=20?2:pts.length<=30?3:5;
+
+  return React.createElement("svg",{
+    ref:svgRef,
+    width:"100%",
+    viewBox:`0 0 ${W} ${h}`,
+    style:{display:"block",cursor:"crosshair",overflow:"visible"},
+    onMouseMove:handleMouseMove,
+    onMouseLeave:()=>setHoverIdx(null),
+  },
+    /* SVG defs: unique gradient per chart so multiple cards don't clash */
+    React.createElement("defs",null,
+      React.createElement("linearGradient",{id:gradId,x1:"0",y1:"0",x2:"0",y2:"1"},
+        React.createElement("stop",{offset:"0%",stopColor:color,stopOpacity:.28}),
+        React.createElement("stop",{offset:"100%",stopColor:color,stopOpacity:.02})
+      )
+    ),
+
+    /* ── Y-axis gridlines + value labels ── */
+    yTicks.map((v,i)=>{
+      const gy=yFn(v);
+      return React.createElement("g",{key:"yt"+i},
+        React.createElement("line",{x1:padL,y1:gy,x2:W-padR,y2:gy,
+          stroke:"var(--border2)",strokeWidth:1.4,strokeDasharray:"6,8"}),
+        React.createElement("text",{x:padL-10,y:gy+7,
+          textAnchor:"end",fill:"var(--text5)",fontSize:19,fontWeight:500
+        },INRshort(v))
+      );
+    }),
+
+    /* ── Cost basis reference line (amber dashed) ── */
+    React.createElement("line",{
+      x1:padL,y1:yCostBasis,x2:W-padR,y2:yCostBasis,
+      stroke:"#f59e0b",strokeWidth:2.8,strokeDasharray:"12,8",opacity:.8
+    }),
+    React.createElement("text",{
+      x:W-padR+6,y:yCostBasis+7,
+      fill:"#f59e0b",fontSize:15,fontWeight:700,textAnchor:"start"
+    },"Cost"),
+
+    /* ── Area fill + line ── */
+    React.createElement("polygon",{points:polyFill,fill:"url(#"+gradId+")"}),
+    React.createElement("polyline",{points:ptStr,fill:"none",stroke:color,
+      strokeWidth:4.4,strokeLinejoin:"round",strokeLinecap:"round"}),
+
+    /* ── Baseline ── */
+    React.createElement("line",{x1:padL,y1:padT+chartH,x2:W-padR,y2:padT+chartH,
+      stroke:"var(--border)",strokeWidth:2}),
+
+    /* ── Data-point dots (non-hovered) ── */
+    pts.map((d,i)=>i===hoverIdx?null:React.createElement("circle",{key:"dot"+i,
+      cx:padL+i*xStep,cy:yFn(d.value),r:4.8,fill:color,opacity:.6
+    })),
+
+    /* ── X-axis date labels ── */
+    pts.map((d,i)=>{
+      if(i%stride!==0&&i!==pts.length-1)return null;
+      return React.createElement("text",{key:"xl"+i,
+        x:padL+i*xStep,y:h-8,
+        textAnchor:"middle",fill:"var(--text6)",fontSize:19
+      },fmtLbl(d.date));
+    }),
+
+    /* ── Hover group: crosshair + glow dot + tooltip ── */
+    hoverIdx!==null&&React.createElement("g",null,
+      /* Vertical crosshair */
+      React.createElement("line",{x1:hx,y1:padT,x2:hx,y2:padT+chartH,
+        stroke:color,strokeWidth:2.4,strokeDasharray:"8,6",opacity:.5}),
+      /* Glow ring */
+      React.createElement("circle",{cx:hx,cy:hy,r:18,fill:color,opacity:.13}),
+      /* White dot */
+      React.createElement("circle",{cx:hx,cy:hy,r:12,fill:"white",stroke:color,strokeWidth:5}),
+      /* Inner dot */
+      React.createElement("circle",{cx:hx,cy:hy,r:6,fill:color}),
+
+      /* Tooltip shadow */
+      React.createElement("rect",{x:tipX+4,y:tipY+6,width:tipW,height:tipH,
+        rx:16,fill:"rgba(0,0,0,.18)",style:{filter:"blur(6px)"}}),
+      /* Tooltip background */
+      React.createElement("rect",{x:tipX,y:tipY,width:tipW,height:tipH,
+        rx:16,fill:"var(--modal-bg)",stroke:color,strokeWidth:3}),
+      /* Top accent bar */
+      React.createElement("rect",{x:tipX,y:tipY,width:tipW,height:8,rx:16,fill:color}),
+      React.createElement("rect",{x:tipX,y:tipY+4,width:tipW,height:8,fill:color}),
+
+      /* Date */
+      React.createElement("text",{x:tipX+24,y:tipY+40,
+        fill:"var(--text4)",fontSize:19,fontWeight:600,letterSpacing:.3
+      },hp.date),
+      /* Holding value */
+      React.createElement("text",{x:tipX+24,y:tipY+84,
+        fill:color,fontSize:30,fontWeight:800,fontFamily:"'Sora',sans-serif"
+      },INRfmt(hp.value)),
+      /* P&L vs cost basis */
+      (()=>{
+        const diff=hp.value-costBasis;
+        const diffPct=costBasis>0?((diff/costBasis)*100).toFixed(2):"0.00";
+        const col=diff>=0?"#16a34a":"#ef4444";
+        const sign=diff>=0?"▲ +":"▼ ";
+        return React.createElement("text",{x:tipX+24,y:tipY+122,
+          fill:col,fontSize:18,fontWeight:600
+        },sign+INRfmt(Math.abs(diff))+" ("+Math.abs(diffPct)+"%)");
+      })()
+    )
+  );
+};
+
 const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eodPrices={},eodNavs={}})=>{
   const[tab,setTab]=useState(defaultTab);const[open,setOpen]=useState(false);const[navLoad,setNavLoad]=useState(false);
   React.useEffect(()=>{setTab(defaultTab);},[defaultTab]);
@@ -7919,7 +8124,7 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
     ),
     /* ── Shares content */
     tab==="shares"&&(!shares.length?React.createElement(Empty,{icon:"📈",text:"No shares added yet"}):
-      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(270px,1fr))",gap:14}},
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(720px,1fr))",gap:20}},
         shares.map(sh=>{
           const currentVal=sh.qty*sh.currentPrice;
           const costBasis=sh.qty*sh.buyPrice;
@@ -8000,6 +8205,61 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
                 (dayChgAbs!==null?" ("+(dayChgAbs>=0?"+":"")+Number(dayChgAbs).toFixed(2)+")"  :"")
               )
             ),
+            /* ── 30-day holding value chart ── */
+            (()=>{
+              const tkr=(sh.ticker||"").trim().toUpperCase();
+              if(!tkr)return null;
+              /* Gather all EOD dates that have a price for this ticker, take last 30 */
+              const sortedDates=Object.keys(eodPrices||{}).sort();
+              const pts30=sortedDates
+                .filter(d=>{const dp=eodPrices[d];return dp&&dp[tkr]!=null&&dp[tkr]>0;})
+                .slice(-30)
+                .map(d=>({date:d,value:sh.qty*eodPrices[d][tkr]}));
+              if(pts30.length<2)return null;
+              const latestVal=pts30[pts30.length-1].value;
+              const oldestVal=pts30[0].value;
+              const costBasisVal=sh.qty*sh.buyPrice;
+              const overallChg=latestVal-oldestVal;
+              const overallChgPct=oldestVal>0?((overallChg/oldestVal)*100).toFixed(2):"0.00";
+              const chgCol=overallChg>=0?"#16a34a":"#ef4444";
+              /* Unique gradient ID: derived from share id so each card is independent */
+              const safeId="shlg_"+(sh.id||"x").replace(/[^a-zA-Z0-9]/g,"_");
+              return React.createElement("div",{style:{marginTop:20,marginBottom:6,
+                background:"var(--bg4)",borderRadius:14,padding:"20px 20px 14px",
+                border:"1px solid var(--border2)"}},
+                /* Chart header row */
+                React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:10}},
+                  React.createElement("span",{style:{fontSize:14,fontWeight:700,
+                    color:"var(--text4)",textTransform:"uppercase",letterSpacing:.5}},"📈 30-Day Holding Value"),
+                  React.createElement("div",{style:{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}},
+                    React.createElement("span",{style:{fontSize:12,padding:"3px 10px",borderRadius:8,fontWeight:700,
+                      background:overallChg>=0?"rgba(22,163,74,.12)":"rgba(239,68,68,.12)",
+                      border:"1px solid "+(overallChg>=0?"rgba(22,163,74,.25)":"rgba(239,68,68,.25)"),
+                      color:chgCol
+                    }},(overallChg>=0?"▲ +":"▼ ")+Math.abs(overallChgPct)+"%"),
+                    React.createElement("span",{style:{fontSize:12,color:"var(--text6)"}},pts30.length+" days")
+                  )
+                ),
+                /* Legend: line colour + cost basis indicator */
+                React.createElement("div",{style:{display:"flex",alignItems:"center",gap:16,marginBottom:8,fontSize:12,color:"var(--text6)"}},
+                  React.createElement("span",{style:{display:"flex",alignItems:"center",gap:5}},
+                    React.createElement("span",{style:{display:"inline-block",width:24,height:3,background:isGain?"#16a34a":"#ef4444",borderRadius:2,verticalAlign:"middle"}}),
+                    "Holding value"
+                  ),
+                  React.createElement("span",{style:{display:"flex",alignItems:"center",gap:5}},
+                    React.createElement("span",{style:{display:"inline-block",width:24,height:0,borderTop:"3px dashed #f59e0b",verticalAlign:"middle"}}),
+                    "Cost basis ("+INR(costBasisVal)+")"
+                  )
+                ),
+                React.createElement(ShareHistoryChart,{
+                  pts:pts30,
+                  qty:sh.qty,
+                  buyPrice:sh.buyPrice,
+                  color:isGain?"#16a34a":"#ef4444",
+                  gradId:safeId
+                })
+              );
+            })(),
             /* Note anchor */
             noteEdit&&noteEdit.type==="sh"&&noteEdit.id===sh.id
               ? React.createElement("div",{style:{marginTop:8}},

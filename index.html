@@ -1635,6 +1635,9 @@ const INIT=()=>({
   notes:[],
   goals:[],
   nwSnapshots:{},
+  eodPrices:{},
+  eodNavs:{},
+  historyCache:{},
   hiddenTabs:[],
   insightPrefs:{
     currentAge:"",retirementAge:45,
@@ -1726,10 +1729,19 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.27.4";
+const APP_VERSION="3.27.5";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.27.5",date:"2026-03-17",title:"Bug Fixes — 9 Core Functional Bugs (State, Reducers, Sort Order)",changes:[
+    "Fix #1-3 — INIT() missing eodPrices, eodNavs, historyCache: On a brand-new first install (no localStorage), these three fields were undefined in state. Every component guards with ||{} so no crash occurred, but the EOD price snapshot, NAV snapshot, and share history cache systems were silently non-functional until the user performed any state-changing action. Added all three fields with empty-object defaults to INIT().",
+    "Fix #4 — RESTORE_ALL reducer used INIT() (sample data) as base instead of EMPTY_STATE(): When restoring a backup, the reducer did {...INIT(),...a.data}. INIT() has sample banks, payees, and transactions. If the backup was missing newer fields (e.g. historyCache from an older backup), those fields inherited undefined from INIT() instead of the safe {} fallback from EMPTY_STATE(). Fixed by changing base to {...EMPTY_STATE(),...a.data}.",
+    "Fix #5 — TRANSFER_TX reducer did not assign _sn to debitTx/creditTx: Transfer transactions (inter-account, card payments, loan EMI) were created without a serial number. The ledger same-day sort tiebreaker uses _sn, so all transfers sorted below regular same-day transactions (rank 0 in the snMap fallback). Fixed by resolving each account's current max _sn via nextSn() before building the transaction objects.",
+    "Fix #6 — EXECUTE_SCHEDULED reducer did not assign _sn to auto-generated transactions: Auto-executed scheduled transactions (run on app load or via 'Execute Now') were built without _sn, causing them to sort to the bottom of same-day entries in the ledger. Fixed by computing nextSn() per target account and stamping each generated transaction.",
+    "Fix #7 — IMPORT_BULK_TX reducer did not assign _sn to imported transactions: All bulk-imported transactions from Excel/CSV had no serial number. Same-date imported rows sorted via the slower _addedAt string fallback, meaning ledger order was determined by import time, not original bank statement order. Fixed by stamping each imported transaction with a sequential _sn starting after the account's current max (existing _sn values are respected via ??).",
+    "Fix #8 — ADD_SCHEDULED dispatch in TxModal silently dropped the 'notes' field: When saving a scheduled transaction via the Add Transaction modal with 'Repeat' toggled on, the notes field was never included in the dispatched payload. Notes entered at creation time were silently lost. (ScheduledSection's own edit form was unaffected.) Fixed by adding notes:f.notes||'' to the ADD_SCHEDULED payload.",
+    "Fix #9 — InvestDashboard component signature did not declare eodPrices prop: App correctly passed eodPrices to InvestDashboard, but the component destructuring did not include it, so the prop was silently dropped. No current functional regression (InvestDashboard does not directly render per-share day-change), but a prop leak and forward-compatibility hazard. Fixed by adding eodPrices={} to the InvestDashboard signature.",
+  ]},
   {version:"3.27.4",date:"2026-03-17",title:"Mutual Fund Chart Enhancement — Cost Basis Line & Dynamic Green/Red Colors",changes:[
     "Added cost of acquisition reference line (amber dashed) to the MF Portfolio Value History chart, matching the Share chart design.",
     "Dynamic green/red coloring: Chart area above the cost line is filled with green gradient (gain), area below is filled with red gradient (loss).",
@@ -3317,8 +3329,15 @@ const reducer=(s,a)=>{
         const srcId=sc.srcId||sc.accId;
         const tgtType=sc.tgtAccType;
         const tgtId=sc.tgtId;
-        const debitTx={...baseTx,type:"debit",cat:"Transfer"};
-        const creditTx={...baseTx,id:uid(),type:"credit",desc:sc.desc||"Transfer In",cat:"Transfer"};
+        /* Compute _sn for source and target before building txs */
+        const _srcTxs=srcType==="bank"?(s.banks.find(b=>b.id===srcId)||{transactions:[]}).transactions
+                     :srcType==="card"?(s.cards.find(c=>c.id===srcId)||{transactions:[]}).transactions
+                     :s.cash.transactions;
+        const _tgtTxs=tgtType==="bank"?(s.banks.find(b=>b.id===tgtId)||{transactions:[]}).transactions
+                     :tgtType==="card"?(s.cards.find(c=>c.id===tgtId)||{transactions:[]}).transactions
+                     :tgtType==="cash"?s.cash.transactions:[];
+        const debitTx={...baseTx,type:"debit",cat:"Transfer",_sn:nextSn(_srcTxs)};
+        const creditTx={...baseTx,id:uid(),type:"credit",desc:sc.desc||"Transfer In",cat:"Transfer",_sn:nextSn(_tgtTxs)};
         /* Debit source */
         if(srcType==="bank")   ns={...ns,banks:ns.banks.map(b=>b.id===srcId?{...b,balance:b.balance-sc.amount,transactions:[...b.transactions,debitTx]}:b)};
         else if(srcType==="cash") ns={...ns,cash:{...ns.cash,balance:ns.cash.balance-sc.amount,transactions:[...ns.cash.transactions,debitTx]}};
@@ -3329,7 +3348,10 @@ const reducer=(s,a)=>{
         else if(tgtType==="card") ns={...ns,cards:ns.cards.map(c=>c.id===tgtId?{...c,outstanding:Math.max(0,c.outstanding-sc.amount),transactions:[...c.transactions,{...creditTx,desc:sc.desc||"Card Payment"}]}:c)};
       }else{
         /* Regular (non-transfer) scheduled transaction */
-        const tx={...baseTx,type:sc.ledgerType};
+        const _accTxs=sc.accType==="bank"?(s.banks.find(b=>b.id===sc.accId)||{transactions:[]}).transactions
+                     :sc.accType==="card"?(s.cards.find(c=>c.id===sc.accId)||{transactions:[]}).transactions
+                     :s.cash.transactions;
+        const tx={...baseTx,type:sc.ledgerType,_sn:nextSn(_accTxs)};
         if(sc.accType==="bank")  ns={...ns,banks:ns.banks.map(b=>b.id===sc.accId?{...b,balance:b.balance+(tx.type==="credit"?tx.amount:-tx.amount),transactions:[...b.transactions,tx]}:b)};
         else if(sc.accType==="card") ns={...ns,cards:ns.cards.map(c=>c.id===sc.accId?{...c,outstanding:c.outstanding+(tx.type==="debit"?tx.amount:-tx.amount),transactions:[...c.transactions,tx]}:c)};
         else if(sc.accType==="cash") ns={...ns,cash:{...ns.cash,balance:ns.cash.balance+(tx.type==="credit"?tx.amount:-tx.amount),transactions:[...ns.cash.transactions,tx]}};
@@ -3356,8 +3378,15 @@ const reducer=(s,a)=>{
     case"TRANSFER_TX":{
       const{srcType,srcId,tgtType,tgtId,tx}=a;
       const _addedAt=new Date().toISOString();
-      const debitTx={...tx,type:"debit",id:uid(),cat:tx.cat||"Transfer",_addedAt};
-      const creditTx={...tx,type:"credit",id:uid(),desc:tx.desc||"Transfer In",cat:tx.cat||"Transfer",_addedAt};
+      /* Compute _sn for source and target accounts before building txs */
+      const srcTxs=srcType==="bank"?(s.banks.find(b=>b.id===srcId)||{transactions:[]}).transactions
+                  :srcType==="card"?(s.cards.find(c=>c.id===srcId)||{transactions:[]}).transactions
+                  :s.cash.transactions;
+      const tgtTxs=tgtType==="bank"?(s.banks.find(b=>b.id===tgtId)||{transactions:[]}).transactions
+                  :tgtType==="card"?(s.cards.find(c=>c.id===tgtId)||{transactions:[]}).transactions
+                  :tgtType==="cash"?s.cash.transactions:[];
+      const debitTx={...tx,type:"debit",id:uid(),cat:tx.cat||"Transfer",_addedAt,_sn:nextSn(srcTxs)};
+      const creditTx={...tx,type:"credit",id:uid(),desc:tx.desc||"Transfer In",cat:tx.cat||"Transfer",_addedAt,_sn:nextSn(tgtTxs)};
       let ns={...s};
       // ── debit source
       if(srcType==="bank")
@@ -3415,7 +3444,7 @@ const reducer=(s,a)=>{
       if(at==="cash")return{...s,cash:{...s.cash,transactions:s.cash.transactions.map(upd)}};
       return s;
     }
-    case"RESTORE_ALL":return{...INIT(),...a.data};
+    case"RESTORE_ALL":return{...EMPTY_STATE(),...a.data};
     case"RESET_ALL":return{...EMPTY_STATE()};
     /* Bulk import: a.accType = bank|card|cash, a.accId, a.txns = array of tx objects */
     case"IMPORT_BULK_TX":{
@@ -3425,20 +3454,26 @@ const reducer=(s,a)=>{
         return{...s,banks:s.banks.map(b=>{
           if(b.id!==accId)return b;
           const netDelta=txns.reduce((d,t)=>d+(t.type==="credit"?t.amount:-t.amount),0);
-          return{...b,transactions:[...b.transactions,...txns],balance:b.balance+netDelta};
+          /* Assign sequential _sn starting after the current max */
+          let sn=nextSn(b.transactions);
+          const stamped=txns.map(t=>({...t,_sn:t._sn??sn++}));
+          return{...b,transactions:[...b.transactions,...stamped],balance:b.balance+netDelta};
         })};
       }
       if(accType==="card"){
         return{...s,cards:s.cards.map(c=>{
           if(c.id!==accId)return c;
-          // credits = payments (reduce outstanding), debits = purchases (increase outstanding)
           const netDelta=txns.reduce((d,t)=>d+(t.type==="debit"?t.amount:-t.amount),0);
-          return{...c,transactions:[...c.transactions,...txns],outstanding:Math.max(0,c.outstanding+netDelta)};
+          let sn=nextSn(c.transactions);
+          const stamped=txns.map(t=>({...t,_sn:t._sn??sn++}));
+          return{...c,transactions:[...c.transactions,...stamped],outstanding:Math.max(0,c.outstanding+netDelta)};
         })};
       }
       if(accType==="cash"){
         const netDelta=txns.reduce((d,t)=>d+(t.type==="credit"?t.amount:-t.amount),0);
-        return{...s,cash:{...s.cash,transactions:[...s.cash.transactions,...txns],balance:s.cash.balance+netDelta}};
+        let sn=nextSn(s.cash.transactions);
+        const stamped=txns.map(t=>({...t,_sn:t._sn??sn++}));
+        return{...s,cash:{...s.cash,transactions:[...s.cash.transactions,...stamped],balance:s.cash.balance+netDelta}};
       }
       return s;
     }
@@ -5706,6 +5741,7 @@ const TxModal=({onAdd,onClose,categories,payees,txTypes,allAccounts,currentAccou
       dispatch({type:"ADD_SCHEDULED",p:{
         desc:f.desc||f.payee||"Scheduled Transaction",
         payee:f.payee,amount:+f.amount,cat:f.cat,txType:f.txType,tags:f.tags,
+        notes:f.notes||"",
         ledgerType:ledger,
         accType:acc?acc.accType:"bank",accId:acc?acc.id:(currentAccountId||""),
         frequency:f.schedFreq,nextDate:f.date,endDate:f.schedEnd||null,
@@ -7313,7 +7349,7 @@ const ImportFDModal=({onImport,onClose})=>{
 /* ══════════════════════════════════════════════════════════════════════════
    INVESTMENT DASHBOARD
    ══════════════════════════════════════════════════════════════════════════ */
-const InvestDashboard=React.memo(({mf,shares,fd,re=[],dispatch,isMobile,eodNavs={}})=>{
+const InvestDashboard=React.memo(({mf,shares,fd,re=[],dispatch,isMobile,eodPrices={},eodNavs={}})=>{
   /* ── Refresh state ── */
   const[refreshing,setRefreshing]=useState(false);
   const[refreshStatus,setRefreshStatus]=useState(null); /* {ok,msg,ts,navOk,sharesOk} */

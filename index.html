@@ -1445,6 +1445,72 @@ const fetchOneNav=async(code)=>{
   return null;
 };
 
+/* ══════════════════════════════════════════════════════════════════════════
+   HISTORICAL PRICE FETCHER
+   Fetches full daily closing prices for a share from the acquisition date
+   to today. Uses Yahoo Finance v8 /chart endpoint with period1/period2.
+   Tries NSE (.NS), BSE (.BO), and bare ticker across both Yahoo hosts,
+   with three CORS proxy fallbacks per attempt.
+   Returns [{date:"YYYY-MM-DD", close:number}] sorted ascending, or null.
+   ══════════════════════════════════════════════════════════════════════════ */
+const fetchHistoricalPrices=async(rawTicker,fromDate)=>{
+  const ticker=(rawTicker||"").trim().toUpperCase();
+  if(!ticker||!fromDate)return null;
+
+  /* Overall cap: 30 s */
+  let _resolve;
+  const capTimer=new Promise(r=>{_resolve=r;setTimeout(()=>_resolve(null),30000);});
+
+  const _fetch=async()=>{
+    /* Convert YYYY-MM-DD to UNIX timestamp (IST midnight = UTC 18:30 prev day; use UTC midnight as safe approximation) */
+    const period1=Math.floor(new Date(fromDate+"T00:00:00Z").getTime()/1000);
+    const period2=Math.floor(Date.now()/1000)+86400; /* +1 day buffer */
+
+    const hosts=["query1.finance.yahoo.com","query2.finance.yahoo.com"];
+    const symbols=[ticker+".NS",ticker+".BO",ticker];
+    const proxyFns=[
+      u=>"https://corsproxy.io/?"+encodeURIComponent(u),
+      u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u),
+      u=>"https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(u),
+    ];
+
+    for(const sym of symbols){
+      for(const host of hosts){
+        const yUrl="https://"+host+"/v8/finance/chart/"+encodeURIComponent(sym)
+          +"?interval=1d&period1="+period1+"&period2="+period2;
+        for(const mkProxy of proxyFns){
+          try{
+            const r=await _fetchX(mkProxy(yUrl),{},10000);
+            if(!r.ok)continue;
+            const txt=await _readBody(r,8000);
+            let json;try{json=JSON.parse(txt);}catch{continue;}
+            const payload=json?.contents?JSON.parse(json.contents):json;
+            const result=payload?.chart?.result?.[0];
+            if(!result)continue;
+            const timestamps=result.timestamp||[];
+            const closes=result.indicators?.quote?.[0]?.close||[];
+            if(timestamps.length<2)continue;
+            const pts=[];
+            for(let i=0;i<timestamps.length;i++){
+              const c=closes[i];
+              if(c==null||isNaN(c)||c<=0)continue;
+              /* Convert UNIX ts → IST date string */
+              const istMs=timestamps[i]*1000+(5.5*60*60*1000);
+              const istDate=new Date(istMs).toISOString().split("T")[0];
+              pts.push({date:istDate,close:Math.round(c*100)/100});
+            }
+            if(pts.length>=2){_resolve(pts);return pts;}
+          }catch{}
+        }
+      }
+    }
+    _resolve(null);
+    return null;
+  };
+
+  return Promise.race([_fetch(),capTimer]);
+};
+
 const INIT=()=>({
   categories:[
     {id:"c_inc",  name:"Income",      color:"#16a34a", classType:"Income",      subs:[{id:"cs_sal",name:"Salary"},{id:"cs_free",name:"Freelance"},{id:"cs_int",name:"Interest"},{id:"cs_div",name:"Dividends"}]},
@@ -1516,10 +1582,10 @@ const INIT=()=>({
     {id:"mf3",name:"Parag Parikh Flexi Cap Fund - Direct Growth",schemeCode:"122639",units:52.18,invested:40000,avgNav:766.58,nav:0,currentValue:0,navDate:""},
   ],
   shares:[
-    {id:"sh1",company:"Reliance Industries",ticker:"RELIANCE",qty:50,buyPrice:2250,currentPrice:2890},
-    {id:"sh2",company:"Infosys",ticker:"INFY",qty:100,buyPrice:1450,currentPrice:1720},
-    {id:"sh3",company:"Tata Consultancy Services",ticker:"TCS",qty:25,buyPrice:3200,currentPrice:3850},
-    {id:"sh4",company:"HDFC Bank",ticker:"HDFCBANK",qty:75,buyPrice:1580,currentPrice:1648},
+    {id:"sh1",company:"Reliance Industries",ticker:"RELIANCE",qty:50,buyPrice:2250,currentPrice:2890,buyDate:"2023-04-15"},
+    {id:"sh2",company:"Infosys",ticker:"INFY",qty:100,buyPrice:1450,currentPrice:1720,buyDate:"2023-08-20"},
+    {id:"sh3",company:"Tata Consultancy Services",ticker:"TCS",qty:25,buyPrice:3200,currentPrice:3850,buyDate:"2024-01-10"},
+    {id:"sh4",company:"HDFC Bank",ticker:"HDFCBANK",qty:75,buyPrice:1580,currentPrice:1648,buyDate:"2024-06-05"},
   ],
   re:[
     {id:"re1",title:"3BHK Apartment - Whitefield",acquisitionCost:7500000,acquisitionDate:"2019-06-15",currentValue:12500000,notes:"Residential flat in Prestige Shantiniketan, Whitefield. Rented out at ₹32,000/month."},
@@ -1628,10 +1694,19 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.25.9";
+const APP_VERSION="3.26.0";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.26.0",date:"2026-03-17",title:"Shares — Acquisition Date & Full Historical Price Chart",changes:[
+    "New field: 'Date of Acquisition' added to both the Add Share modal and the Edit Share modal (Settings → Investments). Stored as buyDate on each share object. Defaults to today when adding a new share.",
+    "New async function fetchHistoricalPrices(ticker, fromDate): fetches full daily closing prices from the acquisition date to today using the Yahoo Finance v8 /chart endpoint (period1/period2 UNIX timestamps). Tries symbols ticker+'.NS', ticker+'.BO', and bare ticker across both query1 and query2 Yahoo hosts, with three CORS proxy fallbacks (corsproxy.io → allorigins → codetabs). 30 s overall timeout; 10 s per attempt; body-read capped at 8 s. Returns array of {date: 'YYYY-MM-DD', close: number} sorted ascending.",
+    "New ShareHistoryPanel component: a dedicated React component with useState/useEffect that handles the async history fetch per share card. Renders a loading spinner while fetching, then the full history chart once data arrives. Falls back to the existing 30-day EOD snapshot chart when no buyDate is set, or shows a descriptive error message when the fetch fails.",
+    "Chart title changes from '30-Day Holding Value' to '📈 Holding Value History' and shows the date range pill (first date → last date) when full historical data is displayed.",
+    "ShareHistoryPanel is cleanly independent per card — each card fetches its own history in parallel; cancels pending requests on unmount or when ticker/buyDate changes.",
+    "Backward-compatible: existing shares without buyDate continue to show the 30-day EOD snapshot chart unchanged.",
+    "Sample data (INIT) updated: all four demo shares now carry a representative buyDate.",
+  ]},
   {version:"3.25.9",date:"2026-03-16",title:"Shares — 2× Chart & Card Size",changes:[
     "All ShareHistoryChart SVG dimensions doubled: viewBox W 600→1200, h 240→480, padL 68→136, padR 32→64, padT 18→36, padB 32→64.",
     "All stroke weights doubled: main line 2.2→4.4, cost-basis dashes 1.4→2.8, gridlines 0.7→1.4, baseline 1→2, crosshair 1.2→2.4.",
@@ -7821,12 +7896,177 @@ const ShareHistoryChart=({pts,qty,buyPrice,color="#16a34a",gradId="shlg0"})=>{
   );
 };
 
+/* ══════════════════════════════════════════════════════════════════════════
+   SHARE HISTORY PANEL
+   Self-contained component per share card that:
+   • Fetches full daily closing prices from buyDate to today (Yahoo Finance v8)
+   • Shows a loading spinner while the request is in flight
+   • Renders the full holding-value history chart when data arrives
+   • Shows a terse error notice if the fetch fails
+   • Falls back to the existing 30-day EOD snapshot chart when no buyDate is set
+   ══════════════════════════════════════════════════════════════════════════ */
+const ShareHistoryPanel=({sh,eodPrices})=>{
+  const[histLoading,setHistLoading]=React.useState(false);
+  /* null = no buyDate / not tried; [] = fetch done but empty/failed; [...] = success */
+  const[histPts,setHistPts]=React.useState(null);
+
+  const tkr=(sh.ticker||"").trim().toUpperCase();
+  const isGain=sh.currentPrice>=sh.buyPrice;
+  const costBasisVal=sh.qty*sh.buyPrice;
+  const safeId="shlg_"+(sh.id||"x").replace(/[^a-zA-Z0-9]/g,"_");
+
+  React.useEffect(()=>{
+    if(!tkr||!sh.buyDate){setHistPts(null);setHistLoading(false);return;}
+    let cancelled=false;
+    setHistLoading(true);
+    setHistPts(null);
+    fetchHistoricalPrices(tkr,sh.buyDate)
+      .then(pts=>{
+        if(cancelled)return;
+        setHistPts(pts&&pts.length>=2?pts:[]);
+        setHistLoading(false);
+      })
+      .catch(()=>{if(!cancelled){setHistPts([]);setHistLoading(false);}});
+    return()=>{cancelled=true;};
+  },[tkr,sh.buyDate]);
+
+  /* ── 1. Loading ── */
+  if(histLoading)return React.createElement("div",{style:{
+    marginTop:16,padding:"14px 18px",borderRadius:12,
+    background:"var(--bg4)",border:"1px solid var(--border2)",
+    display:"flex",alignItems:"center",gap:10
+  }},
+    React.createElement("span",{className:"spinr",style:{fontSize:16}},"⟳"),
+    React.createElement("span",{style:{fontSize:13,color:"var(--text5)"}},
+      "Fetching price history since "+sh.buyDate+"…"
+    )
+  );
+
+  /* ── 2. Full historical data ── */
+  if(histPts&&histPts.length>=2){
+    const chartPts=histPts.map(p=>({date:p.date,value:sh.qty*p.close}));
+    const latestVal=chartPts[chartPts.length-1].value;
+    const oldestVal=chartPts[0].value;
+    const overallChg=latestVal-oldestVal;
+    const overallChgPct=oldestVal>0?((overallChg/oldestVal)*100).toFixed(2):"0.00";
+    const chgCol=overallChg>=0?"#16a34a":"#ef4444";
+    const firstDate=chartPts[0].date;
+    const lastDate=chartPts[chartPts.length-1].date;
+    return React.createElement("div",{style:{marginTop:20,marginBottom:6,
+      background:"var(--bg4)",borderRadius:14,padding:"20px 20px 14px",
+      border:"1px solid var(--border2)"}},
+      /* Header */
+      React.createElement("div",{style:{display:"flex",alignItems:"center",flexWrap:"wrap",gap:8,marginBottom:10}},
+        React.createElement("span",{style:{fontSize:14,fontWeight:700,color:"var(--text4)",
+          textTransform:"uppercase",letterSpacing:.5}},"📈 Holding Value History"),
+        React.createElement("span",{style:{fontSize:11,color:"var(--text5)",
+          background:"var(--accentbg2)",border:"1px solid var(--border2)",
+          borderRadius:6,padding:"2px 8px",whiteSpace:"nowrap"}},
+          firstDate+" → "+lastDate
+        ),
+        React.createElement("div",{style:{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}},
+          React.createElement("span",{style:{fontSize:12,padding:"3px 10px",borderRadius:8,fontWeight:700,
+            background:overallChg>=0?"rgba(22,163,74,.12)":"rgba(239,68,68,.12)",
+            border:"1px solid "+(overallChg>=0?"rgba(22,163,74,.25)":"rgba(239,68,68,.25)"),
+            color:chgCol
+          }},(overallChg>=0?"▲ +":"▼ ")+Math.abs(overallChgPct)+"%"),
+          React.createElement("span",{style:{fontSize:12,color:"var(--text6)"}},chartPts.length+" days")
+        )
+      ),
+      /* Legend */
+      React.createElement("div",{style:{display:"flex",alignItems:"center",gap:16,marginBottom:8,fontSize:12,color:"var(--text6)"}},
+        React.createElement("span",{style:{display:"flex",alignItems:"center",gap:5}},
+          React.createElement("span",{style:{display:"inline-block",width:24,height:3,
+            background:isGain?"#16a34a":"#ef4444",borderRadius:2,verticalAlign:"middle"}}),
+          "Holding value"
+        ),
+        React.createElement("span",{style:{display:"flex",alignItems:"center",gap:5}},
+          React.createElement("span",{style:{display:"inline-block",width:24,height:0,
+            borderTop:"3px dashed #f59e0b",verticalAlign:"middle"}}),
+          "Cost basis ("+INR(costBasisVal)+")"
+        )
+      ),
+      React.createElement(ShareHistoryChart,{
+        pts:chartPts,qty:sh.qty,buyPrice:sh.buyPrice,
+        color:isGain?"#16a34a":"#ef4444",gradId:safeId
+      })
+    );
+  }
+
+  /* ── 3. Historical fetch failed (buyDate set but no data) ── */
+  if(histPts!==null&&histPts.length===0&&sh.buyDate){
+    /* Show error then fall through to 30-day EOD below with a warning badge */
+  }
+
+  /* ── 4. Fallback: 30-day EOD snapshot ── */
+  if(!tkr)return null;
+  const sortedDates=Object.keys(eodPrices||{}).sort();
+  const pts30=sortedDates
+    .filter(d=>{const dp=eodPrices[d];return dp&&dp[tkr]!=null&&dp[tkr]>0;})
+    .slice(-30)
+    .map(d=>({date:d,value:sh.qty*eodPrices[d][tkr]}));
+
+  /* Error notice when fetch failed and no EOD fallback either */
+  if(pts30.length<2){
+    if(sh.buyDate&&histPts!==null)return React.createElement("div",{style:{
+      marginTop:12,padding:"9px 14px",borderRadius:9,fontSize:12,
+      background:"rgba(239,68,68,.06)",border:"1px solid rgba(239,68,68,.18)",
+      color:"#ef4444"
+    }},"⚠ Could not fetch price history for "+sh.ticker+". Check your connection or try again later.");
+    return null;
+  }
+
+  const latestVal=pts30[pts30.length-1].value;
+  const oldestVal=pts30[0].value;
+  const overallChg=latestVal-oldestVal;
+  const overallChgPct=oldestVal>0?((overallChg/oldestVal)*100).toFixed(2):"0.00";
+  const chgCol=overallChg>=0?"#16a34a":"#ef4444";
+
+  return React.createElement("div",{style:{marginTop:20,marginBottom:6,
+    background:"var(--bg4)",borderRadius:14,padding:"20px 20px 14px",
+    border:"1px solid var(--border2)"}},
+    /* Header */
+    React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:10}},
+      React.createElement("span",{style:{fontSize:14,fontWeight:700,color:"var(--text4)",
+        textTransform:"uppercase",letterSpacing:.5}},"📈 30-Day Holding Value"),
+      sh.buyDate&&histPts!==null&&React.createElement("span",{style:{fontSize:10,
+        color:"#f59e0b",background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.25)",
+        borderRadius:5,padding:"2px 7px"}},"history unavailable"),
+      React.createElement("div",{style:{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}},
+        React.createElement("span",{style:{fontSize:12,padding:"3px 10px",borderRadius:8,fontWeight:700,
+          background:overallChg>=0?"rgba(22,163,74,.12)":"rgba(239,68,68,.12)",
+          border:"1px solid "+(overallChg>=0?"rgba(22,163,74,.25)":"rgba(239,68,68,.25)"),
+          color:chgCol
+        }},(overallChg>=0?"▲ +":"▼ ")+Math.abs(overallChgPct)+"%"),
+        React.createElement("span",{style:{fontSize:12,color:"var(--text6)"}},pts30.length+" days")
+      )
+    ),
+    /* Legend */
+    React.createElement("div",{style:{display:"flex",alignItems:"center",gap:16,marginBottom:8,fontSize:12,color:"var(--text6)"}},
+      React.createElement("span",{style:{display:"flex",alignItems:"center",gap:5}},
+        React.createElement("span",{style:{display:"inline-block",width:24,height:3,
+          background:isGain?"#16a34a":"#ef4444",borderRadius:2,verticalAlign:"middle"}}),
+        "Holding value"
+      ),
+      React.createElement("span",{style:{display:"flex",alignItems:"center",gap:5}},
+        React.createElement("span",{style:{display:"inline-block",width:24,height:0,
+          borderTop:"3px dashed #f59e0b",verticalAlign:"middle"}}),
+        "Cost basis ("+INR(costBasisVal)+")"
+      )
+    ),
+    React.createElement(ShareHistoryChart,{
+      pts:pts30,qty:sh.qty,buyPrice:sh.buyPrice,
+      color:isGain?"#16a34a":"#ef4444",gradId:safeId
+    })
+  );
+};
+
 const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eodPrices={},eodNavs={}})=>{
   const[tab,setTab]=useState(defaultTab);const[open,setOpen]=useState(false);const[navLoad,setNavLoad]=useState(false);
   React.useEffect(()=>{setTab(defaultTab);},[defaultTab]);
   const[srch,setSrch]=useState("");const[results,setResults]=useState([]);const[searching,setSearching]=useState(false);
   const[mfF,setMfF]=useState({name:"",schemeCode:"",units:"",avgNav:"",invested:"",notes:""});
-  const[shF,setShF]=useState({company:"",ticker:"",qty:"",buyPrice:"",currentPrice:"",notes:""});
+  const[shF,setShF]=useState({company:"",ticker:"",qty:"",buyPrice:"",currentPrice:"",buyDate:TODAY(),notes:""});
   const[fdF,setFdF]=useState({bank:"",amount:"",rate:"",startDate:TODAY(),maturityDate:"",maturityAmount:"",notes:""});
   const[editFd,setEditFd]=useState(null);
   const[reF,setReF]=useState({title:"",acquisitionCost:"",acquisitionDate:TODAY(),currentValue:"",notes:""});
@@ -8144,9 +8384,10 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
             React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}},
               React.createElement("div",null,
                 React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"var(--text)",marginBottom:4,lineHeight:1.3}},sh.company),
-                React.createElement("div",{style:{display:"flex",gap:6,alignItems:"center"}},
+                React.createElement("div",{style:{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}},
                   React.createElement(Badge,{ch:sh.ticker,col:"#0e7490"}),
-                  hasLivePrice&&React.createElement("span",{style:{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:10,background:"rgba(22,163,74,.15)",color:"#16a34a",border:"1px solid rgba(22,163,74,.3)"}},"● LIVE")
+                  hasLivePrice&&React.createElement("span",{style:{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:10,background:"rgba(22,163,74,.15)",color:"#16a34a",border:"1px solid rgba(22,163,74,.3)"}},"● LIVE"),
+                  sh.buyDate&&React.createElement("span",{style:{fontSize:9,fontWeight:600,padding:"2px 7px",borderRadius:10,background:"var(--accentbg2)",color:"var(--text5)",border:"1px solid var(--border2)"}},"📅 since "+sh.buyDate)
                 )
               ),
               React.createElement("div",{style:{textAlign:"right"}},
@@ -8205,61 +8446,8 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
                 (dayChgAbs!==null?" ("+(dayChgAbs>=0?"+":"")+Number(dayChgAbs).toFixed(2)+")"  :"")
               )
             ),
-            /* ── 30-day holding value chart ── */
-            (()=>{
-              const tkr=(sh.ticker||"").trim().toUpperCase();
-              if(!tkr)return null;
-              /* Gather all EOD dates that have a price for this ticker, take last 30 */
-              const sortedDates=Object.keys(eodPrices||{}).sort();
-              const pts30=sortedDates
-                .filter(d=>{const dp=eodPrices[d];return dp&&dp[tkr]!=null&&dp[tkr]>0;})
-                .slice(-30)
-                .map(d=>({date:d,value:sh.qty*eodPrices[d][tkr]}));
-              if(pts30.length<2)return null;
-              const latestVal=pts30[pts30.length-1].value;
-              const oldestVal=pts30[0].value;
-              const costBasisVal=sh.qty*sh.buyPrice;
-              const overallChg=latestVal-oldestVal;
-              const overallChgPct=oldestVal>0?((overallChg/oldestVal)*100).toFixed(2):"0.00";
-              const chgCol=overallChg>=0?"#16a34a":"#ef4444";
-              /* Unique gradient ID: derived from share id so each card is independent */
-              const safeId="shlg_"+(sh.id||"x").replace(/[^a-zA-Z0-9]/g,"_");
-              return React.createElement("div",{style:{marginTop:20,marginBottom:6,
-                background:"var(--bg4)",borderRadius:14,padding:"20px 20px 14px",
-                border:"1px solid var(--border2)"}},
-                /* Chart header row */
-                React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:10}},
-                  React.createElement("span",{style:{fontSize:14,fontWeight:700,
-                    color:"var(--text4)",textTransform:"uppercase",letterSpacing:.5}},"📈 30-Day Holding Value"),
-                  React.createElement("div",{style:{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}},
-                    React.createElement("span",{style:{fontSize:12,padding:"3px 10px",borderRadius:8,fontWeight:700,
-                      background:overallChg>=0?"rgba(22,163,74,.12)":"rgba(239,68,68,.12)",
-                      border:"1px solid "+(overallChg>=0?"rgba(22,163,74,.25)":"rgba(239,68,68,.25)"),
-                      color:chgCol
-                    }},(overallChg>=0?"▲ +":"▼ ")+Math.abs(overallChgPct)+"%"),
-                    React.createElement("span",{style:{fontSize:12,color:"var(--text6)"}},pts30.length+" days")
-                  )
-                ),
-                /* Legend: line colour + cost basis indicator */
-                React.createElement("div",{style:{display:"flex",alignItems:"center",gap:16,marginBottom:8,fontSize:12,color:"var(--text6)"}},
-                  React.createElement("span",{style:{display:"flex",alignItems:"center",gap:5}},
-                    React.createElement("span",{style:{display:"inline-block",width:24,height:3,background:isGain?"#16a34a":"#ef4444",borderRadius:2,verticalAlign:"middle"}}),
-                    "Holding value"
-                  ),
-                  React.createElement("span",{style:{display:"flex",alignItems:"center",gap:5}},
-                    React.createElement("span",{style:{display:"inline-block",width:24,height:0,borderTop:"3px dashed #f59e0b",verticalAlign:"middle"}}),
-                    "Cost basis ("+INR(costBasisVal)+")"
-                  )
-                ),
-                React.createElement(ShareHistoryChart,{
-                  pts:pts30,
-                  qty:sh.qty,
-                  buyPrice:sh.buyPrice,
-                  color:isGain?"#16a34a":"#ef4444",
-                  gradId:safeId
-                })
-              );
-            })(),
+            /* ── Holding value chart (full history or 30-day EOD fallback) ── */
+            React.createElement(ShareHistoryPanel,{sh,eodPrices}),
             /* Note anchor */
             noteEdit&&noteEdit.type==="sh"&&noteEdit.id===sh.id
               ? React.createElement("div",{style:{marginTop:8}},
@@ -8523,10 +8711,13 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
         React.createElement(Field,{label:"Quantity"},React.createElement("input",{className:"inp",type:"number",placeholder:"0",value:shF.qty,onChange:e=>setShF(p=>({...p,qty:e.target.value}))})),
         React.createElement(Field,{label:"Buy Price (₹)"},React.createElement("input",{className:"inp",type:"number",placeholder:"0",value:shF.buyPrice,onChange:e=>setShF(p=>({...p,buyPrice:e.target.value}))}))
       ),
-      React.createElement(Field,{label:"Current Price (₹)"},React.createElement("input",{className:"inp",type:"number",placeholder:"0",value:shF.currentPrice,onChange:e=>setShF(p=>({...p,currentPrice:e.target.value}))})),
+      React.createElement("div",{className:"grid-2col"},
+        React.createElement(Field,{label:"Date of Acquisition"},React.createElement("input",{className:"inp",type:"date",value:shF.buyDate,onChange:e=>setShF(p=>({...p,buyDate:e.target.value}))})),
+        React.createElement(Field,{label:"Current Price (₹)"},React.createElement("input",{className:"inp",type:"number",placeholder:"0",value:shF.currentPrice,onChange:e=>setShF(p=>({...p,currentPrice:e.target.value}))}))
+      ),
       React.createElement(Field,{label:"Notes (optional)"},React.createElement("textarea",{className:"inp",placeholder:"Broker, target price, holding notes…",value:shF.notes,onChange:e=>setShF(p=>({...p,notes:e.target.value})),style:{resize:"vertical",minHeight:60,lineHeight:1.6,fontSize:12}})),
       React.createElement("div",{style:{display:"flex",flexWrap:"wrap",gap:8,marginTop:4}},
-        React.createElement(Btn,{onClick:()=>{if(!shF.company||!shF.qty)return;dispatch({type:"ADD_SHARE",p:{id:uid(),...shF,qty:+shF.qty,buyPrice:+shF.buyPrice,currentPrice:+shF.currentPrice}});setShF({company:"",ticker:"",qty:"",buyPrice:"",currentPrice:"",notes:""});setOpen(false);},sx:{flex:"1 1 auto",justifyContent:"center"}},"Add Share"),
+        React.createElement(Btn,{onClick:()=>{if(!shF.company||!shF.qty)return;dispatch({type:"ADD_SHARE",p:{id:uid(),...shF,qty:+shF.qty,buyPrice:+shF.buyPrice,currentPrice:+shF.currentPrice,buyDate:shF.buyDate||TODAY()}});setShF({company:"",ticker:"",qty:"",buyPrice:"",currentPrice:"",buyDate:TODAY(),notes:""});setOpen(false);},sx:{flex:"1 1 auto",justifyContent:"center"}},"Add Share"),
         React.createElement(Btn,{v:"secondary",onClick:()=>setOpen(false)},"Cancel")
       )
     ),
@@ -13736,7 +13927,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
 
   // ── Share Edit Modal
   const ShareEditModal=({sh,onClose})=>{
-    const[f,setF]=useState({company:sh.company,ticker:sh.ticker,qty:String(sh.qty),buyPrice:String(sh.buyPrice),currentPrice:String(sh.currentPrice),notes:sh.notes||""});
+    const[f,setF]=useState({company:sh.company,ticker:sh.ticker,qty:String(sh.qty),buyPrice:String(sh.buyPrice),currentPrice:String(sh.currentPrice),buyDate:sh.buyDate||TODAY(),notes:sh.notes||""});
     const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
     return React.createElement(Modal,{title:"Edit Share Holding",onClose,w:420},
       React.createElement("div",{className:"grid-2col"},
@@ -13744,11 +13935,12 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
         React.createElement(Field,{label:"Ticker"},React.createElement("input",{className:"inp",value:f.ticker,onChange:set("ticker"),onInput:e=>e.target.value=e.target.value.toUpperCase()})),
         React.createElement(Field,{label:"Quantity"},React.createElement("input",{className:"inp",type:"number",value:f.qty,onChange:set("qty")})),
         React.createElement(Field,{label:"Buy Price (₹)"},React.createElement("input",{className:"inp",type:"number",value:f.buyPrice,onChange:set("buyPrice")})),
+        React.createElement(Field,{label:"Date of Acquisition"},React.createElement("input",{className:"inp",type:"date",value:f.buyDate,onChange:set("buyDate")})),
         React.createElement(Field,{label:"Current Price (₹)"},React.createElement("input",{className:"inp",type:"number",value:f.currentPrice,onChange:set("currentPrice")}))
       ),
       React.createElement(Field,{label:"Notes"},React.createElement("textarea",{className:"inp",value:f.notes,onChange:set("notes"),placeholder:"Broker, target price, holding notes…",style:{resize:"vertical",minHeight:60,lineHeight:1.6,fontSize:13}})),
       React.createElement("div",{style:{display:"flex",flexWrap:"wrap",gap:8,marginTop:4}},
-        React.createElement(Btn,{onClick:()=>{dispatch({type:"EDIT_SHARE",p:{id:sh.id,...f,qty:+f.qty,buyPrice:+f.buyPrice,currentPrice:+f.currentPrice}});onClose();},sx:{flex:"1 1 120px",justifyContent:"center"}},"Save Changes"),
+        React.createElement(Btn,{onClick:()=>{dispatch({type:"EDIT_SHARE",p:{id:sh.id,...f,qty:+f.qty,buyPrice:+f.buyPrice,currentPrice:+f.currentPrice,buyDate:f.buyDate||TODAY()}});onClose();},sx:{flex:"1 1 120px",justifyContent:"center"}},"Save Changes"),
         React.createElement(Btn,{v:"secondary",onClick:onClose,sx:{justifyContent:"center",minWidth:70}},"Cancel")
       )
     );
@@ -13992,14 +14184,15 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
         React.createElement("div",{style:{marginBottom:20}},
           React.createElement("div",{style:{fontSize:13,color:"var(--text4)",fontWeight:600,marginBottom:10,display:"flex",alignItems:"center",gap:8}},React.createElement("span",null,"📈"),"Shares / Equities (",state.shares.length,")"),
           React.createElement(Card,{sx:{padding:0,overflow:"hidden"}},
-            React.createElement("div",{style:{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr auto",gap:10,padding:"9px 16px",borderBottom:"1px solid #1c3050",fontSize:11,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.5}},"Company","Ticker","Qty","Buy","Now",""),
+            React.createElement("div",{style:{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr auto",gap:10,padding:"9px 16px",borderBottom:"1px solid #1c3050",fontSize:11,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.5}},"Company","Ticker","Qty","Buy","Now","Acquired",""),
             state.shares.length===0&&React.createElement(Empty,{icon:"📈",text:"No shares"}),
-            state.shares.map(sh=>React.createElement("div",{key:sh.id,style:{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr auto",gap:10,padding:"12px 16px",borderBottom:"1px solid #0a1828",alignItems:"center"},className:"tr"},
+            state.shares.map(sh=>React.createElement("div",{key:sh.id,style:{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr auto",gap:10,padding:"12px 16px",borderBottom:"1px solid #0a1828",alignItems:"center"},className:"tr"},
               React.createElement("div",{style:{fontSize:13,fontWeight:600,color:"var(--text2)"}},sh.company),
               React.createElement(Badge,{ch:sh.ticker,col:"#0e7490"}),
               React.createElement("div",{style:{fontSize:13,color:"var(--text3)"}},sh.qty),
               React.createElement("div",{style:{fontSize:13,color:"var(--text3)"}},"₹"+sh.buyPrice),
               React.createElement("div",{style:{fontSize:13,fontWeight:600,color:"#16a34a"}},"₹"+sh.currentPrice),
+              React.createElement("div",{style:{fontSize:12,color:"var(--text5)"}},(sh.buyDate||"—")),
               React.createElement(RowActions,{onEdit:()=>setEditShare(sh),onDelete:()=>askDelete(`Remove "${sh.company}" from your portfolio?`,()=>dispatch({type:"DEL_SHARE",id:sh.id}))})
             ))
           )

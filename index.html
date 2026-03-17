@@ -1683,6 +1683,7 @@ const EMPTY_STATE=()=>({
   nwSnapshots:{},
   eodPrices:{},
   eodNavs:{},
+  historyCache:{},
   hiddenTabs:[],
   insightPrefs:{
     currentAge:"",retirementAge:45,
@@ -1725,25 +1726,20 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.28.1";
+const APP_VERSION="3.27.3";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
-  {version:"3.28.1",date:"2026-03-17",title:"Bug Fix — MF Chart Color Reference Error",changes:[
-    "Fixed: ReferenceError 'color is not defined' in MFHistoryChart hover tooltip section.",
-    "Root cause: When removing the color parameter and implementing dynamic coloring, hover tooltip elements were still referencing the old 'color' variable instead of the new 'lineColor' variable.",
-    "Fix: All hover tooltip color references (crosshair, dots, tooltip border, accent bars, value text) now use 'lineColor' which dynamically changes between green/red based on portfolio position vs CoA.",
-  ]},
-  {version:"3.28.0",date:"2026-03-17",title:"Mutual Fund Portfolio Chart Redesign — Cost Line & Dynamic Colors",changes:[
-    "Redesigned: MF Portfolio Value History chart now matches the Share chart design with Cost of Acquisition (CoA) reference line and dynamic coloring based on gain/loss position.",
-    "New: Amber dashed CoA line displayed across the chart showing the total cost of acquisition for the entire MF portfolio.",
-    "New: Chart area dynamically colored — GREEN fill when portfolio value is above CoA (gains), RED fill when below CoA (losses).",
-    "New: Portfolio value line color changes dynamically — green when current value ≥ CoA, red when below CoA.",
-    "New: Data point dots also color-coded — green dots above CoA, red dots below CoA, providing instant visual feedback at each data point.",
-    "New: Legend strip below chart header showing 'Portfolio Value' (gradient line) and 'Cost of Acquisition' (dashed amber line with amount).",
-    "Technical: Uses SVG rectangle-based clipping paths for clean color separation at the CoA line, same technique as the fixed share chart.",
-    "Enhancement: CoA value is included in min/max calculation ensuring the reference line is always visible within the chart bounds.",
-    "Backward compatible: If CoA is not provided or is zero, chart falls back to original purple gradient for compatibility.",
+  {version:"3.27.3",date:"2026-03-17",title:"Fix — Share History Chart Caching & Display Issues",changes:[
+    "Fixed: Share holding value chart no longer shows 'History Unavailable' and correctly displays historical data from the date of share acquisition every time.",
+    "New: Historical price data is now cached in state.historyCache with timestamps, preventing redundant API calls when switching tabs.",
+    "Cache validation: Price history is fetched once per day (24-hour cache validity) and reused across tab switches, significantly improving performance and reducing API load.",
+    "Cache structure: {ticker: {data: [...], timestamp: number, fromDate: string}} — stores price data, fetch time, and acquisition date for validation.",
+    "Cache pruning: Entries older than 90 days are automatically removed from localStorage to keep storage lean.",
+    "ShareHistoryPanel now checks cache first before fetching: if cached data exists and is less than 24 hours old and matches the share's buyDate, it uses cached data immediately.",
+    "Updated state structure: historyCache:{} added to EMPTY_STATE, loadState merge, backup/restore data envelope, and FSA file storage — backward-compatible with existing backups.",
+    "New reducer action SET_HISTORY_CACHE: stores fetched price data with timestamp for cache management.",
+    "All InvestSection calls now pass historyCache prop to enable caching functionality.",
   ]},
   {version:"3.27.2",date:"2026-03-17",title:"Bug Fixes — Share Chart Colors & Yearly Report FY Labels",changes:[
     "Fixed: Share holding value history chart now correctly displays green fill above the cost line and red fill below the cost line. Previously showed incorrect brown/tan colors due to faulty clipping path implementation.",
@@ -3448,6 +3444,21 @@ const reducer=(s,a)=>{
       const pruned={};
       keys.slice(-30).forEach(k=>{pruned[k]=updated[k];});
       return{...s,eodPrices:pruned};
+    }
+    case"SET_HISTORY_CACHE":{
+      /* Cache historical price data with timestamp */
+      /* a.ticker = ticker symbol, a.data = array of {date, close}, a.timestamp = fetch time */
+      const updated={...(s.historyCache||{}),[a.ticker]:{data:a.data,timestamp:a.timestamp,fromDate:a.fromDate}};
+      /* Prune old cache entries (>90 days old) to keep localStorage lean */
+      const now=Date.now();
+      const cleaned={};
+      Object.keys(updated).forEach(tkr=>{
+        const entry=updated[tkr];
+        if(entry.timestamp&&(now-entry.timestamp)<(90*24*60*60*1000)){
+          cleaned[tkr]=entry;
+        }
+      });
+      return{...s,historyCache:cleaned};
     }
     case"ADD_GOAL":return{...s,goals:[...(s.goals||[]),{...a.p,id:uid(),createdAt:new Date().toISOString()}]};
     case"EDIT_GOAL":return{...s,goals:(s.goals||[]).map(g=>g.id===a.p.id?{...g,...a.p}:g)};
@@ -7657,7 +7668,7 @@ const InvestDashboard=React.memo(({mf,shares,fd,re=[],dispatch,isMobile,eodNavs=
 });
 
 /* ── MF Portfolio History Chart with hover tooltip ─────────────────────── */
-const MFHistoryChart=({chartPts,h=180,costOfAcquisition=0})=>{
+const MFHistoryChart=({chartPts,h=180,color="#6d28d9"})=>{
   const[hoverIdx,setHoverIdx]=React.useState(null);
   const svgRef=React.useRef(null);
   if(!chartPts||chartPts.length<2)return React.createElement("div",{style:{textAlign:"center",padding:30,fontSize:12,color:"var(--text6)"}},"Not enough data");
@@ -7670,30 +7681,16 @@ const MFHistoryChart=({chartPts,h=180,costOfAcquisition=0})=>{
   };
   const W=520,padL=58,padR=16,padT=14,padB=28;
   const chartW=W-padL-padR,chartH=h-padT-padB;
-  
-  /* Include costOfAcquisition in min/max so the CoA line is always visible */
   const vals=chartPts.map(d=>d.value);
-  const allVals=costOfAcquisition>0?[...vals,costOfAcquisition]:vals;
-  const rawMn=Math.min(...allVals),rawMx=Math.max(...allVals,1);
-  /* Add 4% padding above and below so line never clips at the edges */
-  const pad4=(rawMx-rawMn)*0.04;
-  const mn=rawMn-pad4,mx=rawMx+pad4;
+  const mn=Math.min(...vals),mx=Math.max(...vals,1);
   const range=mx-mn||1;
-  
   const xStep=chartW/(chartPts.length-1);
   const yFn=v=>padT+chartH*(1-(v-mn)/range);
   const pts=chartPts.map((d,i)=>`${padL+i*xStep},${yFn(d.value)}`).join(" ");
   const polyFill=`${padL},${padT+chartH} ${pts} ${padL+(chartPts.length-1)*xStep},${padT+chartH}`;
-  const yCoA=costOfAcquisition>0?yFn(costOfAcquisition):null;
 
   /* Y-axis gridline values: min, mid, max */
-  const yTicks=[rawMn, rawMn+(rawMx-rawMn)*0.5, rawMx];
-  
-  /* Dynamic color logic: green when above CoA, red when below */
-  const greenGradId="mflg_green";
-  const redGradId="mflg_red";
-  const clipAboveId="mfclip_above";
-  const clipBelowId="mfclip_below";
+  const yTicks=[mn, mn+range*0.5, mx];
 
   const handleMouseMove=e=>{
     const svg=svgRef.current;
@@ -7715,11 +7712,6 @@ const MFHistoryChart=({chartPts,h=180,costOfAcquisition=0})=>{
 
   /* X-axis label spacing */
   const xStep2=chartPts.length<=15?1:chartPts.length<=30?2:chartPts.length<=60?5:7;
-  
-  /* Determine current line color based on latest value vs CoA */
-  const latestValue=chartPts[chartPts.length-1].value;
-  const isAboveCoA=costOfAcquisition>0?latestValue>=costOfAcquisition:true;
-  const lineColor=costOfAcquisition>0?(isAboveCoA?"#16a34a":"#ef4444"):"#6d28d9";
 
   return React.createElement("svg",{
     ref:svgRef,
@@ -7730,27 +7722,9 @@ const MFHistoryChart=({chartPts,h=180,costOfAcquisition=0})=>{
     onMouseLeave:()=>setHoverIdx(null),
   },
     React.createElement("defs",null,
-      /* Green gradient for gains (above CoA) */
-      React.createElement("linearGradient",{id:greenGradId,x1:"0",y1:"0",x2:"0",y2:"1"},
-        React.createElement("stop",{offset:"0%",stopColor:"#16a34a",stopOpacity:.28}),
-        React.createElement("stop",{offset:"100%",stopColor:"#16a34a",stopOpacity:.02})
-      ),
-      /* Red gradient for losses (below CoA) */
-      React.createElement("linearGradient",{id:redGradId,x1:"0",y1:"0",x2:"0",y2:"1"},
-        React.createElement("stop",{offset:"0%",stopColor:"#ef4444",stopOpacity:.28}),
-        React.createElement("stop",{offset:"100%",stopColor:"#ef4444",stopOpacity:.02})
-      ),
-      /* Purple gradient for when no CoA provided (backward compatibility) */
       React.createElement("linearGradient",{id:"mflg2",x1:"0",y1:"0",x2:"0",y2:"1"},
-        React.createElement("stop",{offset:"0%",stopColor:"#6d28d9",stopOpacity:.3}),
-        React.createElement("stop",{offset:"100%",stopColor:"#6d28d9",stopOpacity:.02})
-      ),
-      /* Clipping paths for above/below CoA line */
-      costOfAcquisition>0&&React.createElement("clipPath",{id:clipAboveId},
-        React.createElement("rect",{x:0,y:0,width:W,height:yCoA})
-      ),
-      costOfAcquisition>0&&React.createElement("clipPath",{id:clipBelowId},
-        React.createElement("rect",{x:0,y:yCoA,width:W,height:h-yCoA})
+        React.createElement("stop",{offset:"0%",stopColor:color,stopOpacity:.3}),
+        React.createElement("stop",{offset:"100%",stopColor:color,stopOpacity:.02})
       )
     ),
 
@@ -7765,39 +7739,18 @@ const MFHistoryChart=({chartPts,h=180,costOfAcquisition=0})=>{
         },INRshort(v))
       );
     }),
-    
-    /* Cost of Acquisition reference line (amber dashed) - only if CoA provided */
-    costOfAcquisition>0&&React.createElement("line",{
-      x1:padL,y1:yCoA,x2:W-padR,y2:yCoA,
-      stroke:"#f59e0b",strokeWidth:1.4,strokeDasharray:"6,4",opacity:.8
-    }),
-    costOfAcquisition>0&&React.createElement("text",{
-      x:W-padR+2,y:yCoA+3.5,
-      fill:"#f59e0b",fontSize:7.5,fontWeight:700,textAnchor:"start"
-    },"CoA"),
 
-    /* Gradient fills: green above CoA, red below CoA (or single purple if no CoA) */
-    costOfAcquisition>0
-      ? React.createElement(React.Fragment,null,
-          React.createElement("polygon",{points:polyFill,fill:"url(#"+greenGradId+")",clipPath:"url(#"+clipAboveId+")"}),
-          React.createElement("polygon",{points:polyFill,fill:"url(#"+redGradId+")",clipPath:"url(#"+clipBelowId+")"})
-        )
-      : React.createElement("polygon",{points:polyFill,fill:"url(#mflg2)"}),
-    
-    /* Line with dynamic color */
-    React.createElement("polyline",{points:pts,fill:"none",stroke:lineColor,strokeWidth:2,strokeLinejoin:"round",strokeLinecap:"round"}),
-    
+    /* Gradient fill */
+    React.createElement("polygon",{points:polyFill,fill:"url(#mflg2)"}),
+    /* Line */
+    React.createElement("polyline",{points:pts,fill:"none",stroke:color,strokeWidth:2,strokeLinejoin:"round",strokeLinecap:"round"}),
     /* Baseline */
     React.createElement("line",{x1:padL,y1:padT+chartH,x2:W-padR,y2:padT+chartH,stroke:"var(--border)",strokeWidth:1}),
 
-    /* Data point dots (non-hovered) with dynamic colors */
-    chartPts.map((d,i)=>{
-      if(i===hoverIdx)return null;
-      const dotColor=costOfAcquisition>0?(d.value>=costOfAcquisition?"#16a34a":"#ef4444"):"#6d28d9";
-      return React.createElement("circle",{key:"dot"+i,
-        cx:padL+i*xStep,cy:yFn(d.value),r:2.2,fill:dotColor,opacity:.65
-      });
-    }),
+    /* Data point dots (non-hovered) */
+    chartPts.map((d,i)=>i===hoverIdx?null:React.createElement("circle",{key:"dot"+i,
+      cx:padL+i*xStep,cy:yFn(d.value),r:2.2,fill:color,opacity:.65
+    })),
 
     /* X-axis labels */
     chartPts.map((d,i)=>{
@@ -7812,23 +7765,23 @@ const MFHistoryChart=({chartPts,h=180,costOfAcquisition=0})=>{
     hoverIdx!==null&&React.createElement("g",null,
       /* Vertical crosshair */
       React.createElement("line",{x1:hx,y1:padT,x2:hx,y2:padT+chartH,
-        stroke:lineColor,strokeWidth:1.2,strokeDasharray:"4,3",opacity:.55}),
+        stroke:color,strokeWidth:1.2,strokeDasharray:"4,3",opacity:.55}),
       /* Outer glow ring */
-      React.createElement("circle",{cx:hx,cy:hy,r:9,fill:lineColor,opacity:.12}),
+      React.createElement("circle",{cx:hx,cy:hy,r:9,fill:color,opacity:.12}),
       /* White background dot */
-      React.createElement("circle",{cx:hx,cy:hy,r:6,fill:"white",stroke:lineColor,strokeWidth:2.5}),
+      React.createElement("circle",{cx:hx,cy:hy,r:6,fill:"white",stroke:color,strokeWidth:2.5}),
       /* Inner filled dot */
-      React.createElement("circle",{cx:hx,cy:hy,r:3,fill:lineColor}),
+      React.createElement("circle",{cx:hx,cy:hy,r:3,fill:color}),
 
       /* Tooltip shadow rect (blurred) */
       React.createElement("rect",{x:tipX+2,y:tipY+3,width:tipW,height:tipH,
         rx:8,fill:"rgba(0,0,0,.18)",style:{filter:"blur(4px)"}}),
       /* Tooltip background */
       React.createElement("rect",{x:tipX,y:tipY,width:tipW,height:tipH,
-        rx:8,fill:"var(--modal-bg)",stroke:lineColor,strokeWidth:1.5}),
+        rx:8,fill:"var(--modal-bg)",stroke:color,strokeWidth:1.5}),
       /* Top accent bar */
-      React.createElement("rect",{x:tipX,y:tipY,width:tipW,height:4,rx:8,fill:lineColor}),
-      React.createElement("rect",{x:tipX,y:tipY+2,width:tipW,height:4,fill:lineColor}),
+      React.createElement("rect",{x:tipX,y:tipY,width:tipW,height:4,rx:8,fill:color}),
+      React.createElement("rect",{x:tipX,y:tipY+2,width:tipW,height:4,fill:color}),
 
       /* Date line */
       React.createElement("text",{x:tipX+12,y:tipY+20,
@@ -7837,7 +7790,7 @@ const MFHistoryChart=({chartPts,h=180,costOfAcquisition=0})=>{
 
       /* Value line — large and bold */
       React.createElement("text",{x:tipX+12,y:tipY+42,
-        fill:lineColor,fontSize:15,fontWeight:800,
+        fill:color,fontSize:15,fontWeight:800,
         fontFamily:"'Sora',sans-serif"
       },INRfmt(hp.value))
     )
@@ -8057,7 +8010,7 @@ const ShareHistoryChart=({pts,qty,buyPrice,color="#16a34a",gradId="shlg0"})=>{
    • Shows a terse error notice if the fetch fails
    • Falls back to the existing 30-day EOD snapshot chart when no buyDate is set
    ══════════════════════════════════════════════════════════════════════════ */
-const ShareHistoryPanel=({sh,eodPrices})=>{
+const ShareHistoryPanel=({sh,eodPrices,historyCache={},dispatch})=>{
   const[histLoading,setHistLoading]=React.useState(false);
   /* null = no buyDate / not tried; [] = fetch done but empty/failed; [...] = success */
   const[histPts,setHistPts]=React.useState(null);
@@ -8069,6 +8022,21 @@ const ShareHistoryPanel=({sh,eodPrices})=>{
 
   React.useEffect(()=>{
     if(!tkr||!sh.buyDate){setHistPts(null);setHistLoading(false);return;}
+    
+    /* Check cache first */
+    const cached=historyCache[tkr];
+    const now=Date.now();
+    const cacheAge=cached?.timestamp?(now-cached.timestamp):Infinity;
+    const isCacheValid=cached&&cacheAge<(24*60*60*1000)&&cached.fromDate===sh.buyDate;
+    
+    if(isCacheValid&&cached.data&&cached.data.length>=2){
+      /* Use cached data */
+      setHistPts(cached.data);
+      setHistLoading(false);
+      return;
+    }
+    
+    /* Fetch fresh data */
     let cancelled=false;
     setHistLoading(true);
     setHistPts(null);
@@ -8077,10 +8045,14 @@ const ShareHistoryPanel=({sh,eodPrices})=>{
         if(cancelled)return;
         setHistPts(pts&&pts.length>=2?pts:[]);
         setHistLoading(false);
+        /* Cache the result */
+        if(pts&&pts.length>=2&&dispatch){
+          dispatch({type:"SET_HISTORY_CACHE",ticker:tkr,data:pts,timestamp:Date.now(),fromDate:sh.buyDate});
+        }
       })
       .catch(()=>{if(!cancelled){setHistPts([]);setHistLoading(false);}});
     return()=>{cancelled=true;};
-  },[tkr,sh.buyDate]);
+  },[tkr,sh.buyDate,historyCache,dispatch]);
 
   /* ── 1. Loading ── */
   if(histLoading)return React.createElement("div",{style:{
@@ -8213,7 +8185,7 @@ const ShareHistoryPanel=({sh,eodPrices})=>{
   );
 };
 
-const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eodPrices={},eodNavs={}})=>{
+const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eodPrices={},eodNavs={},historyCache={}})=>{
   const[tab,setTab]=useState(defaultTab);const[open,setOpen]=useState(false);const[navLoad,setNavLoad]=useState(false);
   React.useEffect(()=>{setTab(defaultTab);},[defaultTab]);
   const[srch,setSrch]=useState("");const[results,setResults]=useState([]);const[searching,setSearching]=useState(false);
@@ -8437,20 +8409,7 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
               React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"var(--text3)",fontFamily:"'Sora',sans-serif"}},"📈 Portfolio Value History"),
               React.createElement("div",{style:{fontSize:10,color:"var(--text6)"}},chartPts.length+" data points · last 90 days · hover to see value")
             ),
-            /* Legend: Portfolio value line + CoA line */
-            React.createElement("div",{style:{display:"flex",gap:16,marginBottom:8,paddingLeft:2}},
-              React.createElement("div",{style:{display:"flex",alignItems:"center",gap:5}},
-                React.createElement("div",{style:{width:18,height:2,background:"linear-gradient(90deg, #16a34a 0%, #ef4444 100%)",borderRadius:1}}),
-                React.createElement("span",{style:{fontSize:9,color:"var(--text5)",fontWeight:500}},"Portfolio Value")
-              ),
-              React.createElement("div",{style:{display:"flex",alignItems:"center",gap:5}},
-                React.createElement("svg",{width:18,height:2,style:{overflow:"visible"}},
-                  React.createElement("line",{x1:0,y1:1,x2:18,y2:1,stroke:"#f59e0b",strokeWidth:2,strokeDasharray:"3,2"})
-                ),
-                React.createElement("span",{style:{fontSize:9,color:"var(--text5)",fontWeight:500}},"Cost of Acquisition ("+INR(mfCoANow)+")")
-              )
-            ),
-            React.createElement(MFHistoryChart,{chartPts,h:180,costOfAcquisition:mfCoANow})
+            React.createElement(MFHistoryChart,{chartPts,h:180,color:"#6d28d9"})
           )
         );
       })(),
@@ -8619,7 +8578,7 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
               )
             ),
             /* ── Holding value chart (full history or 30-day EOD fallback) ── */
-            React.createElement(ShareHistoryPanel,{sh,eodPrices}),
+            React.createElement(ShareHistoryPanel,{sh,eodPrices,historyCache,dispatch}),
             /* Note anchor */
             noteEdit&&noteEdit.type==="sh"&&noteEdit.id===sh.id
               ? React.createElement("div",{style:{marginTop:8}},
@@ -14727,6 +14686,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
                     nwSnapshots:state.nwSnapshots||{},
                     eodPrices:state.eodPrices||{},
                     eodNavs:state.eodNavs||{},
+                    historyCache:state.historyCache||{},
                   }
                 };
                 const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
@@ -14780,6 +14740,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
                         nwSnapshots:d.nwSnapshots||{},
                         eodPrices:d.eodPrices||{},
                         eodNavs:d.eodNavs||{},
+                        historyCache:d.historyCache||{},
                       }});
                       if(payload.theme){saveTheme(payload.theme);}
                       const s=payload.summary;
@@ -15934,6 +15895,7 @@ const loadState=()=>{
       nwSnapshots:(parsed.nwSnapshots||def.nwSnapshots||{}),
       eodPrices:(parsed.eodPrices||{}),
       eodNavs:(parsed.eodNavs||{}),
+      historyCache:(parsed.historyCache||{}),
       hiddenTabs:(parsed.hiddenTabs||[]),
     };
   }catch(e){console.warn("Failed to load state:",e);return null;}
@@ -16077,6 +16039,7 @@ const fsaWriteFile=async(handle,data)=>{
         notes:data.notes||[],
         scheduled:data.scheduled||[],
         nwSnapshots:data.nwSnapshots||{},
+        historyCache:data.historyCache||{},
       }
     };
     const writable=await handle.createWritable();
@@ -16092,8 +16055,8 @@ const fsaReadFile=async(handle)=>{
     const parsed=JSON.parse(text);
     /* Support both the new envelope format { data:{…} } and the legacy
        raw-state format written by v3.17.0–3.17.2 */
-    if(parsed&&parsed.data&&parsed.data.banks)return{...parsed.data,nwSnapshots:parsed.data.nwSnapshots||{}};
-    if(parsed&&parsed.banks)return{...parsed,nwSnapshots:parsed.nwSnapshots||{}}; // legacy raw state
+    if(parsed&&parsed.data&&parsed.data.banks)return{...parsed.data,nwSnapshots:parsed.data.nwSnapshots||{},historyCache:parsed.data.historyCache||{}};
+    if(parsed&&parsed.banks)return{...parsed,nwSnapshots:parsed.nwSnapshots||{},historyCache:parsed.historyCache||{}}; // legacy raw state
     return null;
   }catch(e){console.warn("[FSA] Read failed:",e);return null;}
 };
@@ -21207,10 +21170,10 @@ function App(){
       tab==="cards"&&React.createElement(CardSection,{cards:state.cards,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,cash:state.cash,loans:state.loans||[],isMobile,jumpAccId:txJump?.accType==="card"?txJump.accId:null,jumpTxId:txJump?.accType==="card"?txJump.txId:null,jumpSerial:txJump?.accType==="card"?txJump.serial:null,onClearAccountJump:onClearTxJump}),
       tab==="cash"&&React.createElement(CashSection,{cash:state.cash,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,loans:state.loans||[],isMobile,jumpTxId:txJump?.accType==="cash"?txJump.txId:null,jumpSerial:txJump?.accType==="cash"?txJump.serial:null}),
       tab==="inv_dash"&&React.createElement(InvestDashboard,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{}}),
-      tab==="inv_mf"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"mf",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{}}),
-      tab==="inv_shares"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"shares",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{}}),
-      tab==="inv_fd"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"fd",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{}}),
-      tab==="inv_re"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"re",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{}}),
+      tab==="inv_mf"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"mf",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
+      tab==="inv_shares"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"shares",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
+      tab==="inv_fd"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"fd",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
+      tab==="inv_re"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"re",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
       tab==="loans"&&React.createElement(LoanSection,{loans:state.loans,dispatch,allBanks:state.banks,allCards:state.cards,cash:state.cash,categories:state.categories,payees:state.payees,isMobile}),
       tab==="goals"&&React.createElement(GoalsSection,{goals:state.goals||[],dispatch,isMobile}),
       tab==="insights"&&React.createElement(InsightsSection,{banks:state.banks,cards:state.cards,cash:state.cash,categories:state.categories,dispatch,isMobile,goals:state.goals,mf:state.mf,shares:state.shares,fd:state.fd,re:state.re,loans:state.loans,prefs:state.insightPrefs,onJumpToLedger,nwSnapshots:state.nwSnapshots||{}}),

@@ -1971,10 +1971,35 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.28.5";
+const APP_VERSION="3.29.3";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.29.3",date:"2026-03-18",title:"Fix: Unexpected reserved word await in encrypted backup restore handler",changes:[
+    "Fixed Uncaught SyntaxError: Unexpected reserved word 'await' at Babel line 14361.",
+    "Root cause: the restore file input onChange handler called reader.onload=(ev)=>{...} as a regular arrow function. The await decryptBackup() call inside it was illegal because only async functions may use await.",
+    "Fix: changed reader.onload=(ev)=>{ to reader.onload=async(ev)=>{ so the await expression is valid.",
+    "Full scan of the Babel block confirmed this was the only await-outside-async issue remaining.",
+  ]},
+  {version:"3.29.2",date:"2026-03-18",title:"Fix: Unterminated string constant in encrypted backup password prompt",changes:[
+    "Fixed Uncaught SyntaxError: Unterminated string constant at Babel line 14253 (encrypted backup button onClick handler).",
+    "Root cause: same issue as v3.29.1 — the window.prompt() call for the encrypted backup password had a literal newline inside a double-quoted JS string.",
+    "Fix: replaced the multi-line prompt string with \\n escape sequences on a single line.",
+    "Full scan of the Babel script block confirmed no further literal-newline JS strings remain.",
+  ]},
+  {version:"3.29.1",date:"2026-03-18",title:"Fix: Uncaught SyntaxError — unterminated string in balance recalculation prompt",changes:[
+    "Fixed Uncaught SyntaxError: Unterminated string constant at Babel line 6089 that caused a blank screen.",
+    "Root cause: the window.prompt() call in the bank card ⚖ Recalc button had a literal newline character inside a regular double-quoted string. JavaScript strings cannot span multiple lines without an explicit \\n escape sequence.",
+    "Fix: collapsed the two-line prompt message to a single-line string using \\n escape sequences.",
+  ]},
+  {version:"3.29.0",date:"2026-03-18",title:"6 Enhancements: Balance Recalc, Quick-Add FAB, NW Trend Chart, Encrypted Backup, Transfer Filter, Budget Rollover",changes:[
+    "1. Balance Recalculation Tool: added RECALC_BANK_BAL, RECALC_CARD_TX, RECALC_CASH_BAL reducer cases. Each bank account card now shows a '⚖ Recalc' button — clicking it prompts for the true opening balance (the amount before any transactions were recorded) then recomputes the stored balance as openingBalance + sum(Reconciled transactions only). Fixes balance drift that occurred for existing users after the v3.28.0 reconciliation-gated change.",
+    "2. Quick-Add Floating Action Button (FAB): a persistent + button (52px circle, accent color, bottom-right corner) is now always visible on all tabs except Settings and Info. Clicking it opens a TxModal with an account picker at the top — the user selects any bank/cash/card account, fills in amount/category/description and saves directly. The transaction is routed to the correct account via tx.srcId. Works for transfers too. The account picker dynamically updates the available transaction types (bank/card/cash type lists).",
+    "3. Net Worth Trend Chart on Dashboard: new section I shows a compact SVG sparkline of net worth over the last 12 months. Uses nwSnapshots (monthly saved values from Insights → Net Worth) plus the live current NW. Displays: current NW, change since oldest point (₹ and %), and asset/liability breakdown. Labels on first, middle, last month. Prompts to save snapshots when fewer than 3 data points exist.",
+    "4. Encrypted Backup: new '🔒 Encrypted Backup' button in Settings → Data & Backup uses AES-256-GCM with PBKDF2 key derivation (200,000 iterations, SHA-256). User sets a password (minimum 6 chars, confirmed twice). Output is a JSON envelope {encrypted:true, v:1, salt, iv, data} all hex-encoded. The restore handler auto-detects the encrypted format and prompts for the password before decrypting. Wrong password shows a clear error. Uses Web Crypto API (already available in all modern browsers).",
+    "5. Transfer second-pass filter: new isLikelyTransfer() helper checks transaction description and payee against 15 regex patterns (NEFT, RTGS, IMPS, UPI, ATM withdrawal, self transfer, fund transfer, inter-bank, card bill/payment, sweep in/out, etc.). New isAnyTransfer(tx, cats) = isTransferTx || isLikelyTransfer. Applied in Dashboard allBankTx, Reports transaction collector (bank/card/cash), and Insights allTxns — transfers are now excluded even when the user forgot to tag the category as Transfer.",
+    "6. Budget vs Actuals — Monthly Rollover: the Dashboard budget strip (section H) now shows rollover from the previous month. If a category was under budget last month, the unspent amount carries forward to increase this month's effective budget. New summary strip shows: Monthly Budget, Rolled Over (green), Spent This Month, Remaining. Each category row shows a green '+₹X rolled' badge and the progress bar accounts for the rolled-over amount. Dual-layer bar: grey base shows the original plan, colored bar shows actual spend against the effective (plan + rollover) budget.",
+  ]},
   {version:"3.28.5",date:"2026-03-18",title:"Fix: Share History Chart — x-axis label overlap and adaptive density",changes:[
     "Fixed: x-axis date labels overlapping (e.g. '17-Mar' and '18-Mar' printing on top of each other) when the chart has 31-35 data points.",
     "Root cause: stride was computed as a fixed lookup (<=30 pts→3, >30→5) which always force-rendered the last data point regardless of how close it was to the previous stride label. With 32 points at stride=3, index 30 and 31 were only ~32 SVG units apart while a '17-Mar' label needs ~82 SVG units of clearance.",
@@ -3376,7 +3401,32 @@ const catMainName=(full)=>full.includes("::")?full.split("::")[0]:full;
 const catClassType=(cats,catValue)=>{const main=catMainName(catValue);const found=cats.find(c=>c.name===main);return found?found.classType||"Expense":"Expense";};
 /* Returns true for any transaction whose category classType is "Transfer".
    Used everywhere to exclude inter-account transfers from reports/dashboards. */
-const isTransferTx=(tx,cats)=>catClassType(cats,tx.cat||"")=="Transfer";
+const isTransferTx=(tx,cats)=>catClassType(cats,tx.cat||"")==="Transfer";
+
+/* ── Second-pass transfer detector ─────────────────────────────────────────
+   Catches inter-account transactions where the user forgot to tag the
+   category as Transfer. Checks description + payee against common patterns.
+   Used alongside isTransferTx() — a transaction is excluded from reports
+   if EITHER function returns true.
+   ─────────────────────────────────────────────────────────────────────── */
+const TRANSFER_DESC_PATTERNS=[
+  /\bneft\b/i,/\brtgs\b/i,/\bimps\b/i,/\bupi\b/i,
+  /\batm\s*(cash\s*)?(withdrawal|wthdrl|wdl|cdm)/i,
+  /\bcash\s*withdrawal/i,/\bself\s*transfer/i,
+  /\bfund\s*transfer/i,/\binter\s*bank/i,
+  /\baccount\s*transfer/i,/\btransfer\s*to/i,/\btransfer\s*from/i,
+  /\bcard\s*(bill|payment|pay)/i,
+  /\bcredit\s*card\s*(due|payment|bill)/i,
+  /\binward\s*transfer/i,/\boutward\s*transfer/i,
+  /\bsweep\s*(in|out)/i,
+];
+const isLikelyTransfer=(tx)=>{
+  if(!tx)return false;
+  const hay=((tx.desc||"")+" "+(tx.payee||"")).toLowerCase();
+  return TRANSFER_DESC_PATTERNS.some(re=>re.test(hay));
+};
+/* Combined guard: exclude from income/expense reporting if category=Transfer OR description pattern matches */
+const isAnyTransfer=(tx,cats)=>isTransferTx(tx,cats)||isLikelyTransfer(tx);
 const CLASS_TYPES=["Income","Expense","Investment","Transfer","Others"];
 const CLASS_C={Income:"#16a34a",Expense:"#dc2626",Investment:"#6d28d9",Transfer:"#1d4ed8",Others:"#475569"};
 const CLASS_ICON={Income:"💰",Expense:"💸",Investment:"📈",Transfer:"🔄",Others:"🗂"};
@@ -3483,6 +3533,32 @@ const reducer=(s,a)=>{
     case"REORDER_CARDS":{const cs=[...s.cards];const[mv]=cs.splice(a.from,1);cs.splice(a.to,0,mv);return{...s,cards:cs};}
     case"EDIT_BANK":return{...s,banks:s.banks.map(b=>b.id===a.p.id?{...b,...a.p}:b)};
     case"DEL_BANK":return{...s,banks:s.banks.filter(b=>b.id!==a.id)};
+    case"RECALC_BANK_BAL":{
+      /* Recompute balance from scratch using only Reconciled transactions */
+      const _base=a.openingBalance||0;
+      return{...s,banks:s.banks.map(b=>{
+        if(b.id!==a.id)return b;
+        const recBalance=_base+b.transactions.filter(t=>t.status==="Reconciled")
+          .reduce((sum,t)=>sum+(t.type==="credit"?t.amount:-t.amount),0);
+        return{...b,balance:recBalance};
+      })};
+    }
+    case"RECALC_CARD_BAL":{
+      /* Recompute card outstanding from Reconciled transactions only */
+      return{...s,cards:s.cards.map(c=>{
+        if(c.id!==a.id)return c;
+        const recOut=c.transactions.filter(t=>t.status==="Reconciled")
+          .reduce((sum,t)=>sum+(t.type==="debit"?t.amount:-t.amount),0);
+        return{...c,outstanding:Math.max(0,recOut)};
+      })};
+    }
+    case"RECALC_CASH_BAL":{
+      /* Recompute cash balance from Reconciled transactions only */
+      const _cashBase=a.openingBalance||0;
+      const _cashRec=_cashBase+s.cash.transactions.filter(t=>t.status==="Reconciled")
+        .reduce((sum,t)=>sum+(t.type==="credit"?t.amount:-t.amount),0);
+      return{...s,cash:{...s.cash,balance:_cashRec}};
+    }
     case"ADD_CARD":return{...s,cards:[...s.cards,a.p]};
     case"ADD_CARD_TX":{const c=s.cards.find(c=>c.id===a.id);const sn=c?nextSn(c.transactions):1;return{...s,cards:s.cards.map(c=>c.id===a.id?{...c,transactions:[...c.transactions,{...a.tx,_sn:sn}]}:c)};}
     case"UPD_CARD_BAL":return{...s,cards:s.cards.map(c=>c.id===a.id?(a.tx.status==="Reconciled"?{...c,outstanding:c.outstanding+(a.tx.type==="debit"?a.tx.amount:-a.tx.amount)}:c):c)};
@@ -5761,6 +5837,19 @@ const TxEditModal=({tx,categories,payees,txTypes,onSave,onClose})=>{
         )
       )
     ),
+    /* ── Account picker — shown when multiple accounts exist (e.g. Quick-Add FAB) ── */
+    allAccounts.filter(a=>a.accType!=="loan").length>1&&!isTransfer&&React.createElement("div",{style:{marginBottom:12}},
+      React.createElement("label",{style:lbl},"Account"),
+      React.createElement("select",{className:"inp",value:f.srcId||"",onChange:e=>{
+        const acc=allAccounts.find(a=>a.id===e.target.value);
+        const newTypes=acc?(acc.accType==="card"?TX_TYPES_CARD:acc.accType==="cash"?TX_TYPES_CASH:TX_TYPES_BANK):TX_TYPES_BANK;
+        setF(p=>({...p,srcId:e.target.value,txType:newTypes[0]}));
+      }},
+        allAccounts.filter(a=>a.accType!=="loan").map(a=>
+          React.createElement("option",{key:a.id,value:a.id},(a.accTypeLbl||"")+" "+a.name)
+        )
+      )
+    ),
     F("Type",React.createElement("select",{className:"inp",value:f.txType||"",onChange:set("txType")},
       txTypes.map(t=>React.createElement("option",{key:t},t))
     )),
@@ -6098,7 +6187,7 @@ const TxModal=({onAdd,onClose,categories,payees,txTypes,allAccounts,currentAccou
     if(f.isScheduled){
       if(isTransfer){if(!f.srcId||!f.tgtId||f.srcId===f.tgtId)return;}
       const ledger=isTransfer?"debit":typeToLedger(f.txType);
-      const acc=isTransfer?allAccounts.find(a=>a.id===f.srcId):allAccounts.find(a=>a.id===currentAccountId);
+      const acc=isTransfer?allAccounts.find(a=>a.id===f.srcId):(allAccounts.find(a=>a.id===f.srcId)||allAccounts.find(a=>a.id===currentAccountId));
       dispatch({type:"ADD_SCHEDULED",p:{
         desc:f.desc||f.payee||"Scheduled Transaction",
         payee:f.payee,amount:+f.amount,cat:f.cat,txType:f.txType,tags:f.tags,
@@ -6388,9 +6477,9 @@ const Dashboard=React.memo(({data,isMobile})=>{
 
   /* ━━ 2. ALL BANKING TRANSACTIONS (banks + cards + cash) ━━━ */
   const allBankTx=[
-    ...data.banks.flatMap(b=>b.transactions.filter(t=>!isTransferTx(t,data.categories)).map(t=>({...t,_bid:b.id,_src:b.name,_srcType:"bank",_col:"#0e7490"}))),
-    ...data.cards.flatMap(c=>c.transactions.filter(t=>!isTransferTx(t,data.categories)).map(t=>({...t,_bid:c.id,_src:c.name,_srcType:"card",_col:"#c2410c"}))),
-    ...data.cash.transactions.filter(t=>!isTransferTx(t,data.categories)).map(t=>({...t,_bid:"cash",_src:"Cash",_srcType:"cash",_col:"var(--accent)"})),
+    ...data.banks.flatMap(b=>b.transactions.filter(t=>!isAnyTransfer(t,data.categories)).map(t=>({...t,_bid:b.id,_src:b.name,_srcType:"bank",_col:"#0e7490"}))),
+    ...data.cards.flatMap(c=>c.transactions.filter(t=>!isAnyTransfer(t,data.categories)).map(t=>({...t,_bid:c.id,_src:c.name,_srcType:"card",_col:"#c2410c"}))),
+    ...data.cash.transactions.filter(t=>!isAnyTransfer(t,data.categories)).map(t=>({...t,_bid:"cash",_src:"Cash",_srcType:"cash",_col:"var(--accent)"})),
   ];
 
   /* ━━ 3. MONTHLY CASH FLOW — bank txs only (no cards/cash) ━ */
@@ -7006,45 +7095,182 @@ const Dashboard=React.memo(({data,isMobile})=>{
       );
     })(),
 
-    /* ══ H: BUDGET VS ACTUALS MINI-STRIP ════════════════════════ */
+
+    /* ══ I: NET WORTH TREND ══════════════════════════════════════════ */
+    (()=>{
+      const snaps=data.nwSnapshots||{};
+      const bTotal=data.banks.reduce((s,b)=>s+b.balance,0);
+      const cashBal=data.cash.balance;
+      const mfVal=data.mf.reduce((s,m)=>s+(m.currentValue||m.invested),0);
+      const shVal=data.shares.reduce((s,sh)=>s+sh.qty*sh.currentPrice,0);
+      const fdVal=data.fd.reduce((s,f)=>s+f.amount,0);
+      const reVal=(data.re||[]).reduce((s,r)=>s+(r.currentValue||r.acquisitionCost||0),0);
+      const cDebt=data.cards.reduce((s,c)=>s+c.outstanding,0);
+      const lDebt=(data.loans||[]).reduce((s,l)=>s+l.outstanding,0);
+      const curNW=bTotal+cashBal+mfVal+shVal+fdVal+reVal-cDebt-lDebt;
+      /* Build 12-month series: snapshots + current month */
+      const MN=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      const now=new Date();
+      const pts=[];
+      for(let i=11;i>=0;i--){
+        const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+        const key=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+        const lbl=MN[d.getMonth()]+"'"+String(d.getFullYear()).slice(2);
+        if(i===0)pts.push({key,lbl,nw:curNW,isCurrent:true});
+        else if(snaps[key]!=null)pts.push({key,lbl,nw:snaps[key],isCurrent:false});
+      }
+      if(pts.length<2)return null;
+      const vals=pts.map(p=>p.nw);
+      const mnV=Math.min(...vals),mxV=Math.max(...vals);
+      const range=mxV-mnV||1;
+      const W=400,H=70,padX=4,padY=8;
+      const chartW=W-padX*2,chartH=H-padY*2;
+      const cx=(i)=>padX+i*(chartW/(pts.length-1));
+      const cy=(v)=>padY+chartH*(1-(v-mnV)/range);
+      const ptStr=pts.map((p,i)=>cx(i)+","+cy(p.nw)).join(" ");
+      const fillPts=padX+","+( padY+chartH)+" "+ptStr+" "+(padX+chartW)+","+(padY+chartH);
+      const first=pts[0].nw,last=pts[pts.length-1].nw;
+      const chg=last-first;
+      const chgPct=first!==0?((chg/Math.abs(first))*100):0;
+      const col=chg>=0?"#16a34a":"#ef4444";
+      const INRs=v=>{const a=Math.abs(v);if(a>=10000000)return(v<0?"-":"")+"₹"+(a/10000000).toFixed(1)+"Cr";if(a>=100000)return(v<0?"-":"")+"₹"+(a/100000).toFixed(1)+"L";return(v<0?"-":"")+"₹"+(a/1000).toFixed(0)+"K";};
+      const gradId="nw_dash_grad";
+      return React.createElement("div",{className:"db-card"},
+        React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}},
+          React.createElement("div",null,
+            SL("Net Worth Trend","Last "+pts.length+" months · "+MN[now.getMonth()]+" "+now.getFullYear()),
+            React.createElement("div",{style:{fontSize:22,fontFamily:"'Sora',sans-serif",fontWeight:800,color:"var(--text)",marginTop:4}},INRs(curNW)),
+            React.createElement("div",{style:{fontSize:12,color:col,fontWeight:600,marginTop:2}},
+              (chg>=0?"▲ +":"▼ ")+INRs(Math.abs(chg))+" ("+Math.abs(chgPct).toFixed(1)+"%) since "+pts[0].lbl
+            )
+          ),
+          React.createElement("div",{style:{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}},
+            React.createElement("div",{style:{fontSize:10,color:"var(--text6)"}},
+              React.createElement("span",{style:{color:"#16a34a",fontWeight:700}},INRs(bTotal+cashBal+mfVal+shVal+fdVal+reVal)),
+              React.createElement("span",{style:{color:"var(--text5)"}}," assets")
+            ),
+            React.createElement("div",{style:{fontSize:10,color:"var(--text6)"}},
+              React.createElement("span",{style:{color:"#ef4444",fontWeight:700}},"− "+INRs(cDebt+lDebt)),
+              React.createElement("span",{style:{color:"var(--text5)"}}," liabilities")
+            )
+          )
+        ),
+        /* SVG trend line */
+        React.createElement("svg",{width:"100%",viewBox:"0 0 "+W+" "+H,style:{display:"block",overflow:"visible"}},
+          React.createElement("defs",null,
+            React.createElement("linearGradient",{id:gradId,x1:"0",y1:"0",x2:"0",y2:"1"},
+              React.createElement("stop",{offset:"0%",stopColor:col,stopOpacity:.25}),
+              React.createElement("stop",{offset:"100%",stopColor:col,stopOpacity:.02})
+            )
+          ),
+          React.createElement("polygon",{points:fillPts,fill:"url(#"+gradId+")"}),
+          React.createElement("polyline",{points:ptStr,fill:"none",stroke:col,strokeWidth:2.5,strokeLinejoin:"round",strokeLinecap:"round"}),
+          /* End dot */
+          React.createElement("circle",{cx:cx(pts.length-1),cy:cy(pts[pts.length-1].nw),r:4,fill:col}),
+          /* X-axis labels — first, middle and last only */
+          [0,Math.floor(pts.length/2),pts.length-1].filter((v,i,a)=>a.indexOf(v)===i).map(i=>
+            React.createElement("text",{key:i,x:cx(i),y:H-1,textAnchor:i===0?"start":i===pts.length-1?"end":"middle",fill:"var(--text6)",fontSize:9},pts[i].lbl)
+          )
+        ),
+        pts.length<3&&React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginTop:6,textAlign:"center"}},
+          "💡 Save monthly snapshots in Insights → Net Worth for a richer trend chart"
+        )
+      );
+    })(),
+    /* ══ H: BUDGET VS ACTUALS WITH ROLLOVER ═════════════════════ */
     (()=>{
       const plans=data.insightPrefs?.budgetPlans||{};
       if(!Object.keys(plans).length)return null;
-      const catActuals={};
-      allBankTx.filter(t=>t.type==="debit"&&t.date.substr(0,7)===thisMonth).forEach(t=>{
-        const main=catMainName(t.cat||"Others");
-        const ct=catClassType(data.categories,t.cat||"Others");
-        if(ct==="Transfer"||ct==="Income")return;
-        catActuals[main]=(catActuals[main]||0)+t.amount;
-      });
+
+      /* Compute actuals for a given YYYY-MM month string */
+      const getActuals=(monthStr)=>{
+        const m={};
+        allBankTx.filter(t=>t.type==="debit"&&t.date.substr(0,7)===monthStr).forEach(t=>{
+          const main=catMainName(t.cat||"Others");
+          const ct=catClassType(data.categories,t.cat||"Others");
+          if(ct==="Transfer"||ct==="Income")return;
+          m[main]=(m[main]||0)+t.amount;
+        });
+        return m;
+      };
+
+      /* Prev month key */
+      const now2=new Date();
+      const prevD=new Date(now2.getFullYear(),now2.getMonth()-1,1);
+      const prevMonth=prevD.getFullYear()+"-"+String(prevD.getMonth()+1).padStart(2,"0");
+      const prevName=MNAMES[prevD.getMonth()];
+      const curName=MNAMES[parseInt(thisMonth.substr(5,2))-1];
+
+      const curActuals=getActuals(thisMonth);
+      const prevActuals=getActuals(prevMonth);
+
       const rows=Object.entries(plans)
         .filter(([,v])=>v>0)
-        .map(([cat,plan])=>({cat,plan,actual:catActuals[cat]||0,pct:Math.min(((catActuals[cat]||0)/plan)*100,120)}))
+        .map(([cat,plan])=>{
+          const actual=curActuals[cat]||0;
+          const prevActual=prevActuals[cat]||0;
+          const prevSaving=Math.max(0,plan-prevActual); /* unspent last month */
+          const rollover=prevSaving; /* carry forward unspent */
+          const effectivePlan=plan+rollover; /* this month's effective budget */
+          const pct=Math.min((actual/effectivePlan)*100,120);
+          return{cat,plan,actual,prevActual,rollover,effectivePlan,pct};
+        })
         .sort((a,b)=>b.pct-a.pct)
         .slice(0,8);
       if(!rows.length)return null;
+
       const cat4Color=name=>(data.categories.find(c=>c.name===name)||{}).color||CAT_C[name]||"var(--accent)";
+      const totalPlan=rows.reduce((s,r)=>s+r.plan,0);
+      const totalActual=rows.reduce((s,r)=>s+r.actual,0);
+      const totalRollover=rows.reduce((s,r)=>s+r.rollover,0);
+
       return React.createElement("div",{className:"db-card"},
-        SL("Budget vs Actuals",MNAMES[parseInt(thisMonth.substr(5,2))-1]+" — spending vs monthly plan · set budgets in Settings → Preferences"),
+        SL("Budget vs Actuals",curName+" — with rollover from "+prevName+" · set budgets in Settings → Preferences"),
+        /* Summary strip */
+        React.createElement("div",{style:{display:"flex",gap:isMobile?8:16,marginBottom:12,flexWrap:"wrap"}},
+          React.createElement("div",{style:{flex:"1 1 80px",background:"var(--bg5)",borderRadius:8,padding:"6px 10px",border:"1px solid var(--border2)"}},
+            React.createElement("div",{style:{fontSize:9,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.5,marginBottom:2}},"Monthly Budget"),
+            React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"var(--text3)",fontFamily:"'Sora',sans-serif"}},INR(totalPlan))
+          ),
+          totalRollover>0&&React.createElement("div",{style:{flex:"1 1 80px",background:"rgba(22,163,74,.07)",borderRadius:8,padding:"6px 10px",border:"1px solid rgba(22,163,74,.2)"}},
+            React.createElement("div",{style:{fontSize:9,color:"#16a34a",textTransform:"uppercase",letterSpacing:.5,marginBottom:2}},"Rolled Over"),
+            React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#16a34a",fontFamily:"'Sora',sans-serif"}},"+"+INR(totalRollover))
+          ),
+          React.createElement("div",{style:{flex:"1 1 80px",background:totalActual>totalPlan?"rgba(239,68,68,.07)":"var(--bg5)",borderRadius:8,padding:"6px 10px",border:"1px solid "+(totalActual>totalPlan?"rgba(239,68,68,.2)":"var(--border2)")}},
+            React.createElement("div",{style:{fontSize:9,color:totalActual>totalPlan?"#ef4444":"var(--text6)",textTransform:"uppercase",letterSpacing:.5,marginBottom:2}},"Spent This Month"),
+            React.createElement("div",{style:{fontSize:13,fontWeight:700,color:totalActual>totalPlan?"#ef4444":"var(--text3)",fontFamily:"'Sora',sans-serif"}},INR(totalActual))
+          ),
+          React.createElement("div",{style:{flex:"1 1 80px",background:"var(--bg5)",borderRadius:8,padding:"6px 10px",border:"1px solid var(--border2)"}},
+            React.createElement("div",{style:{fontSize:9,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.5,marginBottom:2}},"Remaining"),
+            React.createElement("div",{style:{fontSize:13,fontWeight:700,color:totalActual>totalPlan+totalRollover?"#ef4444":"#16a34a",fontFamily:"'Sora',sans-serif"}},
+              INR(Math.max(0,totalPlan+totalRollover-totalActual))
+            )
+          )
+        ),
+        /* Category rows */
         React.createElement("div",{style:{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,1fr)",gap:"4px 24px"}},
           rows.map(r=>{
-            const over=r.actual>r.plan;
+            const over=r.actual>r.effectivePlan;
             const col=r.pct>=100?"#ef4444":r.pct>=80?"#c2410c":r.pct>=50?"#b45309":"#16a34a";
             const cc=cat4Color(r.cat);
             return React.createElement("div",{key:r.cat,style:{padding:"8px 0",borderBottom:"1px solid var(--border2)"}},
               React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}},
                 React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6}},
                   React.createElement("span",{style:{width:7,height:7,borderRadius:2,background:cc,flexShrink:0,display:"inline-block"}}),
-                  React.createElement("span",{style:{fontSize:12,fontWeight:500,color:"var(--text3)"}},r.cat)
+                  React.createElement("span",{style:{fontSize:12,fontWeight:500,color:"var(--text3)"}},r.cat),
+                  r.rollover>0&&React.createElement("span",{style:{fontSize:9,color:"#16a34a",background:"rgba(22,163,74,.1)",borderRadius:4,padding:"0px 5px",fontWeight:600}},"+"+INR(r.rollover)+" rolled")
                 ),
-                React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8}},
+                React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6}},
                   React.createElement("span",{style:{fontSize:11,fontFamily:"'Sora',sans-serif",fontWeight:700,color:col}},INR(r.actual)),
-                  React.createElement("span",{style:{fontSize:10,color:"var(--text5)"}},"/ "+INR(r.plan)),
+                  React.createElement("span",{style:{fontSize:10,color:"var(--text5)"}},"/ "+INR(r.effectivePlan)),
                   over&&React.createElement("span",{style:{fontSize:9,fontWeight:700,color:"#ef4444",background:"rgba(239,68,68,.1)",borderRadius:5,padding:"1px 6px"}},"▲ over")
                 )
               ),
-              React.createElement("div",{style:{height:4,borderRadius:2,background:"var(--border)",overflow:"hidden"}},
-                React.createElement("div",{style:{width:Math.min(r.pct,100)+"%",height:"100%",background:col,borderRadius:2,transition:"width 1s ease"}})
+              React.createElement("div",{style:{height:4,borderRadius:2,background:"var(--border)",overflow:"hidden",position:"relative"}},
+                /* Base plan bar */
+                React.createElement("div",{style:{position:"absolute",left:0,top:0,height:"100%",width:Math.min((r.plan/r.effectivePlan)*100,100)+"%",background:"var(--border2)",borderRadius:2}}),
+                /* Actual spend bar */
+                React.createElement("div",{style:{position:"absolute",left:0,top:0,height:"100%",width:Math.min(r.pct,100)+"%",background:col,borderRadius:2,transition:"width 1s ease"}})
               )
             );
           })
@@ -7379,7 +7605,19 @@ const BankSection=React.memo(({banks,dispatch,categories,payees,allBanks,allCard
                 "#"+(bIdx+1)
               )
             ),
-            React.createElement("div",{style:{fontSize:22,fontFamily:"'Sora',sans-serif",fontWeight:700,color:"#0e7490",marginBottom:8}},INR(b.balance)),
+            React.createElement("div",{style:{display:"flex",alignItems:"baseline",gap:8,marginBottom:8}},
+              React.createElement("div",{style:{fontSize:22,fontFamily:"'Sora',sans-serif",fontWeight:700,color:"#0e7490"}},INR(b.balance)),
+              !reorderMode&&React.createElement("button",{
+                title:"Recalculate balance from Reconciled transactions only",
+                onClick:e=>{e.stopPropagation();
+                  const recalcBase=window.prompt("Enter the true opening balance (before any transactions).\n\nLeave blank to use 0 — balance will equal the sum of all Reconciled transactions.","0");
+                  if(recalcBase===null)return; /* cancelled */
+                  const base=parseFloat(recalcBase)||0;
+                  dispatch({type:"RECALC_BANK_BAL",id:b.id,openingBalance:base});
+                },
+                style:{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:6,border:"1px solid rgba(14,116,144,.35)",background:"rgba(14,116,144,.08)",color:"#0e7490",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap"}
+              },"⚖ Recalc")
+            ),
             React.createElement("div",{style:{display:"flex",gap:12,fontSize:11}},
               React.createElement("span",{style:{color:"#16a34a"}},"↑ "+INR(inc)),
               React.createElement("span",{style:{color:"#ef4444"}},"↓ "+INR(exp)),
@@ -10945,14 +11183,14 @@ const collectTx=(data,from,to,accFilter="all")=>{
   let rows=[];
   data.banks.forEach(b=>{
     if(accFilter!=="all"&&accFilter!==b.id)return;
-    b.transactions.forEach(t=>{if(t.date>=from&&t.date<=to&&!isTransferTx(t,data.categories))rows.push({...t,accName:b.name,accId:b.id,accType:"bank"});});
+    b.transactions.forEach(t=>{if(t.date>=from&&t.date<=to&&!isAnyTransfer(t,data.categories))rows.push({...t,accName:b.name,accId:b.id,accType:"bank"});});
   });
   data.cards.forEach(c=>{
     if(accFilter!=="all"&&accFilter!==c.id)return;
-    c.transactions.forEach(t=>{if(t.date>=from&&t.date<=to&&!isTransferTx(t,data.categories))rows.push({...t,accName:c.name,accId:c.id,accType:"card"});});
+    c.transactions.forEach(t=>{if(t.date>=from&&t.date<=to&&!isAnyTransfer(t,data.categories))rows.push({...t,accName:c.name,accId:c.id,accType:"card"});});
   });
   if(accFilter==="all"||accFilter==="__cash__"){
-    data.cash.transactions.forEach(t=>{if(t.date>=from&&t.date<=to&&!isTransferTx(t,data.categories))rows.push({...t,accName:"Cash",accId:"__cash__",accType:"cash"});});
+    data.cash.transactions.forEach(t=>{if(t.date>=from&&t.date<=to&&!isAnyTransfer(t,data.categories))rows.push({...t,accName:"Cash",accId:"__cash__",accType:"cash"});});
   }
   return rows;
 };
@@ -15529,6 +15767,29 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
             "Downloads a complete snapshot of all your accounts, transactions, investments, loans, categories and payees as a JSON file. Store it safely or import it on another device."
           ),
           React.createElement("div",{style:{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}},
+            React.createElement("button",{
+              onClick:async()=>{
+                const pw=window.prompt("Set a password for this encrypted backup:\n\n(You will need this password to restore. Keep it safe.)");
+                if(!pw)return;
+                if(pw.length<6){alert("Password must be at least 6 characters.");return;}
+                const pw2=window.prompt("Confirm password:");
+                if(pw!==pw2){alert("Passwords do not match.");return;}
+                try{
+                  const payload={version:8,exportedAt:new Date().toISOString(),theme:"ocean",
+                    summary:{bankAccounts:state.banks.length,bankTxns:state.banks.reduce((s,b)=>s+b.transactions.length,0),cardAccounts:state.cards.length,cardTxns:state.cards.reduce((s,c)=>s+c.transactions.length,0),cashTxns:state.cash.transactions.length,loans:state.loans.length,mf:state.mf.length,shares:state.shares.length,fd:state.fd.length,categories:state.categories.length,payees:state.payees.length,scheduled:(state.scheduled||[]).length,notes:(state.notes||[]).length,nwSnapshots:Object.keys(state.nwSnapshots||{}).length,hasTaxData:!!(state.taxData)},
+                    data:{...state,notes:state.notes||[],scheduled:state.scheduled||[],nwSnapshots:state.nwSnapshots||{},eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{},taxData:state.taxData||null}
+                  };
+                  const enc=await encryptBackup(payload,pw);
+                  const blob=new Blob([JSON.stringify(enc)],{type:"application/json"});
+                  const url=URL.createObjectURL(blob);
+                  const a=document.createElement("a");a.href=url;
+                  a.download="money-manager-ENCRYPTED-"+new Date().toISOString().split("T")[0]+".json";
+                  a.click();URL.revokeObjectURL(url);
+                  setBackupMsg("✓ Encrypted backup downloaded!");setTimeout(()=>setBackupMsg(""),4000);
+                }catch(e){setBackupMsg("✗ Encryption failed: "+e.message);}
+              },
+              style:{display:"inline-flex",alignItems:"center",gap:8,padding:"9px 17px",fontSize:14,background:"rgba(109,40,217,.13)",border:"1px solid rgba(109,40,217,.35)",color:"#6d28d9",borderRadius:8,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:500,transition:"all .2s"}
+            },"🔒 Encrypted Backup"),
             React.createElement(Btn,{onClick:()=>{
               try{
                 const payload={
@@ -15603,9 +15864,16 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
                   if(!file)return;
                   setRestoreErr("");
                   const reader=new FileReader();
-                  reader.onload=(ev)=>{
+                  reader.onload=async(ev)=>{
                     try{
-                      const payload=JSON.parse(ev.target.result);
+                      let payload=JSON.parse(ev.target.result);
+                      /* ── Encrypted backup: prompt for password and decrypt ── */
+                      if(payload.encrypted===true){
+                        const pw=window.prompt("This backup is encrypted. Enter your backup password:");
+                        if(!pw){setRestoreErr("✗ Restore cancelled — no password entered.");return;}
+                        try{payload=await decryptBackup(payload,pw);}
+                        catch(e){setRestoreErr("✗ Wrong password or corrupted file.");return;}
+                      }
                       if(!payload.data)throw new Error("Invalid backup file -- missing data field.");
                       const d=payload.data;
                       if(!d.banks||!d.categories)throw new Error("Backup file appears corrupted or from an incompatible version.");
@@ -16799,6 +17067,37 @@ const hashPin=async(pin)=>{
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
 };
 const getPinHash=()=>{try{return localStorage.getItem(LS_PIN)||"";}catch{return "";}};
+
+/* ── ENCRYPTED BACKUP HELPERS ──────────────────────────────────────────
+   Uses AES-256-GCM with a key derived from the user's password via PBKDF2.
+   Output format: JSON envelope { encrypted:true, salt:<hex>, iv:<hex>, data:<hex> }
+   ─────────────────────────────────────────────────────────────────────── */
+const encryptBackup=async(payloadObj,password)=>{
+  const enc=new TextEncoder();
+  const salt=crypto.getRandomValues(new Uint8Array(16));
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const keyMaterial=await crypto.subtle.importKey("raw",enc.encode(password),{name:"PBKDF2"},false,["deriveKey"]);
+  const key=await crypto.subtle.deriveKey(
+    {name:"PBKDF2",salt,iterations:200000,hash:"SHA-256"},
+    keyMaterial,{name:"AES-GCM",length:256},false,["encrypt"]
+  );
+  const plaintext=enc.encode(JSON.stringify(payloadObj));
+  const ciphertext=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,plaintext);
+  const toHex=buf=>Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+  return{encrypted:true,v:1,salt:toHex(salt),iv:toHex(iv),data:toHex(ciphertext)};
+};
+const decryptBackup=async(envelope,password)=>{
+  const enc=new TextEncoder();
+  const fromHex=hex=>new Uint8Array(hex.match(/.{2}/g).map(b=>parseInt(b,16)));
+  const salt=fromHex(envelope.salt),iv=fromHex(envelope.iv),ciphertext=fromHex(envelope.data);
+  const keyMaterial=await crypto.subtle.importKey("raw",enc.encode(password),{name:"PBKDF2"},false,["deriveKey"]);
+  const key=await crypto.subtle.deriveKey(
+    {name:"PBKDF2",salt,iterations:200000,hash:"SHA-256"},
+    keyMaterial,{name:"AES-GCM",length:256},false,["decrypt"]
+  );
+  const plaintext=await crypto.subtle.decrypt({name:"AES-GCM",iv},key,ciphertext);
+  return JSON.parse(new TextDecoder().decode(plaintext));
+};
 const savePinHash=(h)=>{try{if(h)localStorage.setItem(LS_PIN,h);else localStorage.removeItem(LS_PIN);}catch{}};
 const isSessionUnlocked=()=>{try{return sessionStorage.getItem(SS_UNLOCK)==="1";}catch{return false;}};
 const setSessionUnlocked=()=>{try{sessionStorage.setItem(SS_UNLOCK,"1");}catch{}};
@@ -18600,9 +18899,9 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
   /* ── ALL TRANSACTIONS ── */
   const allTxns=React.useMemo(()=>{
     const out=[];
-    banks.forEach(b=>b.transactions.forEach(tx=>{if(!isTransferTx(tx,categories))out.push({...tx,_src:b.name,_srcType:"bank"});}));
-    cards.forEach(c=>c.transactions.forEach(tx=>{if(!isTransferTx(tx,categories))out.push({...tx,_src:c.name,_srcType:"card"});}));
-    (cash.transactions||[]).forEach(tx=>{if(!isTransferTx(tx,categories))out.push({...tx,_src:"Cash",_srcType:"cash"});});
+    banks.forEach(b=>b.transactions.forEach(tx=>{if(!isAnyTransfer(tx,categories))out.push({...tx,_src:b.name,_srcType:"bank"});}));
+    cards.forEach(c=>c.transactions.forEach(tx=>{if(!isAnyTransfer(tx,categories))out.push({...tx,_src:c.name,_srcType:"card"});}));
+    (cash.transactions||[]).forEach(tx=>{if(!isAnyTransfer(tx,categories))out.push({...tx,_src:"Cash",_srcType:"cash"});});
     return out;
   },[banks,cards,cash,categories]);
 
@@ -22807,6 +23106,8 @@ function App(){
   _undoPushRef.current=pushUndo;
   /* ── Global search ── */
   const[searchOpen,setSearchOpen]=useState(false);
+  /* ── Quick-add FAB ── */
+  const[quickAddOpen,setQuickAddOpen]=useState(false);
   const[themeId,setThemeId]=useState(loadTheme);
   const setTheme=id=>{setThemeId(id);applyTheme(id);saveTheme(id);};
   React.useEffect(()=>{applyTheme(themeId);},[]);
@@ -23610,7 +23911,64 @@ function App(){
       onClose:()=>setSearchOpen(false),
       onJumpToTx:(accType,accId,txId)=>{onJumpToTx(accType,accId,txId);},
       setTab
-    })
+    }),
+    /* ── Quick-Add FAB ── */
+    !["settings","info"].includes(tab)&&React.createElement(React.Fragment,null,
+      /* FAB button */
+      React.createElement("button",{
+        onClick:()=>setQuickAddOpen(true),
+        title:"Quick Add Transaction (global)",
+        style:{
+          position:"fixed",
+          bottom:isMobile?80:32,right:isMobile?16:32,
+          width:52,height:52,borderRadius:"50%",
+          background:"var(--accent)",color:"#fff",
+          border:"none",cursor:"pointer",
+          fontSize:26,lineHeight:1,
+          boxShadow:"0 4px 20px var(--accentbg5),0 2px 8px rgba(0,0,0,.25)",
+          display:"flex",alignItems:"center",justifyContent:"center",
+          zIndex:1200,transition:"transform .15s,box-shadow .15s",
+          fontFamily:"'DM Sans',sans-serif",fontWeight:400,
+        },
+        onMouseEnter:e=>{e.currentTarget.style.transform="scale(1.1)";e.currentTarget.style.boxShadow="0 6px 28px var(--accentbg5),0 4px 12px rgba(0,0,0,.3)";},
+        onMouseLeave:e=>{e.currentTarget.style.transform="scale(1)";e.currentTarget.style.boxShadow="0 4px 20px var(--accentbg5),0 2px 8px rgba(0,0,0,.25)";},
+      },"+"),
+      /* Quick-Add modal */
+      quickAddOpen&&(()=>{
+        const allAcc=[
+          ...state.banks.map(b=>({...b,accType:"bank",accTypeLbl:"🏦"})),
+          {id:"__cash__",...state.cash,name:"Cash",accType:"cash",accTypeLbl:"💵"},
+          ...state.cards.map(c=>({...c,accType:"card",accTypeLbl:"💳"})),
+        ];
+        if(!allAcc.length)return null;
+        const handleAdd=tx=>{
+          if(tx.isTransfer){
+            dispatch({type:"TRANSFER_TX",srcType:tx.srcType,srcId:tx.srcId,tgtType:tx.tgtType,tgtId:tx.tgtId,tx:tx.tx});
+          }else{
+            const accId=tx.srcId;
+            const acc=allAcc.find(a=>a.id===accId);
+            if(!acc)return;
+            if(acc.accType==="bank"){dispatch({type:"ADD_BANK_TX",id:acc.id,tx});dispatch({type:"UPD_BANK_BAL",id:acc.id,tx});}
+            else if(acc.accType==="card"){dispatch({type:"ADD_CARD_TX",id:acc.id,tx});dispatch({type:"UPD_CARD_BAL",id:acc.id,tx});}
+            else if(acc.accType==="cash"||acc.id==="__cash__"){dispatch({type:"ADD_CASH_TX",tx});}
+          }
+          setQuickAddOpen(false);
+        };
+        /* Derive txTypes from the first account (modal updates dynamically) */
+        const defaultAcc=allAcc[0];
+        const txT=defaultAcc.accType==="card"?TX_TYPES_CARD:defaultAcc.accType==="cash"?TX_TYPES_CASH:TX_TYPES_BANK;
+        return React.createElement(TxModal,{
+          onAdd:handleAdd,
+          onClose:()=>setQuickAddOpen(false),
+          categories:state.categories,
+          payees:state.payees,
+          txTypes:txT,
+          allAccounts:[...state.banks.map(b=>({...b,accType:"bank",accTypeLbl:"🏦"})),{id:"__cash__",...state.cash,name:"Cash",accType:"cash",accTypeLbl:"💵"},...state.cards.map(c=>({...c,accType:"card",accTypeLbl:"💳"})),...(state.loans||[]).map(l=>({...l,accType:"loan",accTypeLbl:"🏠",name:l.name+" (Loan)"}))],
+          currentAccountId:defaultAcc.id,
+          dispatch,state,
+        });
+      })()
+    ),
   );
 }
 ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));

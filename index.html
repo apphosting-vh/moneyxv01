@@ -1971,10 +1971,30 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.31.1";
+const APP_VERSION="3.32.1";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.32.1",date:"2026-03-18",title:"Fix: ReferenceError fireData is not defined in Insights tab",changes:[
+    "Bug: Clicking the Insights tab caused a blank screen — ReferenceError: fireData is not defined.",
+    "Root cause: The fireData useMemo hook was positioned between the VelocityTab JSX block and the '/* ══ FIRE TAB ══ */' comment in the original file. When VelocityTab was deleted in v3.32.0 using those two markers as start/end anchors, fireData was inside the deleted range and got swept away with it.",
+    "Fix: Re-inserted the complete fireData useMemo hook immediately before the FireTab render constant, where it belongs. fireData computes FIRE number, years-to-FIRE, savings rates, asset allocation, and lifestyle inflation — all of which FireTab depends on.",
+    "No other changes from v3.32.0.",
+  ]},
+  {version:"3.32.0",date:"2026-03-18",title:"Insights: Remove 8 low-value tabs (Day Patterns, Food Intel, Leaks, Recurring, Seasonal, Velocity, Emergency, Savings Trend)",changes:[
+    "Removed tab: 🗓 Day Patterns — weekend vs weekday spend, day-of-week bar chart.",
+    "Removed tab: 🍔 Food Intel — delivery/grocery/dining classifier, 6-month stacked bar, savings projection.",
+    "Removed tab: 💧 Leaks — micro-spend detector under threshold, projected leak, top micro-payees.",
+    "Removed tab: 🔄 Recurring — auto-detected recurring pattern table with schedule write-back.",
+    "Removed tab: 🌍 Seasonal — 12-month spend bar chart, YoY comparison, spike detector.",
+    "Removed tab: 🚀 Velocity — net worth snapshot, 6-month income/expense bars, goal projections.",
+    "Removed tab: 🚨 Emergency — fund runway gauge, obligation ratio, liquid vs illiquid split, insurance checker.",
+    "Removed tab: 📐 Savings Trend — savings waterfall, expense-ratio trend, PYF scorecard, cumulative savings chart.",
+    "Removed all associated useMemo computation hooks: patternData, foodData, leakData, recurringData, seasonalData, velocityData, emergencyData, savingsTrendData.",
+    "Removed FOOD_DELIVERY_KW, FOOD_GROCERY_KW, FOOD_DINING_KW keyword arrays (only used by Food Intel).",
+    "Remaining Insights tabs: 📈 Pulse, 📊 Spend, 🏪 Payees, 💰 Budget, 📺 Subscriptions, 🏖 FIRE, 💎 Net Worth, 🧮 Calculators.",
+    "Default tab remains Pulse. No other sections affected.",
+  ]},
   {version:"3.31.1",date:"2026-03-18",title:"Fix: StorageGauge showing wrong quota (10 GB from Quota API instead of 5 MB localStorage limit)",changes:[
     "Bug: StorageGauge used navigator.storage.estimate() quota (~10 GB) as the denominator for the localStorage percentage bar. This caused the gauge to always show ~0.0% and the HEALTHY badge was meaningless.",
     "Root cause: navigator.storage.estimate() returns the total ORIGIN storage quota — covering IndexedDB + Cache API + Service Worker caches + OPFS + localStorage combined. Chrome allocates ~60% of free disk space for this (e.g. 10 GB on a 16 GB machine). This number has no relationship to the localStorage-specific 5 MB limit.",
@@ -19372,9 +19392,6 @@ const GoalsSection=React.memo(({goals,dispatch,isMobile})=>{
    subscriptions, seasonal patterns, net worth velocity & goal projections
    ══════════════════════════════════════════════════════════════════════════ */
 const SUBSCRIPTION_KEYWORDS=["netflix","spotify","prime","hotstar","youtube","apple music","google one","disney+","zee5","voot","sonyliv","swiggy one","zomato pro","notion","dropbox","icloud","microsoft 365","office 365","adobe","canva","linkedin","udemy","coursera","mxplayer","jiocinema","tata play","tataplay"];
-const FOOD_DELIVERY_KW=["swiggy","zomato","dunzo","blinkit","zepto","instamart","dominos","pizza hut","kfc","mcdonalds","burger king","subway","box8","freshmenu","licious","behrouz","oven story","faasos","eat.fit"];
-const FOOD_GROCERY_KW=["bigbasket","dmart","reliance fresh","more supermarket","spencers","grofers","jiomart","kirana","provisions","vegetables","fruits","grocery","supermarket","hypermarket"];
-const FOOD_DINING_KW=["restaurant","cafe","dhaba","hotel food","biryani house","dine","food court","bakery","sweets","mithai","mess","canteen","tiffin"];
 
 /* ══════════════════════════════════════════════════════════════════════════
    NET WORTH INSIGHT TAB v2 — Snapshot-based history + fixed x-axis labels
@@ -19964,35 +19981,7 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
     return {todaySpend,thisMonthSpend,lastMonthSpend,dailyAvg,projected,last7,heatmap,maxDay,dayOfMonth,daysInMonth};
   },[allTxns,thisStart,thisEnd,lastStart,lastEnd]);
 
-  /* ── DAY PATTERNS ── */
-  const patternData=React.useMemo(()=>{
-    const cutoff=fmtD(new Date(now.getFullYear(),now.getMonth()-2,now.getDate()));
-    const recent=allTxns.filter(t=>t.type==="debit"&&t.date>=cutoff);
-    const dayTotals=[0,0,0,0,0,0,0];
-    const uniqueDaysByDow=[0,0,0,0,0,0,0];
-    const dateSet=new Set(recent.map(t=>t.date));
-    dateSet.forEach(ds=>{uniqueDaysByDow[new Date(ds).getDay()]++;});
-    recent.forEach(t=>{dayTotals[new Date(t.date).getDay()]+=t.amount;});
-    const dayAvg=dayTotals.map((tot,i)=>uniqueDaysByDow[i]>0?tot/uniqueDaysByDow[i]:0);
-    const isWknd=d=>d===0||d===6;
-    const wkndDates=Array.from(dateSet).filter(ds=>isWknd(new Date(ds).getDay()));
-    const wkdyDates=Array.from(dateSet).filter(ds=>!isWknd(new Date(ds).getDay()));
-    const wkndTotal=recent.filter(t=>isWknd(new Date(t.date).getDay())).reduce((s,t)=>s+t.amount,0);
-    const wkdyTotal=recent.filter(t=>!isWknd(new Date(t.date).getDay())).reduce((s,t)=>s+t.amount,0);
-    const wkndAvg=wkndDates.length>0?wkndTotal/wkndDates.length:0;
-    const wkdyAvg=wkdyDates.length>0?wkdyTotal/wkdyDates.length:0;
-    const ratio=wkdyAvg>0?wkndAvg/wkdyAvg:0;
-    const catWknd={},catWkdy={};
-    recent.forEach(t=>{
-      const cat=catMainName(t.cat||"Others");
-      if(isWknd(new Date(t.date).getDay()))catWknd[cat]=(catWknd[cat]||0)+t.amount;
-      else catWkdy[cat]=(catWkdy[cat]||0)+t.amount;
-    });
-    const allCats=new Set([...Object.keys(catWknd),...Object.keys(catWkdy)]);
-    const catBreakdown=Array.from(allCats).map(cat=>({cat,wknd:catWknd[cat]||0,wkdy:catWkdy[cat]||0})).sort((a,b)=>(b.wknd+b.wkdy)-(a.wknd+a.wkdy)).slice(0,8);
-    const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-    return {dayAvg,DAYS,ratio,wkndAvg,wkdyAvg,catBreakdown,wkndTotal,wkdyTotal};
-  },[allTxns]);
+
 
   /* ── SPEND COMPARISON + DRIFT ── */
   const spendData=React.useMemo(()=>{
@@ -20015,54 +20004,6 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
       return {cat,curr,last,delta:curr-last,pct:last?((curr-last)/last*100):null,drift3m:avg3>0?((curr-avg3)/avg3*100):null};
     }).sort((a,b)=>b.curr-a.curr);
   },[allTxns,thisStart,thisEnd,lastStart,lastEnd]);
-
-  /* ── FOOD INTELLIGENCE ── */
-  const foodData=React.useMemo(()=>{
-    const classify=t=>{
-      const txt=((t.payee||"")+" "+(t.desc||"")).toLowerCase();
-      const cat=(t.cat||"").toLowerCase();
-      if(FOOD_DELIVERY_KW.some(k=>txt.includes(k)))return"delivery";
-      if(FOOD_GROCERY_KW.some(k=>txt.includes(k))||cat.includes("grocery"))return"grocery";
-      if(FOOD_DINING_KW.some(k=>txt.includes(k))||cat.includes("dining")||cat.includes("restaurant"))return"dining";
-      return"grocery";
-    };
-    const isFoodTxn=t=>{
-      const txt=((t.payee||"")+" "+(t.desc||"")).toLowerCase();
-      const cat=(t.cat||"").toLowerCase();
-      return FOOD_DELIVERY_KW.some(k=>txt.includes(k))||FOOD_GROCERY_KW.some(k=>txt.includes(k))||FOOD_DINING_KW.some(k=>txt.includes(k))||cat.includes("food")||cat.includes("grocery")||cat.includes("dining")||cat.includes("restaurant");
-    };
-    const months=[];
-    for(let i=5;i>=0;i--){
-      const mS=fmtD(new Date(now.getFullYear(),now.getMonth()-i,1));
-      const mE=fmtD(new Date(now.getFullYear(),now.getMonth()-i+1,0));
-      const mName=MONTH_NAMES[(now.getMonth()-i+12)%12];
-      const txns=allTxns.filter(t=>t.type==="debit"&&t.date>=mS&&t.date<=mE&&isFoodTxn(t));
-      const delivery=txns.filter(t=>classify(t)==="delivery").reduce((s,t)=>s+t.amount,0);
-      const grocery=txns.filter(t=>classify(t)==="grocery").reduce((s,t)=>s+t.amount,0);
-      const dining=txns.filter(t=>classify(t)==="dining").reduce((s,t)=>s+t.amount,0);
-      months.push({mName,delivery,grocery,dining,total:delivery+grocery+dining,isCurrent:i===0});
-    }
-    const curr=months[months.length-1];
-    const delivOrders=allTxns.filter(t=>t.type==="debit"&&t.date>=thisStart&&t.date<=thisEnd&&FOOD_DELIVERY_KW.some(k=>((t.payee||"")+" "+(t.desc||"")).toLowerCase().includes(k))).length;
-    const potentialSaving=Math.round(delivOrders*0.4*220);
-    return {months,curr,delivOrders,potentialSaving};
-  },[allTxns,thisStart,thisEnd]);
-
-  /* ── LEAK DETECTOR ── */
-  const leakData=React.useMemo(()=>{
-    const THRESH=P.leakThreshold||500;
-    const leaks=allTxns.filter(t=>t.type==="debit"&&t.amount<THRESH&&t.date>=thisStart&&t.date<=thisEnd);
-    const totalLeak=leaks.reduce((s,t)=>s+t.amount,0);
-    const byCat={};
-    leaks.forEach(t=>{const c=catMainName(t.cat||"Others");if(!byCat[c])byCat[c]={cat:c,total:0,count:0};byCat[c].total+=t.amount;byCat[c].count++;});
-    const sorted=Object.values(byCat).sort((a,b)=>b.total-a.total);
-    const dayOfMonth=now.getDate();
-    const projected=dayOfMonth>0?totalLeak/dayOfMonth*new Date(now.getFullYear(),now.getMonth()+1,0).getDate():0;
-    const payeeMap={};
-    leaks.forEach(t=>{const k=(t.payee||t.desc||"Unknown").slice(0,32);if(!payeeMap[k])payeeMap[k]={name:k,total:0,count:0};payeeMap[k].total+=t.amount;payeeMap[k].count++;});
-    const topPayees=Object.values(payeeMap).sort((a,b)=>b.total-a.total).slice(0,6);
-    return {leaks,totalLeak,projected,sorted,topPayees,THRESH};
-  },[allTxns,thisStart,thisEnd]);
 
   /* ── TOP PAYEES ── */
   const payeeData=React.useMemo(()=>{
@@ -20192,31 +20133,6 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
     const years=[buildYearData(currentFY-2),buildYearData(currentFY-1),buildYearData(currentFY)];
     return {hasBudgets,months,years};
   },[allTxns,categories,P.budgetPlans]);
-  const recurringData=React.useMemo(()=>{
-    const cutoff=fmtD(new Date(now.getFullYear(),now.getMonth()-3,now.getDate()));
-    const recent=allTxns.filter(t=>t.type==="debit"&&t.date>=cutoff&&(t.payee||t.desc));
-    const groups={};
-    recent.forEach(t=>{const key=(t.payee||t.desc||"").trim().toLowerCase().slice(0,30);if(key)groups[key]=(groups[key]||[]).concat(t);});
-    const detected=[];
-    Object.entries(groups).forEach(([key,txs])=>{
-      if(txs.length<2)return;
-      const sorted=txs.slice().sort((a,b)=>a.date.localeCompare(b.date));
-      const intervals=[];
-      for(let i=1;i<sorted.length;i++)intervals.push(Math.round((new Date(sorted[i].date)-new Date(sorted[i-1].date))/86400000));
-      if(!intervals.length)return;
-      const avgInterval=intervals.reduce((s,x)=>s+x,0)/intervals.length;
-      let freq="";
-      if(avgInterval>=25&&avgInterval<=38)freq="Monthly";
-      else if(avgInterval>=6&&avgInterval<=10)freq="Weekly";
-      else if(avgInterval>=85&&avgInterval<=100)freq="Quarterly";
-      else if(avgInterval>=350&&avgInterval<=380)freq="Yearly";
-      if(!freq)return;
-      const avgAmt=sorted.reduce((s,t)=>s+t.amount,0)/sorted.length;
-      const last=sorted[sorted.length-1];
-      detected.push({key,name:(last.payee||last.desc||key).slice(0,40),freq,avgAmt,count:sorted.length,lastDate:last.date,lastCat:last.cat,accType:(last._src||""),txs:sorted});
-    });
-    return detected.sort((a,b)=>b.avgAmt-a.avgAmt);
-  },[allTxns]);
 
   /* ── SUBSCRIPTION TRACKER (existing logic) ── */
   const subscriptionData=React.useMemo(()=>{
@@ -20234,55 +20150,6 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
     return Object.values(candidates).sort((a,b)=>b.amount-a.amount);
   },[allTxns]);
   const totalSubBurn=subscriptionData.reduce((s,sub)=>s+sub.amount,0);
-
-  /* ── SEASONAL PATTERNS ── */
-  const seasonalData=React.useMemo(()=>{
-    const months=[];
-    for(let i=11;i>=0;i--){
-      const mS=fmtD(new Date(now.getFullYear(),now.getMonth()-i,1));
-      const mE=fmtD(new Date(now.getFullYear(),now.getMonth()-i+1,0));
-      const mName=MONTH_NAMES[(now.getMonth()-i+12)%12];
-      const mYear=new Date(now.getFullYear(),now.getMonth()-i,1).getFullYear();
-      const txns=allTxns.filter(t=>t.type==="debit"&&t.date>=mS&&t.date<=mE);
-      months.push({mName,mYear,total:txns.reduce((s,t)=>s+t.amount,0),isCurrent:i===0});
-    }
-    const avg12=months.reduce((s,m)=>s+m.total,0)/12||1;
-    const yoy=months[0].total>0?(months[11].total-months[0].total)/months[0].total*100:null;
-    const maxM=Math.max(...months.map(m=>m.total),1);
-    const spikes=months.filter(m=>!m.isCurrent&&m.total>avg12*1.4).sort((a,b)=>b.total-a.total).slice(0,4);
-    return {months,avg12,yoy,maxM,spikes};
-  },[allTxns]);
-
-  /* ── NET WORTH VELOCITY & GOALS ── */
-  const velocityData=React.useMemo(()=>{
-    const bankBal=banks.reduce((s,b)=>s+(b.balance||0),0);
-    const cashBal=cash.balance||0;
-    const cardDebt=cards.reduce((s,c)=>s+(c.outstanding||0),0);
-    const mfVal=(mf||[]).reduce((s,m)=>s+(m.currentValue||0),0);
-    const sharesVal=(shares||[]).reduce((s,s2)=>s+(s2.currentValue||0),0);
-    const fdVal=(fd||[]).reduce((s,f)=>s+(f.principalAmount||f.amount||0),0);
-    const reVal=(re||[]).reduce((s,r)=>s+(r.currentValue||0),0);
-    const loanDebt=(loans||[]).reduce((s,l)=>s+(l.outstanding||l.balance||0),0);
-    const netWorth=bankBal+cashBal-cardDebt+mfVal+sharesVal+fdVal+reVal-loanDebt;
-    const monthlyFlow=[];
-    for(let i=5;i>=0;i--){
-      const mS=fmtD(new Date(now.getFullYear(),now.getMonth()-i,1));
-      const mE=fmtD(new Date(now.getFullYear(),now.getMonth()-i+1,0));
-      const mName=MONTH_NAMES[(now.getMonth()-i+12)%12];
-      const inc=allTxns.filter(t=>t.type==="credit"&&t.date>=mS&&t.date<=mE).reduce((s,t)=>s+t.amount,0);
-      const exp=allTxns.filter(t=>t.type==="debit"&&t.date>=mS&&t.date<=mE).reduce((s,t)=>s+t.amount,0);
-      monthlyFlow.push({mName,income:inc,expenses:exp,savings:inc-exp,isCurrent:i===0});
-    }
-    const past5=monthlyFlow.slice(0,5);
-    const avgSavings=past5.reduce((s,m)=>s+m.savings,0)/5;
-    const currSavings=monthlyFlow[5]?.savings||0;
-    const velocity=Math.abs(avgSavings)>0?(currSavings-avgSavings)/Math.abs(avgSavings)*100:0;
-    const goalProjections=(goals||[]).filter(g=>g.target>(g.current||0)).map(g=>{
-      const rem=g.target-(g.current||0);
-      return {...g,remaining:rem,monthsNeeded:avgSavings>0?Math.ceil(rem/avgSavings):null,reducedMonths:avgSavings>0?Math.ceil(rem/(avgSavings*1.2)):null};
-    }).slice(0,5);
-    return {netWorth,bankBal,cashBal,cardDebt,mfVal,sharesVal,fdVal,reVal,loanDebt,monthlyFlow,avgSavings,currSavings,velocity,goalProjections};
-  },[allTxns,banks,cards,cash,mf,shares,fd,re,loans,goals]);
 
   /* ── UI HELPERS ── */
   const tabBtn=id=>({padding:"7px 14px",borderRadius:8,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:stab===id?600:400,border:"none",background:stab===id?"var(--accentbg)":"transparent",color:stab===id?"var(--accent)":"var(--text5)",transition:"all .15s",whiteSpace:"nowrap"});
@@ -20347,60 +20214,6 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
     )
   );
 
-  /* ══ 2. DAY PATTERNS TAB ══ */
-  const PatternsTab=React.createElement("div",{style:{paddingBottom:20}},
-    React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
-      React.createElement(KpiCard,{label:"Weekend Daily Avg",value:INR(Math.round(patternData.wkndAvg)),sub:"Sat & Sun average per day",col:"#c2410c",icon:"🏖"}),
-      React.createElement(KpiCard,{label:"Weekday Daily Avg",value:INR(Math.round(patternData.wkdyAvg)),sub:"Mon–Fri average per day",col:"#0e7490",icon:"💼"}),
-      React.createElement(KpiCard,{label:"Weekend Multiplier",value:patternData.ratio.toFixed(1)+"×",sub:patternData.ratio>2?"High weekend spending!":patternData.ratio>1.5?"Moderately higher weekends":"Consistent week",col:patternData.ratio>2?"#ef4444":patternData.ratio>1.5?"#c2410c":"#16a34a",icon:"⚖"})
-    ),
-    React.createElement(Card2,{sx:{marginBottom:16}},
-      React.createElement(SHead,{t:"Average Spend by Day of Week",s:"Based on last 3 months — all transactions averaged per unique day"}),
-      (()=>{
-        const maxA=Math.max(...patternData.dayAvg,1);
-        return React.createElement("div",{style:{display:"flex",gap:8,alignItems:"flex-end",height:120,paddingBottom:4}},
-          patternData.dayAvg.map((avg,i)=>{
-            const wknd=i===0||i===6;
-            const h=Math.max(avg/maxA*100,2);
-            return React.createElement("div",{key:i,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}},
-              avg>0&&React.createElement("div",{style:{fontSize:9,color:"var(--text5)"}},avg>=1000?(avg/1000).toFixed(1)+"k":Math.round(avg)),
-              React.createElement("div",{style:{width:"100%",height:h+"%",minHeight:3,borderRadius:"4px 4px 0 0",background:wknd?"#c2410c":"var(--accent)",opacity:avg===0?.2:1}}),
-              React.createElement("div",{style:{fontSize:10,color:wknd?"#c2410c":"var(--text5)",fontWeight:wknd?700:400}},patternData.DAYS[i])
-            );
-          })
-        );
-      })()
-    ),
-    React.createElement(Card2,null,
-      React.createElement(SHead,{t:"Weekend vs Weekday by Category",s:"Last 3 months · Weekend = Sat+Sun · Weekday = Mon–Fri"}),
-      patternData.catBreakdown.length===0
-        ?React.createElement(Empty,{icon:"📅",text:"Not enough data for day pattern analysis"})
-        :React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:10}},
-          patternData.catBreakdown.map(row=>{
-            const col=catColor(categories,row.cat)||"#8ba0c0";
-            const total=row.wknd+row.wkdy||1;
-            const wkndPct=row.wknd/total*100;
-            return React.createElement("div",{key:row.cat,style:{paddingBottom:8,borderBottom:"1px solid var(--border2)"}},
-              React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}},
-                React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8}},
-                  React.createElement("span",{style:{width:10,height:10,borderRadius:"50%",background:col,display:"inline-block"}}),
-                  React.createElement("span",{style:{fontSize:13,color:"var(--text3)",fontWeight:500}},row.cat)
-                ),
-                React.createElement("div",{style:{display:"flex",gap:14,fontSize:12}},
-                  React.createElement("span",{style:{color:"#0e7490"}},"Wkday "+INR(Math.round(row.wkdy))),
-                  React.createElement("span",{style:{color:"#c2410c"}},"Wkend "+INR(Math.round(row.wknd)))
-                )
-              ),
-              React.createElement("div",{style:{height:6,background:"var(--bg5)",borderRadius:3,overflow:"hidden"}},
-                React.createElement("div",{style:{height:"100%",width:wkndPct+"%",background:"#c2410c",borderRadius:3,opacity:.75}})
-              ),
-              React.createElement("div",{style:{fontSize:10,color:"var(--text6)",marginTop:3}},wkndPct.toFixed(0)+"% of "+row.cat+" spend is on weekends")
-            );
-          })
-        )
-    )
-  );
-
   /* ══ 3. SPEND COMPARISON TAB ══ */
   const SpendTab=React.createElement("div",{style:{paddingBottom:20}},
     spendData.length===0
@@ -20449,89 +20262,6 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
             React.createElement("div",{style:{textAlign:"right",fontSize:12,fontWeight:700,fontFamily:"'Sora',sans-serif",color:"var(--text3)"}},INR(spendData.reduce((s,r)=>s+r.last,0))),
             React.createElement("div",{style:{textAlign:"right",fontSize:12,fontWeight:700,fontFamily:"'Sora',sans-serif",color:"var(--accent)"}},INR(spendData.reduce((s,r)=>s+r.curr,0))),
             React.createElement("div",{style:{textAlign:"right",fontSize:12,fontWeight:700,color:(spendData.reduce((s,r)=>s+r.delta,0))>0?"#ef4444":"#16a34a"}},(()=>{const d=spendData.reduce((s,r)=>s+r.delta,0);return(d>0?"+":"")+INR(d);})()), React.createElement("div",null)
-          )
-        )
-      )
-  );
-
-  /* ══ 4. FOOD INTELLIGENCE TAB ══ */
-  const FoodTab=React.createElement("div",{style:{paddingBottom:20}},
-    foodData.curr.total===0
-      ?React.createElement(Empty,{icon:"🍔",text:"No food transactions detected. Transactions with Swiggy, Zomato, BigBasket, restaurant keywords etc. will appear here."})
-      :React.createElement(React.Fragment,null,
-        React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
-          P.foodBudget&&React.createElement("div",{style:{padding:"8px 14px",borderRadius:10,background:"var(--accentbg)",border:"1px solid var(--border)",fontSize:12,color:"var(--text4)",marginBottom:16}},"🎯 Your food budget: ",React.createElement("strong",{style:{color:"var(--accent)"}},INR(P.foodBudget))," · This month: ",React.createElement("strong",{style:{color:foodData.curr.total>P.foodBudget?"#ef4444":"#16a34a"}},INR(foodData.curr.total))," · ",React.createElement("strong",{style:{color:foodData.curr.total>P.foodBudget?"#ef4444":"#16a34a"}},foodData.curr.total>P.foodBudget?"⚠ Over by "+INR(foodData.curr.total-P.foodBudget):"✓ Under by "+INR(P.foodBudget-foodData.curr.total))),
-      React.createElement(KpiCard,{label:"Delivery & Takeout",value:INR(foodData.curr.delivery),sub:foodData.curr.total>0?(foodData.curr.delivery/foodData.curr.total*100).toFixed(0)+"% of food budget":"-",col:"#ef4444",icon:"🛵"}),
-          React.createElement(KpiCard,{label:"Groceries",value:INR(foodData.curr.grocery),sub:foodData.curr.total>0?(foodData.curr.grocery/foodData.curr.total*100).toFixed(0)+"% of food budget":"-",col:"#16a34a",icon:"🛒"}),
-          React.createElement(KpiCard,{label:"Dining Out",value:INR(foodData.curr.dining),sub:foodData.curr.total>0?(foodData.curr.dining/foodData.curr.total*100).toFixed(0)+"% of food budget":"-",col:"#b45309",icon:"🍽"})
-        ),
-        foodData.potentialSaving>0&&React.createElement("div",{style:{background:"rgba(22,163,74,.07)",border:"1px solid rgba(22,163,74,.2)",borderRadius:12,padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",gap:12}},
-          React.createElement("div",{style:{fontSize:26,flexShrink:0}},"💡"),
-          React.createElement("div",null,
-            React.createElement("div",{style:{fontSize:13,fontWeight:600,color:"#16a34a",marginBottom:3}},"Potential saving: "+INR(foodData.potentialSaving)+"/month"),
-            React.createElement("div",{style:{fontSize:12,color:"var(--text4)",lineHeight:1.6}},
-              "You placed "+foodData.delivOrders+" delivery orders this month. Replacing ~"+Math.round(foodData.delivOrders*0.4)+" with home-cooked meals could save "+INR(foodData.potentialSaving)+" on food spend alone.")
-          )
-        ),
-        React.createElement(Card2,null,
-          React.createElement(SHead,{t:"6-Month Food Spend Trend",s:"Delivery · Grocery · Dining breakdown per month"}),
-          (()=>{
-            const maxF=Math.max(...foodData.months.map(m=>m.total),1);
-            return React.createElement(React.Fragment,null,
-              React.createElement("div",{style:{display:"flex",gap:6,alignItems:"flex-end",height:100,marginBottom:6}},
-                foodData.months.map((m,i)=>
-                  React.createElement("div",{key:i,style:{flex:1,display:"flex",flexDirection:"column",justifyContent:"flex-end",gap:0,position:"relative"}},
-                    m.dining>0&&React.createElement("div",{style:{background:"#b45309",height:(m.dining/maxF*90)+"%",minHeight:1,opacity:.85}}),
-                    m.delivery>0&&React.createElement("div",{style:{background:"#ef4444",height:(m.delivery/maxF*90)+"%",minHeight:1,opacity:.85}}),
-                    m.grocery>0&&React.createElement("div",{style:{background:"#16a34a",height:(m.grocery/maxF*90)+"%",minHeight:1,opacity:.85,borderRadius:"2px 2px 0 0"}}),
-                    React.createElement("div",{style:{fontSize:9,color:m.isCurrent?"var(--accent)":"var(--text5)",textAlign:"center",marginTop:3,fontWeight:m.isCurrent?700:400}},m.mName)
-                  )
-                )
-              ),
-              React.createElement("div",{style:{display:"flex",gap:16,fontSize:11,color:"var(--text4)",marginTop:4}},
-                React.createElement("div",{style:{display:"flex",gap:4,alignItems:"center"}},React.createElement("div",{style:{width:10,height:10,background:"#16a34a",borderRadius:2}}),"Grocery"),
-                React.createElement("div",{style:{display:"flex",gap:4,alignItems:"center"}},React.createElement("div",{style:{width:10,height:10,background:"#ef4444",borderRadius:2}}),"Delivery"),
-                React.createElement("div",{style:{display:"flex",gap:4,alignItems:"center"}},React.createElement("div",{style:{width:10,height:10,background:"#b45309",borderRadius:2}}),"Dining out")
-              )
-            );
-          })()
-        )
-      )
-  );
-
-  /* ══ 5. LEAK DETECTOR TAB ══ */
-  const LeakTab=React.createElement("div",{style:{paddingBottom:20}},
-    leakData.leaks.length===0
-      ?React.createElement(Empty,{icon:"💧",text:"No micro-transactions under ₹"+leakData.THRESH+" found this month"})
-      :React.createElement(React.Fragment,null,
-        React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
-          React.createElement(KpiCard,{label:"Micro-Spend This Month",value:INR(Math.round(leakData.totalLeak)),sub:leakData.leaks.length+" transactions under ₹"+leakData.THRESH,col:"#c2410c",icon:"💧"}),
-          React.createElement(KpiCard,{label:"Projected Monthly",value:INR(Math.round(leakData.projected)),sub:"at current pace",col:"#ef4444",icon:"📅"}),
-          React.createElement(KpiCard,{label:"Annual Leak Estimate",value:INR(Math.round(leakData.projected*12)),sub:"if pattern continues",col:"#b45309",icon:"🗓"})
-        ),
-        React.createElement("div",{style:{background:"rgba(194,65,12,.06)",border:"1px solid rgba(194,65,12,.18)",borderRadius:12,padding:"12px 16px",marginBottom:16,fontSize:12,color:"var(--text4)",lineHeight:1.7}},
-          "💡 These are individual transactions under ₹"+leakData.THRESH+". Each feels trivial but they compound into "+INR(Math.round(leakData.projected))+" every month. Common culprits: chai stalls, parking, platform convenience fees, small UPI transfers."
-        ),
-        React.createElement("div",{style:{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}},
-          leakData.sorted.slice(0,6).map(c=>
-            React.createElement("div",{key:c.cat,style:{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 14px",flex:"1 1 150px"}},
-              React.createElement("div",{style:{fontSize:12,fontWeight:600,color:"var(--text3)",marginBottom:2}},c.cat),
-              React.createElement("div",{style:{fontSize:20,fontFamily:"'Sora',sans-serif",fontWeight:800,color:"#c2410c"}},INR(Math.round(c.total))),
-              React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},c.count+" transactions")
-            )
-          )
-        ),
-        leakData.topPayees.length>0&&React.createElement(Card2,null,
-          React.createElement(SHead,{t:"Top Micro-Spend Payees",s:"Ranked by total leaked amount this month"}),
-          React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:4}},
-            leakData.topPayees.map((p,i)=>
-              React.createElement("div",{key:p.name,style:{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:"1px solid var(--border2)"}},
-                React.createElement("div",{style:{width:24,height:24,borderRadius:"50%",background:"var(--accentbg)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"var(--accent)",flexShrink:0}},i+1),
-                React.createElement("div",{style:{flex:1,fontSize:13,color:"var(--text3)"}},p.name),
-                React.createElement("div",{style:{fontSize:11,color:"var(--text5)",flexShrink:0}},p.count+"×"),
-                React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#c2410c",fontFamily:"'Sora',sans-serif",flexShrink:0}},INR(Math.round(p.total)))
-              )
-            )
           )
         )
       )
@@ -20932,52 +20662,6 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
   )
   );
 
-  /* ══ 8. RECURRING TAB (original) ══ */
-  const RecurringTab=React.createElement("div",{style:{paddingBottom:20}},
-    recurringData.length===0
-      ?React.createElement(Empty,{icon:"🔄",text:"No recurring patterns detected in last 90 days"})
-      :React.createElement(React.Fragment,null,
-        React.createElement("div",{style:{fontSize:13,color:"var(--text4)",marginBottom:14}},recurringData.length+" recurring pattern"+(recurringData.length>1?"s":"")+" detected in the last 90 days"),
-        React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:10}},
-          recurringData.map(r=>{
-            const fc=r.freq==="Monthly"?"#0e7490":r.freq==="Weekly"?"#16a34a":r.freq==="Quarterly"?"#6d28d9":"#b45309";
-            return React.createElement("div",{key:r.key,style:{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}},
-              React.createElement("div",{style:{flex:1,minWidth:160}},
-                React.createElement("div",{style:{fontSize:14,fontWeight:600,color:"var(--text)",marginBottom:2}},r.name),
-                React.createElement("div",{style:{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}},
-                  React.createElement("span",{style:{fontSize:11,padding:"2px 8px",borderRadius:10,background:fc+"18",color:fc,border:"1px solid "+fc+"40",fontWeight:600}},r.freq),
-                  React.createElement("span",{style:{fontSize:11,color:"var(--text5)"}},"×"+r.count+" in 90 days"),
-                  React.createElement("span",{style:{fontSize:11,color:"var(--text5)"}},"Last: "+dmyFmt(r.lastDate))
-                )
-              ),
-              React.createElement("div",{style:{textAlign:"right",flexShrink:0}},
-                React.createElement("div",{style:{fontSize:16,fontFamily:"'Sora',sans-serif",fontWeight:700,color:"#ef4444"}},INR(r.avgAmt)),
-                React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},"avg per occurrence")
-              ),
-              React.createElement("div",{style:{flexShrink:0}},React.createElement(Btn,{v:"secondary",sz:"sm",onClick:()=>setSchedConfirm(r)},"🗓 Schedule"))
-            );
-          })
-        ),
-        schedConfirm&&React.createElement(Modal,{title:"🗓 Create Scheduled Transaction",onClose:()=>setSchedConfirm(null),w:420},
-          React.createElement("div",{style:{background:"var(--accentbg2)",borderRadius:10,padding:"12px 14px",marginBottom:16,border:"1px solid var(--border)"}},
-            React.createElement("div",{style:{fontSize:14,fontWeight:600,color:"var(--text)",marginBottom:4}},schedConfirm.name),
-            React.createElement("div",{style:{fontSize:12,color:"var(--text5)"}},"Avg "+INR(schedConfirm.avgAmt)+" · "+schedConfirm.freq+" · Last: "+schedConfirm.lastDate)
-          ),
-          React.createElement("div",{style:{fontSize:13,color:"var(--text4)",marginBottom:16,lineHeight:1.6}},
-            "This will create a scheduled transaction for ",React.createElement("strong",null,schedConfirm.name)," with amount ",React.createElement("strong",{style:{color:"var(--accent)"}},INR(schedConfirm.avgAmt))," recurring ",React.createElement("strong",null,schedConfirm.freq.toLowerCase()),". You can manage it in the Scheduled tab."
-          ),
-          React.createElement("div",{style:{display:"flex",flexWrap:"wrap",gap:8}},
-            React.createElement(Btn,{onClick:()=>{
-              const acc=allAccounts[0]||{id:"",accType:"bank"};
-              dispatch({type:"ADD_SCHEDULED",p:{desc:schedConfirm.name,amount:Math.round(schedConfirm.avgAmt),frequency:schedConfirm.freq.toLowerCase(),nextDate:TODAY(),status:"active",lastExecuted:null,endDate:null,cat:schedConfirm.lastCat||"Others",payee:schedConfirm.name,ledgerType:"debit",accType:acc.accType,accId:acc.id,isTransfer:false,srcId:"",tgtId:"",tags:""}});
-              setSchedConfirm(null);
-            },sx:{flex:"1 1 120px",justifyContent:"center"}},"✓ Create Scheduled"),
-            React.createElement(Btn,{v:"secondary",onClick:()=>setSchedConfirm(null),sx:{justifyContent:"center",minWidth:70}},"Cancel")
-          )
-        )
-      )
-  );
-
   /* ══ 9. SUBSCRIPTIONS TAB (original) ══ */
   const SubsTab=React.createElement("div",{style:{paddingBottom:20}},
     subscriptionData.length===0
@@ -21018,115 +20702,7 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
       )
   );
 
-  /* ══ 10. SEASONAL PATTERNS TAB ══ */
-  const SeasonalTab=React.createElement("div",{style:{paddingBottom:20}},
-    React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
-      seasonalData.yoy!==null&&React.createElement(KpiCard,{label:"Year-over-Year",value:(seasonalData.yoy>0?"+":"")+seasonalData.yoy.toFixed(1)+"%",sub:"vs same month last year",col:seasonalData.yoy>15?"#ef4444":seasonalData.yoy<-10?"#16a34a":"#b45309",icon:"📅"}),
-      React.createElement(KpiCard,{label:"12-Month Avg",value:INR(Math.round(seasonalData.avg12)),sub:"avg monthly expenses",col:"var(--accent)",icon:"📊"})
-    ),
-    React.createElement(Card2,{sx:{marginBottom:16}},
-      React.createElement(SHead,{t:"12-Month Spend History",s:"Current month highlighted · Hover bar for details"}),
-      (()=>{
-        const maxM=seasonalData.maxM||1;
-        return React.createElement(React.Fragment,null,
-          React.createElement("div",{style:{display:"flex",gap:4,alignItems:"flex-end",height:130}},
-            seasonalData.months.map((m,i)=>
-              React.createElement("div",{key:i,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center"}},
-                m.total>0&&React.createElement("div",{style:{fontSize:8,color:"var(--text6)",marginBottom:2,whiteSpace:"nowrap"}},
-                  m.total>=1000?(m.total/1000).toFixed(0)+"k":Math.round(m.total)),
-                React.createElement("div",{title:m.mName+" "+m.mYear+": "+INR(m.total),style:{width:"100%",height:Math.max(m.total/maxM*110,m.total>0?4:2)+"%",minHeight:m.total>0?4:2,background:m.isCurrent?"var(--accent)":"var(--text7)",borderRadius:"3px 3px 0 0",opacity:m.isCurrent?1:.6,border:"none"}}),
-                React.createElement("div",{style:{fontSize:9,color:m.isCurrent?"var(--accent)":"var(--text6)",fontWeight:m.isCurrent?700:400,marginTop:3}},m.mName),
-                React.createElement("div",{style:{fontSize:7,color:"var(--text6)"}},String(m.mYear).slice(2))
-              )
-            )
-          ),
-          React.createElement("div",{style:{height:1,background:"var(--border)",marginTop:2,marginBottom:8}}),
-          React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"var(--text5)"}},
-            React.createElement("div",{style:{width:12,height:12,background:"var(--accent)",borderRadius:2}}),"Current month",
-            React.createElement("div",{style:{width:12,height:12,background:"var(--text7)",borderRadius:2,marginLeft:8}}),"Past months"
-          )
-        );
-      })()
-    ),
-    seasonalData.spikes.length>0&&React.createElement(Card2,null,
-      React.createElement(SHead,{t:"Historical Spending Spikes",s:"Months 40%+ above your average — plan & budget ahead for these"}),
-      React.createElement("div",{style:{display:"flex",flexWrap:"wrap",gap:10}},
-        seasonalData.spikes.map((m,i)=>
-          React.createElement("div",{key:i,style:{padding:"10px 14px",borderRadius:10,background:"rgba(194,65,12,.07)",border:"1px solid rgba(194,65,12,.2)"}},
-            React.createElement("div",{style:{fontSize:13,fontWeight:600,color:"#c2410c"}},m.mName+" "+m.mYear),
-            React.createElement("div",{style:{fontSize:15,fontFamily:"'Sora',sans-serif",fontWeight:700,color:"var(--text2)"}},INR(m.total)),
-            React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginTop:2}},"+"+((m.total/seasonalData.avg12-1)*100).toFixed(0)+"% above avg")
-          )
-        )
-      )
-    )
-  );
-
-  /* ══ 11. VELOCITY & GOALS TAB ══ */
-  const VelocityTab=React.createElement("div",{style:{paddingBottom:20}},
-    React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
-      React.createElement(KpiCard,{label:"Net Worth",value:INR(Math.round(velocityData.netWorth)),col:velocityData.netWorth>=0?"#16a34a":"#ef4444",icon:"💎"}),
-      React.createElement(KpiCard,{label:"Avg Monthly Savings",value:INR(Math.round(velocityData.avgSavings)),sub:"5-month average",col:velocityData.avgSavings>0?"#16a34a":"#ef4444",icon:"📈"}),
-      React.createElement(KpiCard,{label:"This Month Savings",value:INR(Math.round(velocityData.currSavings)),sub:velocityData.currSavings>velocityData.avgSavings?"Above average ✓":"Below average ⚠",col:velocityData.currSavings>=velocityData.avgSavings?"#16a34a":"#c2410c",icon:"📊"}),
-      React.createElement(KpiCard,{label:"Savings Velocity",value:(velocityData.velocity>0?"+":"")+velocityData.velocity.toFixed(1)+"%",sub:"vs 5-month avg",col:velocityData.velocity>0?"#16a34a":"#ef4444",icon:"🚀"})
-    ),
-    React.createElement(Card2,{sx:{marginBottom:16}},
-      React.createElement(SHead,{t:"Income vs Expenses — Last 6 Months"}),
-      (()=>{
-        const maxV=Math.max(...velocityData.monthlyFlow.map(m=>Math.max(m.income,m.expenses)),1);
-        return React.createElement(React.Fragment,null,
-          React.createElement("div",{style:{display:"flex",gap:5,alignItems:"flex-end",height:110}},
-            velocityData.monthlyFlow.map((m,i)=>
-              React.createElement("div",{key:i,style:{flex:1,display:"flex",gap:3,alignItems:"flex-end",justifyContent:"center"}},
-                React.createElement("div",{title:"Income: "+INR(m.income),style:{flex:1,background:"#16a34a",height:Math.max(m.income/maxV*95,1)+"%",minHeight:2,borderRadius:"3px 3px 0 0",opacity:m.isCurrent?1:.65}}),
-                React.createElement("div",{title:"Expenses: "+INR(m.expenses),style:{flex:1,background:"#ef4444",height:Math.max(m.expenses/maxV*95,1)+"%",minHeight:2,borderRadius:"3px 3px 0 0",opacity:m.isCurrent?1:.65}})
-              )
-            )
-          ),
-          React.createElement("div",{style:{display:"flex",gap:5,marginTop:4}},
-            velocityData.monthlyFlow.map((m,i)=>React.createElement("div",{key:i,style:{flex:1,textAlign:"center",fontSize:9,color:m.isCurrent?"var(--accent)":"var(--text5)",fontWeight:m.isCurrent?700:400}},m.mName))
-          ),
-          React.createElement("div",{style:{display:"flex",gap:16,marginTop:8,fontSize:11,color:"var(--text4)"}},
-            React.createElement("div",{style:{display:"flex",gap:4,alignItems:"center"}},React.createElement("div",{style:{width:10,height:10,background:"#16a34a",borderRadius:2}}),"Income"),
-            React.createElement("div",{style:{display:"flex",gap:4,alignItems:"center"}},React.createElement("div",{style:{width:10,height:10,background:"#ef4444",borderRadius:2}}),"Expenses")
-          )
-        );
-      })()
-    ),
-    velocityData.goalProjections.length>0
-      ?React.createElement(Card2,null,
-          React.createElement(SHead,{t:"🎯 Goal Projections",s:"Based on your average monthly savings — add goals in the Goals tab"}),
-          velocityData.avgSavings<=0&&React.createElement("div",{style:{fontSize:12,color:"#ef4444",marginBottom:12,padding:"8px 12px",background:"rgba(239,68,68,.07)",borderRadius:8}},"⚠ Your average savings is negative. Reduce expenses or increase income to make goal progress."),
-          React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:12}},
-            velocityData.goalProjections.map((g,i)=>{
-              const prog=g.target>0?(g.current||0)/g.target*100:0;
-              return React.createElement("div",{key:g.id||i,style:{padding:"12px 14px",borderRadius:10,background:"var(--bg4)",border:"1px solid var(--border2)"}},
-                React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},
-                  React.createElement("div",{style:{fontSize:13,fontWeight:600,color:"var(--text)"}},g.name||"Goal "+(i+1)),
-                  React.createElement("div",{style:{fontSize:12,color:"var(--text5)"}},INR(g.current||0)+" / "+INR(g.target))
-                ),
-                React.createElement("div",{style:{height:6,background:"var(--bg5)",borderRadius:3,overflow:"hidden",marginBottom:6}},
-                  React.createElement("div",{style:{height:"100%",width:Math.min(prog,100)+"%",background:"var(--accent)",borderRadius:3}})
-                ),
-                React.createElement("div",{style:{display:"flex",gap:14,fontSize:11,flexWrap:"wrap"}},
-                  React.createElement("span",{style:{color:"var(--text5)"}},prog.toFixed(0)+"% complete"),
-                  g.monthsNeeded!==null&&React.createElement("span",{style:{color:"var(--accent)"}},"⏱ "+g.monthsNeeded+" months at current pace"),
-                  g.reducedMonths!==null&&g.monthsNeeded!==null&&g.reducedMonths<g.monthsNeeded&&React.createElement("span",{style:{color:"#16a34a"}},"💡 "+g.reducedMonths+" months saving 20% more")
-                )
-              );
-            })
-          )
-        )
-      :React.createElement(Card2,null,
-          React.createElement("div",{style:{textAlign:"center",padding:"12px 0",fontSize:13,color:"var(--text5)"}},
-            "🎯 Set financial goals in the Goals tab to see projected completion timelines here, powered by your actual savings rate."
-          )
-        )
-  );
-
-  /* ══════════════════════════════════════════════════════════════════════
-     FIRE / RETIREMENT PLANNING DATA
-     ══════════════════════════════════════════════════════════════════════ */
+  /* ══ FIRE DATA ══ */
   const fireData=React.useMemo(()=>{
     // Monthly expense average (last 6 months debits excluding investment/transfer)
     const INVEST_CATS=["Investment","Transfer"];
@@ -21150,7 +20726,7 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
     const leanFireNumber=annualExp*20;
     const fatFireNumber=annualExp*33;
 
-    // Current investable net worth (liquid + semi-liquid, exclude primary home)
+    // Current investable net worth
     const bankBal=(banks||[]).reduce((s,b)=>s+(b.balance||0),0);
     const cashBal=(cash.balance)||0;
     const mfVal=(mf||[]).reduce((s,m)=>s+(m.currentValue||m.invested||0),0);
@@ -21162,8 +20738,7 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
     const investableCorpus=bankBal+cashBal+mfVal+sharesVal+fdVal-cardDebt-loanDebt;
     const totalNetWorth=investableCorpus+reVal;
 
-    // Years to FIRE — future value: FV = PV*(1+r)^n + PMT*((1+r)^n-1)/r
-    // Solve for n numerically
+    // Years to FIRE — numerical solve
     const r=((P.annualReturnPct||10)/100)/12;
     const pv=Math.max(investableCorpus,0);
     const pmt=Math.max(avgMonthlySavings,0);
@@ -21201,11 +20776,10 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
     const debtPct=fdVal/totalInvest*100;
     const realEstatePct=reVal/totalInvest*100;
 
-    // Lifestyle inflation: compare avg expense last 3 months vs 3 months before that
+    // Lifestyle inflation
     const recent3Exp=allTxns.filter(t=>{const m=new Date(t.date).getMonth(),y=new Date(t.date).getFullYear();const cur=now.getMonth(),cy=now.getFullYear();const diff=(cy-y)*12+(cur-m);return t.type==="debit"&&diff>=0&&diff<3&&!INVEST_CATS.includes(catMainName(t.cat||""));}).reduce((s,t)=>s+t.amount,0)/3;
     const prev3Exp=allTxns.filter(t=>{const m=new Date(t.date).getMonth(),y=new Date(t.date).getFullYear();const cur=now.getMonth(),cy=now.getFullYear();const diff=(cy-y)*12+(cur-m);return t.type==="debit"&&diff>=3&&diff<6&&!INVEST_CATS.includes(catMainName(t.cat||""));}).reduce((s,t)=>s+t.amount,0)/3;
     const lifestyleInflation=prev3Exp>0?(recent3Exp-prev3Exp)/prev3Exp*100:0;
-    // Each ₹1000/mo more in permanent expenses delays FIRE by ~months
     const expInflationAmt=Math.max(recent3Exp-prev3Exp,0);
     const delayMonths=avgMonthlySavings>0?Math.round(expInflationAmt/avgMonthlySavings*12*25/12):0;
 
@@ -21213,7 +20787,6 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
     const totalInvested=(mf||[]).reduce((s,m)=>s+(m.invested||0),0)+(shares||[]).reduce((s,s2)=>s+(s2.qty||0)*(s2.buyPrice||0),0);
     const totalCurrentVal=mfVal+sharesVal;
     const actualReturn=totalInvested>0?(totalCurrentVal-totalInvested)/totalInvested*100:null;
-    // Assume notional Nifty return of ~12% per year — approximate based on invested amount
     const benchR=(P.benchmarkReturnPct||12)/100;
     const niftyBenchmark=totalInvested>0?totalInvested*(1+benchR)-totalInvested:null;
     const yourGain=totalCurrentVal-totalInvested;
@@ -21225,113 +20798,6 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
       lifestyleInflation,expInflationAmt,delayMonths,totalInvested,totalCurrentVal,actualReturn,yourGain,niftyBenchmark
     };
   },[allTxns,banks,cards,cash,mf,shares,fd,re,loans]);
-
-  /* ══════════════════════════════════════════════════════════════════════
-     EMERGENCY PLANNING DATA
-     ══════════════════════════════════════════════════════════════════════ */
-  const emergencyData=React.useMemo(()=>{
-    const avgMonthlyExp=fireData.avgMonthlyExp;
-    // Liquid assets: bank balances + cash only (accessible within days)
-    const liquidAssets=fireData.bankBal+fireData.cashBal;
-    // Semi-liquid: liquid MFs (assume 50% of MF value reachable in 3-7 days)
-    const semiLiquid=fireData.mfVal*0.5;
-    const totalLiquid=liquidAssets+semiLiquid;
-    const runway=emExp>0?totalLiquid/emExp:0;
-    const emTarget=P.emergencyTargetMonths||6;
-    const emExp=(P.emergencyExpenseOverride)?Number(P.emergencyExpenseOverride):avgMonthlyExp;
-    const target6M=emExp*emTarget;
-    const target12M=emExp*12;
-    const gap6M=Math.max(target6M-totalLiquid,0);
-    const monthsToClose=fireData.avgMonthlySavings>0?Math.ceil(gap6M/fireData.avgMonthlySavings):null;
-
-    // Fixed obligation ratio
-    const monthlyEMI=(loans||[]).reduce((s,l)=>s+(l.emi||0),0);
-    const cardMin=(cards||[]).reduce((s,c)=>s+(c.outstanding||0)*0.05,0); // ~5% min payment
-    // Insurance premiums from transactions
-    const insMonthly=allTxns.filter(t=>{
-      const diff=(now-new Date(t.date))/86400000;
-      return t.type==="debit"&&diff<=90&&diff>=0&&catMainName(t.cat||"")==="Insurance";
-    }).reduce((s,t)=>s+t.amount,0)/3;
-    const fixedObligations=monthlyEMI+cardMin+insMonthly;
-    const obligationRatio=fireData.avgMonthlyInc>0?fixedObligations/fireData.avgMonthlyInc*100:0;
-
-    // Liquid vs Illiquid
-    const illiquid=fireData.fdVal+fireData.reVal+(loans||[]).reduce((s,l)=>s+(l.outstanding||0),0);
-    const totalAssets=Math.max(liquidAssets+semiLiquid+fireData.fdVal+fireData.mfVal*0.5+fireData.sharesVal+fireData.reVal,1);
-    const liquidPct=(liquidAssets+semiLiquid)/totalAssets*100;
-    const illiquidPct=100-liquidPct;
-
-    // Income concentration (single earner detection - all credits from same pattern)
-    const creditSources={};
-    allTxns.filter(t=>t.type==="credit"&&t.date>=fmtD(new Date(now.getFullYear(),now.getMonth()-2,1))).forEach(t=>{
-      const src=t._src||"unknown";creditSources[src]=(creditSources[src]||0)+t.amount;
-    });
-    const totalCredits=Object.values(creditSources).reduce((s,v)=>s+v,0)||1;
-    const topSrcPct=totalCredits>0?Math.max(...Object.values(creditSources))/totalCredits*100:0;
-
-    // Insurance coverage check — detect life/health premiums
-    const ins3m=allTxns.filter(t=>t.type==="debit"&&catMainName(t.cat||"")==="Insurance"&&(now-new Date(t.date))/86400000<=90);
-    const hasLifeIns=ins3m.some(t=>((t.payee||"")+" "+(t.desc||"")).toLowerCase().includes("life")||((t.cat||"")).toLowerCase().includes("life"));
-    const hasHealthIns=ins3m.some(t=>((t.payee||"")+" "+(t.desc||"")).toLowerCase().includes("health")||((t.payee||"")+" "+(t.desc||"")).toLowerCase().includes("medical")||((t.cat||"")).toLowerCase().includes("health"));
-    const lifeInsTarget=fireData.avgMonthlyInc*10*12; // 10x annual income
-
-    // Month-wise runway trend (6 months)
-    const runwayTrend=[];
-    for(let i=5;i>=0;i--){
-      const mS=fmtD(new Date(now.getFullYear(),now.getMonth()-i,1));
-      const mE=fmtD(new Date(now.getFullYear(),now.getMonth()-i+1,0));
-      const exp=allTxns.filter(t=>t.type==="debit"&&t.date>=mS&&t.date<=mE).reduce((s,t)=>s+t.amount,0);
-      runwayTrend.push({mName:MONTH_NAMES[(now.getMonth()-i+12)%12],exp,runway:exp>0?totalLiquid/exp:0});
-    }
-
-    return {
-      liquidAssets,semiLiquid,totalLiquid,runway,target6M,target12M,gap6M,monthsToClose,
-      monthlyEMI,insMonthly,fixedObligations,obligationRatio,
-      liquidPct,illiquidPct,illiquid,topSrcPct,
-      hasLifeIns,hasHealthIns,lifeInsTarget,runwayTrend,cardMin,avgMonthlyExp
-    };
-  },[fireData,allTxns,loans,cards,banks,cash,mf,shares,fd,re]);
-
-  /* ══════════════════════════════════════════════════════════════════════
-     SAVINGS TREND DATA
-     ══════════════════════════════════════════════════════════════════════ */
-  const savingsTrendData=React.useMemo(()=>{
-    const INVEST_CATS=["Investment","Transfer"];
-    const DISC_CATS=["Shopping","Entertainment","Travel","Dining"];
-    const months12=[];
-    for(let i=11;i>=0;i--){
-      const mS=fmtD(new Date(now.getFullYear(),now.getMonth()-i,1));
-      const mE=fmtD(new Date(now.getFullYear(),now.getMonth()-i+1,0));
-      const mName=MONTH_NAMES[(now.getMonth()-i+12)%12];
-      const inc=allTxns.filter(t=>t.type==="credit"&&t.date>=mS&&t.date<=mE).reduce((s,t)=>s+t.amount,0);
-      const exp=allTxns.filter(t=>t.type==="debit"&&t.date>=mS&&t.date<=mE&&!INVEST_CATS.includes(catMainName(t.cat||""))).reduce((s,t)=>s+t.amount,0);
-      const disc=allTxns.filter(t=>t.type==="debit"&&t.date>=mS&&t.date<=mE&&DISC_CATS.some(c=>catMainName(t.cat||"").toLowerCase().includes(c.toLowerCase()))).reduce((s,t)=>s+t.amount,0);
-      const inv=allTxns.filter(t=>t.type==="debit"&&t.date>=mS&&t.date<=mE&&INVEST_CATS.includes(catMainName(t.cat||""))).reduce((s,t)=>s+t.amount,0);
-      const savings=inc-exp;
-      const savingsRate=inc>0?Math.max(savings/inc*100,0):0;
-      const expRatio=inc>0?exp/inc*100:0;
-      const discPct=inc>0?disc/inc*100:0;
-      // Pay yourself first: were investments in first 10 days of month?
-      const pyfWindow=P.pyfDayTarget||10;
-      const earlyInv=allTxns.filter(t=>t.type==="debit"&&t.date>=mS&&t.date<=mE&&INVEST_CATS.includes(catMainName(t.cat||""))&&parseInt(t.date.split("-")[2])<=pyfWindow).reduce((s,t)=>s+t.amount,0);
-      const pyf=inv>0?earlyInv/inv:0;
-      months12.push({mName,inc,exp,savings,savingsRate,expRatio,discPct,inv,earlyInv,pyf,isCurrent:i===0});
-    }
-    const avgSavingsRate=months12.reduce((s,m)=>s+m.savingsRate,0)/12;
-    const avgExpRatio=months12.reduce((s,m)=>s+m.expRatio,0)/12;
-    const trendSavingsRate=(months12[11].savingsRate-months12[0].savingsRate); // positive = improving
-    const trendExpRatio=(months12[11].expRatio-months12[0].expRatio); // negative = good
-
-    // Net worth snapshots — use current assets as proxy (we can't go back in time easily)
-    // So we show monthly savings accumulation as a surrogate
-    let cumulative=0;
-    const cumulativeSavings=months12.map(m=>{cumulative+=Math.max(m.savings,0);return{...m,cumulative};});
-
-    // Pay yourself first score
-    const pyfScore=months12.filter(m=>m.pyf>=0.8).length; // months where 80%+ invested in first 10 days
-
-    return {months12,avgSavingsRate,avgExpRatio,trendSavingsRate,trendExpRatio,cumulativeSavings,pyfScore};
-  },[allTxns]);
 
   /* ══ FIRE TAB ══ */
   const FireTab=React.createElement("div",{style:{paddingBottom:20}},
@@ -21471,270 +20937,14 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
       )
   );
 
-  /* ══ EMERGENCY TAB ══ */
-  const EmergencyTab=React.createElement("div",{style:{paddingBottom:20}},
-    emergencyData.avgMonthlyExp===0
-      ?React.createElement(Empty,{icon:"🚨",text:"Add expense transactions to calculate your emergency fund runway and financial safety metrics."})
-      :React.createElement(React.Fragment,null,
-        /* ── Runway Gauge ── */
-        React.createElement(Card2,{sx:{marginBottom:16}},
-          React.createElement(SHead,{t:"Emergency Fund Runway",s:"How many months your liquid assets can sustain your lifestyle"}),
-          React.createElement("div",{style:{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}},
-            (()=>{
-              const r=emergencyData.runway;
-              const col=r<3?"#ef4444":r<6?"#b45309":"#16a34a";
-              const label=r<1?"Critical":r<3?"Danger Zone":r<6?"Building Up":"Safe Zone";
-              const emoji=r<1?"🔴":r<3?"🟠":r<6?"🟡":"🟢";
-              return React.createElement(React.Fragment,null,
-                React.createElement("div",{style:{textAlign:"center",minWidth:110}},
-                  React.createElement("div",{style:{fontSize:48,fontFamily:"'Sora',sans-serif",fontWeight:900,color:col,lineHeight:1}},r.toFixed(1)),
-                  React.createElement("div",{style:{fontSize:14,fontWeight:700,color:col,marginTop:4}},"months"),
-                  React.createElement("div",{style:{fontSize:12,color:"var(--text5)",marginTop:2}}),
-                  React.createElement("div",{style:{fontSize:13,fontWeight:600,color:col,marginTop:4}},emoji+" "+label)
-                ),
-                React.createElement("div",{style:{flex:1,minWidth:200}},
-                  React.createElement("div",{style:{position:"relative",height:20,background:"var(--bg5)",borderRadius:10,overflow:"hidden",marginBottom:6}},
-                    React.createElement("div",{style:{position:"absolute",left:0,top:0,height:"100%",width:Math.min(r/12*100,100)+"%",background:col,borderRadius:10,transition:"width 0.6s"}}),
-                    // Zone markers
-                    [3,6,12].map(m=>React.createElement("div",{key:m,style:{position:"absolute",left:(m/12*100)+"%",top:0,bottom:0,width:2,background:"var(--bg3)",opacity:.6}}))
-                  ),
-                  React.createElement("div",{style:{display:"flex",justifyContent:"space-between",fontSize:10,color:"var(--text6)",marginBottom:10}},
-                    ["0","3M","6M","12M+"].map((l,i)=>React.createElement("span",{key:i},l))
-                  ),
-                  React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:4,fontSize:12,color:"var(--text4)"}},
-                    React.createElement("div",null,"Liquid funds: ",React.createElement("strong",null,INR(Math.round(emergencyData.liquidAssets+emergencyData.semiLiquid)))),
-                    React.createElement("div",null,"Monthly expenses: ",React.createElement("strong",null,INR(Math.round(emergencyData.avgMonthlyExp)))),
-                    emergencyData.gap6M>0&&React.createElement("div",{style:{color:"#b45309"}},"Gap to 6-month target: ",React.createElement("strong",null,INR(Math.round(emergencyData.gap6M))),
-                      emergencyData.monthsToClose!==null?" ("+emergencyData.monthsToClose+" months to close)":"")
-                  )
-                )
-              );
-            })()
-          )
-        ),
-        /* ── Emergency fund targets ── */
-        React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
-          React.createElement(KpiCard,{label:"6-Month Target",value:INR(Math.round(emergencyData.target6M)),sub:emergencyData.gap6M<=0?"✓ Achieved":INR(Math.round(emergencyData.gap6M))+" more needed",col:emergencyData.gap6M<=0?"#16a34a":"#b45309",icon:"🎯"}),
-          React.createElement(KpiCard,{label:"12-Month Target",value:INR(Math.round(emergencyData.target12M)),sub:"For single-income families",col:"var(--accent)",icon:"🏆"}),
-          React.createElement(KpiCard,{label:"Fixed Obligation Ratio",value:emergencyData.obligationRatio.toFixed(0)+"%",sub:emergencyData.obligationRatio>50?"Danger — over 50%!":emergencyData.obligationRatio>40?"Caution — above 40%":"Healthy — under 40%",col:emergencyData.obligationRatio>50?"#ef4444":emergencyData.obligationRatio>40?"#b45309":"#16a34a",icon:"📌"}),
-          React.createElement(KpiCard,{label:"Income Concentration",value:emergencyData.topSrcPct.toFixed(0)+"%",sub:emergencyData.topSrcPct>85?"High risk — single income!":"Diversified sources",col:emergencyData.topSrcPct>85?"#ef4444":emergencyData.topSrcPct>70?"#b45309":"#16a34a",icon:"⚠"})
-        ),
-        /* ── Fixed obligation breakdown ── */
-        React.createElement(Card2,{sx:{marginBottom:16}},
-          React.createElement(SHead,{t:"Fixed Obligations Breakdown",s:"Monthly committed outflows — safe zone is under 40% of income"}),
-          React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:8,marginBottom:12}},
-            [
-              {label:"Loan EMIs",val:emergencyData.monthlyEMI,col:"#ef4444",icon:"🏦"},
-              {label:"Card Minimum Payments",val:emergencyData.cardMin,col:"#c2410c",icon:"💳"},
-              {label:"Insurance Premiums (avg/mo)",val:emergencyData.insMonthly,col:"#6d28d9",icon:"🛡"},
-            ].map((row,i)=>
-              React.createElement("div",{key:i,style:{display:"flex",alignItems:"center",gap:10}},
-                React.createElement("div",{style:{width:130,fontSize:12,color:"var(--text4)"}},row.icon+" "+row.label),
-                React.createElement("div",{style:{flex:1,height:8,background:"var(--bg5)",borderRadius:4,overflow:"hidden"}},
-                  React.createElement("div",{style:{height:"100%",width:fireData.avgMonthlyInc>0?Math.min(row.val/fireData.avgMonthlyInc*100,100)+"%":"0%",background:row.col,borderRadius:4}})
-                ),
-                React.createElement("div",{style:{width:80,textAlign:"right",fontSize:13,fontFamily:"'Sora',sans-serif",fontWeight:700,color:row.col}},INR(Math.round(row.val)))
-              )
-            )
-          ),
-          React.createElement("div",{style:{borderTop:"1px solid var(--border)",paddingTop:10,display:"flex",justifyContent:"space-between",alignItems:"center"}},
-            React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"var(--text3)"}},"Total Fixed Obligations"),
-            React.createElement("div",{style:{display:"flex",gap:12,alignItems:"center"}},
-              React.createElement("div",{style:{fontSize:12,color:emergencyData.obligationRatio>40?"#ef4444":"#16a34a"}},emergencyData.obligationRatio.toFixed(1)+"% of income"),
-              React.createElement("div",{style:{fontSize:15,fontFamily:"'Sora',sans-serif",fontWeight:800,color:emergencyData.obligationRatio>40?"#ef4444":"#16a34a"}},INR(Math.round(emergencyData.fixedObligations)))
-            )
-          )
-        ),
-        /* ── Liquid vs Illiquid ── */
-        React.createElement(Card2,{sx:{marginBottom:16}},
-          React.createElement(SHead,{t:"Liquid vs Illiquid Assets",s:"In an emergency, how much can you actually access within 30 days?"}),
-          React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:12}},
-            React.createElement("div",{style:{flex:"1 1 140px",padding:"14px",borderRadius:12,background:"rgba(22,163,74,.08)",border:"1px solid rgba(22,163,74,.2)"}},
-              React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginBottom:4}},"💧 Accessible (30 days)"),
-              React.createElement("div",{style:{fontSize:24,fontFamily:"'Sora',sans-serif",fontWeight:800,color:"#16a34a"}},emergencyData.liquidPct.toFixed(0)+"%"),
-              React.createElement("div",{style:{fontSize:12,color:"var(--text5)"}},INR(Math.round(emergencyData.liquidAssets+emergencyData.semiLiquid)))
-            ),
-            React.createElement("div",{style:{flex:"1 1 140px",padding:"14px",borderRadius:12,background:"rgba(180,83,9,.08)",border:"1px solid rgba(180,83,9,.2)"}},
-              React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginBottom:4}},"🔒 Locked / Illiquid"),
-              React.createElement("div",{style:{fontSize:24,fontFamily:"'Sora',sans-serif",fontWeight:800,color:"#b45309"}},emergencyData.illiquidPct.toFixed(0)+"%"),
-              React.createElement("div",{style:{fontSize:12,color:"var(--text5)"}},INR(Math.round(emergencyData.illiquid)))
-            )
-          ),
-          React.createElement("div",{style:{height:14,background:"var(--bg5)",borderRadius:7,overflow:"hidden"}},
-            React.createElement("div",{style:{height:"100%",width:emergencyData.liquidPct+"%",background:"linear-gradient(90deg,#16a34a,#0e7490)",borderRadius:7}})
-          ),
-          emergencyData.liquidPct<30&&React.createElement("div",{style:{fontSize:12,color:"#b45309",marginTop:8,padding:"8px 12px",background:"rgba(180,83,9,.06)",borderRadius:8}},
-            "⚠ Most of your wealth is locked in illiquid assets. Build your liquid emergency buffer before adding more to FDs or real estate."
-          )
-        ),
-        /* ── Insurance Check ── */
-        React.createElement(Card2,null,
-          React.createElement(SHead,{t:"Insurance Coverage Checklist"}),
-          React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:10}},
-            [
-              {label:"Life Insurance",ok:emergencyData.hasLifeIns,desc:emergencyData.hasLifeIns?"Detected from transactions — verify coverage is 10–15× annual income":"No life insurance premiums detected. Essential for family protection.",action:emergencyData.hasLifeIns?"Verify: Need "+INR(Math.round(emergencyData.lifeInsTarget))+" cover":"Critical gap — term insurance is cheapest per ₹ cover",icon:"🛡"},
-              {label:"Health Insurance",ok:emergencyData.hasHealthIns,desc:emergencyData.hasHealthIns?"Detected — ensure family floater covers ₹10L+ given medical inflation":"No health insurance detected. One hospitalisation can wipe years of savings.",action:emergencyData.hasHealthIns?"Review if family floater ≥ ₹10L":"Get family floater immediately",icon:"🏥"},
-            ].map((item,i)=>
-              React.createElement("div",{key:i,style:{display:"flex",gap:12,padding:"12px",borderRadius:10,background:item.ok?"rgba(22,163,74,.06)":"rgba(239,68,68,.06)",border:"1px solid "+(item.ok?"rgba(22,163,74,.2)":"rgba(239,68,68,.2)")}},
-                React.createElement("div",{style:{fontSize:26,flexShrink:0,lineHeight:1.3}},item.icon),
-                React.createElement("div",{style:{flex:1}},
-                  React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:3}},
-                    React.createElement("div",{style:{fontSize:13,fontWeight:600,color:"var(--text)"}},item.label),
-                    React.createElement("span",{style:{fontSize:10,padding:"1px 8px",borderRadius:8,background:item.ok?"rgba(22,163,74,.15)":"rgba(239,68,68,.12)",color:item.ok?"#16a34a":"#ef4444",fontWeight:700,border:"1px solid "+(item.ok?"rgba(22,163,74,.3)":"rgba(239,68,68,.25)") }},item.ok?"✓ Detected":"✗ Not detected")
-                  ),
-                  React.createElement("div",{style:{fontSize:12,color:"var(--text4)",lineHeight:1.6}},item.desc),
-                  React.createElement("div",{style:{fontSize:11,color:item.ok?"#0e7490":"#c2410c",marginTop:4,fontWeight:500}},item.action)
-                )
-              )
-            )
-          )
-        )
-      )
-  );
-
-  /* ══ SAVINGS TREND TAB ══ */
-  const SavingsTrendTab=React.createElement("div",{style:{paddingBottom:20}},
-    savingsTrendData.months12.every(m=>m.inc===0)
-      ?React.createElement(Empty,{icon:"📈",text:"Add income (credit) and expense transactions to see your savings trend and financial health metrics."})
-      :React.createElement(React.Fragment,null,
-        /* ── KPIs ── */
-        React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
-          React.createElement(KpiCard,{label:"Avg Savings Rate",value:savingsTrendData.avgSavingsRate.toFixed(1)+"%",sub:"12-month average",col:savingsTrendData.avgSavingsRate>=30?"#16a34a":savingsTrendData.avgSavingsRate>=15?"#b45309":"#ef4444",icon:"💰"}),
-          React.createElement(KpiCard,{label:"Trend",value:savingsTrendData.trendSavingsRate>=0?("↑ +"+ savingsTrendData.trendSavingsRate.toFixed(1)+"%"):("↓ "+savingsTrendData.trendSavingsRate.toFixed(1)+"%"),sub:"savings rate vs 12 months ago",col:savingsTrendData.trendSavingsRate>=0?"#16a34a":"#ef4444",icon:"📈"}),
-          React.createElement(KpiCard,{label:"Expense Ratio Trend",value:(savingsTrendData.trendExpRatio>0?"+":"")+savingsTrendData.trendExpRatio.toFixed(1)+"%",sub:savingsTrendData.trendExpRatio<0?"Expenses shrinking ✓":"Expenses growing ⚠",col:savingsTrendData.trendExpRatio<0?"#16a34a":"#ef4444",icon:"📉"}),
-          React.createElement(KpiCard,{label:"Pay Yourself First",value:savingsTrendData.pyfScore+"/12",sub:"months invested in first 10 days",col:savingsTrendData.pyfScore>=9?"#16a34a":savingsTrendData.pyfScore>=6?"#b45309":"#ef4444",icon:"⚡"})
-        ),
-        /* ── Savings Rate Waterfall ── */
-        React.createElement(Card2,{sx:{marginBottom:16}},
-          React.createElement(SHead,{t:"12-Month Savings Waterfall",s:"Income vs expenses each month · Green gap = savings · Red = overspent"}),
-          (()=>{
-            const maxV=Math.max(...savingsTrendData.months12.map(m=>Math.max(m.inc,m.exp)),1);
-            return React.createElement(React.Fragment,null,
-              React.createElement("div",{style:{display:"flex",gap:3,alignItems:"flex-end",height:120}},
-                savingsTrendData.months12.map((m,i)=>{
-                  const positive=m.savings>=0;
-                  return React.createElement("div",{key:i,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:0,position:"relative"}},
-                    // Savings/deficit shaded area
-                    positive
-                      ?React.createElement("div",{style:{position:"absolute",bottom:(m.exp/maxV*100)+"%",left:0,right:0,height:Math.max(m.savings/maxV*100,.5)+"%",background:"rgba(22,163,74,.18)",borderRadius:"2px 2px 0 0"}})
-                      :React.createElement("div",{style:{position:"absolute",bottom:(m.inc/maxV*100)+"%",left:0,right:0,height:Math.max(Math.abs(m.savings)/maxV*100,.5)+"%",background:"rgba(239,68,68,.18)"}}),
-                    // Income bar
-                    React.createElement("div",{style:{width:"42%",height:(m.inc/maxV*100)+"%",minHeight:m.inc>0?2:0,background:"#16a34a",borderRadius:"2px 2px 0 0",opacity:m.isCurrent?1:.7,position:"absolute",left:"2%",bottom:0}}),
-                    // Expense bar
-                    React.createElement("div",{style:{width:"42%",height:(m.exp/maxV*100)+"%",minHeight:m.exp>0?2:0,background:"#ef4444",borderRadius:"2px 2px 0 0",opacity:m.isCurrent?1:.7,position:"absolute",right:"2%",bottom:0}})
-                  );
-                })
-              ),
-              React.createElement("div",{style:{height:1,background:"var(--border)",marginTop:0}}),
-              React.createElement("div",{style:{display:"flex",gap:3,marginTop:4}},
-                savingsTrendData.months12.map((m,i)=>
-                  React.createElement("div",{key:i,style:{flex:1,textAlign:"center",fontSize:9,color:m.isCurrent?"var(--accent)":"var(--text6)",fontWeight:m.isCurrent?700:400}},m.mName)
-                )
-              ),
-              React.createElement("div",{style:{display:"flex",gap:16,marginTop:8,fontSize:11,color:"var(--text4)"}},
-                React.createElement("div",{style:{display:"flex",gap:4,alignItems:"center"}},React.createElement("div",{style:{width:10,height:10,background:"#16a34a",borderRadius:2}}),"Income"),
-                React.createElement("div",{style:{display:"flex",gap:4,alignItems:"center"}},React.createElement("div",{style:{width:10,height:10,background:"#ef4444",borderRadius:2}}),"Expenses"),
-                React.createElement("div",{style:{display:"flex",gap:4,alignItems:"center"}},React.createElement("div",{style:{width:10,height:10,background:"rgba(22,163,74,.35)",borderRadius:2}}),"Savings gap")
-              )
-            );
-          })()
-        ),
-        /* ── Expense-to-income ratio trend ── */
-        React.createElement(Card2,{sx:{marginBottom:16}},
-          React.createElement(SHead,{t:"Expense-to-Income Ratio",s:"Declining = you're winning · Rising = lifestyle inflation eating your future"}),
-          (()=>{
-            const maxR=Math.max(...savingsTrendData.months12.map(m=>m.expRatio),100);
-            return React.createElement("div",{style:{position:"relative"}},
-              React.createElement("div",{style:{position:"absolute",bottom:((P.expRatioDanger||80)/maxR*90)+"%",left:0,right:0,borderTop:"1px dashed #ef4444",zIndex:1}}),
-              React.createElement("div",{style:{position:"absolute",right:0,bottom:((P.expRatioDanger||80)/maxR*90)+"%",fontSize:9,color:"#ef4444",transform:"translateY(-8px)"}},(P.expRatioDanger||80)+"%"),
-              React.createElement("div",{style:{display:"flex",gap:4,alignItems:"flex-end",height:100,position:"relative",zIndex:2}},
-                savingsTrendData.months12.map((m,i)=>
-                  React.createElement("div",{key:i,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center"}},
-                    React.createElement("div",{style:{width:"100%",height:Math.max(m.expRatio/maxR*90,1)+"%",minHeight:2,background:m.expRatio>80?"#ef4444":m.expRatio>60?"#b45309":"var(--accent)",borderRadius:"4px 4px 0 0",opacity:m.isCurrent?1:.75}}),
-                    React.createElement("div",{style:{fontSize:9,color:m.isCurrent?"var(--accent)":"var(--text6)",marginTop:3,fontWeight:m.isCurrent?700:400}},m.mName)
-                  )
-                )
-              )
-            );
-          })()
-        ),
-        /* ── Discretionary as % of income ── */
-        React.createElement(Card2,{sx:{marginBottom:16}},
-          React.createElement(SHead,{t:"Discretionary Spend as % of Income",s:"Shopping + Entertainment + Travel + Dining · Target: under 15%"}),
-          (()=>{
-            const maxD=Math.max(...savingsTrendData.months12.map(m=>m.discPct),20);
-            return React.createElement("div",{style:{position:"relative"}},
-              React.createElement("div",{style:{position:"absolute",bottom:((P.discSpendTarget||15)/maxD*90)+"%",left:0,right:0,borderTop:"1px dashed #16a34a",zIndex:1}}),
-              React.createElement("div",{style:{position:"absolute",right:0,bottom:((P.discSpendTarget||15)/maxD*90)+"%",fontSize:9,color:"#16a34a",transform:"translateY(-8px)"}},(P.discSpendTarget||15)+"% target"),
-              React.createElement("div",{style:{display:"flex",gap:4,alignItems:"flex-end",height:90,position:"relative",zIndex:2}},
-                savingsTrendData.months12.map((m,i)=>
-                  React.createElement("div",{key:i,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center"}},
-                    React.createElement("div",{style:{width:"100%",height:Math.max(m.discPct/maxD*85,1)+"%",minHeight:2,background:m.discPct>20?"#ef4444":m.discPct>15?"#b45309":"#16a34a",borderRadius:"4px 4px 0 0",opacity:m.isCurrent?1:.75}}),
-                    React.createElement("div",{style:{fontSize:9,color:m.isCurrent?"var(--accent)":"var(--text6)",marginTop:3,fontWeight:m.isCurrent?700:400}},m.mName)
-                  )
-                )
-              )
-            );
-          })()
-        ),
-        /* ── Pay Yourself First score ── */
-        React.createElement(Card2,{sx:{marginBottom:16}},
-          React.createElement(SHead,{t:"Pay Yourself First Score",s:"Investing in the first 10 days of the month builds dramatically more wealth over time"}),
-          React.createElement("div",{style:{display:"flex",gap:10,flexWrap:"wrap",marginBottom:12}},
-            savingsTrendData.months12.map((m,i)=>{
-              const col=m.pyf>=0.8?"#16a34a":m.pyf>=0.4?"#b45309":m.inv>0?"#ef4444":"var(--border)";
-              const label=m.pyf>=0.8?"Early":m.pyf>=0.4?"Mixed":m.inv>0?"Late":"None";
-              return React.createElement("div",{key:i,style:{flex:"1 1 55px",padding:"8px 4px",borderRadius:8,background:col+"14",border:"1px solid "+col+"40",textAlign:"center"}},
-                React.createElement("div",{style:{fontSize:10,color:col,fontWeight:700,marginBottom:2}},m.mName),
-                React.createElement("div",{style:{fontSize:9,color:col}},label),
-                m.inv>0&&React.createElement("div",{style:{fontSize:9,color:"var(--text6)",marginTop:2}},INR(m.inv/1000>1?(m.inv/1000).toFixed(0)+"k":Math.round(m.inv)))
-              );
-            })
-          ),
-          React.createElement("div",{style:{padding:"10px 14px",borderRadius:10,background:savingsTrendData.pyfScore>=9?"rgba(22,163,74,.07)":"rgba(180,83,9,.07)",border:"1px solid "+(savingsTrendData.pyfScore>=9?"rgba(22,163,74,.2)":"rgba(180,83,9,.2)"),fontSize:12,color:"var(--text4)",lineHeight:1.7}},
-            savingsTrendData.pyfScore>=9
-              ?"✓ Excellent discipline — "+savingsTrendData.pyfScore+"/12 months invested early. Studies show investors who automate investment on salary day accumulate 25–35% more wealth over 20 years compared to those who invest what's left over."
-              :"💡 Only "+savingsTrendData.pyfScore+"/12 months show early investment. Set up an SIP auto-debit for the 1st or 2nd of every month. This single habit is worth ₹15–25L extra over a 15-year investment horizon."
-          )
-        ),
-        /* ── Cumulative savings ── */
-        React.createElement(Card2,null,
-          React.createElement(SHead,{t:"Cumulative Savings Momentum",s:"Rolling sum of positive monthly savings over the last 12 months"}),
-          (()=>{
-            const maxC=Math.max(...savingsTrendData.cumulativeSavings.map(m=>m.cumulative),1);
-            return React.createElement(React.Fragment,null,
-              React.createElement("div",{style:{display:"flex",gap:3,alignItems:"flex-end",height:90}},
-                savingsTrendData.cumulativeSavings.map((m,i)=>
-                  React.createElement("div",{key:i,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center"}},
-                    React.createElement("div",{style:{width:"100%",height:Math.max(m.cumulative/maxC*85,2)+"%",minHeight:2,background:"linear-gradient(180deg,var(--accent),#16a34a)",borderRadius:"4px 4px 0 0",opacity:m.isCurrent?1:.8}}),
-                    React.createElement("div",{style:{fontSize:9,color:m.isCurrent?"var(--accent)":"var(--text6)",marginTop:3,fontWeight:m.isCurrent?700:400}},m.mName)
-                  )
-                )
-              ),
-              React.createElement("div",{style:{marginTop:10,padding:"8px 12px",borderRadius:8,background:"var(--accentbg2)",fontSize:12,color:"var(--text4)"}},
-                "Total positive savings over 12 months: ",React.createElement("strong",{style:{color:"var(--accent)"}},INR(Math.round(savingsTrendData.cumulativeSavings[11]?.cumulative||0)))
-              )
-            );
-          })()
-        )
-      )
-  );
 
   const STABS=[
     {id:"pulse",         label:"📈 Pulse"},
-    {id:"patterns",      label:"🗓 Day Patterns"},
     {id:"spend",         label:"📊 Spend"},
-    {id:"food",          label:"🍔 Food Intel"},
-    {id:"leaks",         label:"💧 Leaks"},
     {id:"payees",        label:"🏪 Payees"},
     {id:"waterfall",     label:"💰 Budget"},
-    {id:"recurring",     label:"🔄 Recurring"},
     {id:"subscriptions", label:"📺 Subscriptions"},
-    {id:"seasonal",      label:"🌍 Seasonal"},
-    {id:"velocity",      label:"🚀 Velocity"},
     {id:"fire",          label:"🏖 FIRE"},
-    {id:"emergency",     label:"🚨 Emergency"},
-    {id:"savingstrend",  label:"📐 Savings Trend"},
     {id:"networth",      label:"💎 Net Worth"},
     {id:"calculators",   label:"🧮 Calculators"},
   ];
@@ -21748,19 +20958,11 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
       STABS.map(t=>React.createElement("button",{key:t.id,onClick:()=>setStab(t.id),style:tabBtn(t.id)},t.label))
     ),
     stab==="pulse"         &&PulseTab,
-    stab==="patterns"      &&PatternsTab,
     stab==="spend"         &&SpendTab,
-    stab==="food"          &&FoodTab,
-    stab==="leaks"         &&LeakTab,
     stab==="payees"        &&PayeesTab,
     stab==="waterfall"     &&WaterfallTab,
-    stab==="recurring"     &&RecurringTab,
     stab==="subscriptions" &&SubsTab,
-    stab==="seasonal"      &&SeasonalTab,
-    stab==="velocity"      &&VelocityTab,
     stab==="fire"          &&FireTab,
-    stab==="emergency"     &&EmergencyTab,
-    stab==="savingstrend"  &&SavingsTrendTab,
     stab==="networth"      &&React.createElement(NetWorthInsightTab,{banks,cards,cash,mf,shares,fd,re:re||[],loans,categories,prefs:P,isMobile,dispatch,nwSnapshots:nwSnapshots||{}}),
     stab==="calculators"   &&React.createElement(InsightCalculators,{isMobile})
   );

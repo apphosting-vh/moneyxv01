@@ -1971,10 +1971,17 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.28.4";
+const APP_VERSION="3.28.5";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.28.5",date:"2026-03-18",title:"Fix: Share History Chart — x-axis label overlap and adaptive density",changes:[
+    "Fixed: x-axis date labels overlapping (e.g. '17-Mar' and '18-Mar' printing on top of each other) when the chart has 31-35 data points.",
+    "Root cause: stride was computed as a fixed lookup (<=30 pts→3, >30→5) which always force-rendered the last data point regardless of how close it was to the previous stride label. With 32 points at stride=3, index 30 and 31 were only ~32 SVG units apart while a '17-Mar' label needs ~82 SVG units of clearance.",
+    "Fix: stride is now computed from actual label width — labelGap=max(82, ceil(19×0.58×7+24)) SVG units. stride=ceil(labelGap/xStep). The last label is only rendered if (lastIndex - lastStrideIndex) × xStep ≥ labelGap. This ensures labels are always spaced properly regardless of point count.",
+    "The chart now automatically adjusts as more dates are added — 10 days shows every label, 30 days shows every 3rd, 90 days shows every 7th, 365 days shows every ~28th, always without overlap.",
+    "Data-point dots are now adaptive: r=4.8 for ≤20 pts, r=3.2 for ≤40 pts, r=2.2 for ≤70 pts, hidden entirely for >70 pts. Prevents visual clutter on longer history charts while keeping dots visible on short ones.",
+  ]},
   {version:"3.28.4",date:"2026-03-18",title:"Fix: Share Holding Value History — Refresh button to force chart update",changes:[
     "Added ⟳ Refresh button to the Holding Value History chart header (top-right, alongside the % change badge and day count).",
     "Refresh button appears in all three states: full history chart, 30-day EOD fallback chart (when buyDate is set), and the fetch-failed error notice.",
@@ -8669,8 +8676,21 @@ const ShareHistoryChart=({pts,qty,buyPrice,color="#16a34a",gradId="shlg0"})=>{
   const tipX=hx!==null?(hx+tipW+padR+12>W?hx-tipW-20:hx+20):0;
   const tipY=hy!==null?Math.max(padT,Math.min(padT+chartH-tipH,hy-tipH/2)):0;
 
-  /* X-axis label stride — keep labels readable regardless of data density */
-  const stride=pts.length<=10?1:pts.length<=20?2:pts.length<=30?3:5;
+  /* ── X-axis label stride — computed from actual label width so labels
+     never overlap regardless of how many data points are in the chart.
+
+     Approximate rendered width of a "DD-Mon" label (e.g. "17-Mar"):
+       6 chars × (fontSize 19 × 0.58 char-ratio) + 16px side padding ≈ 82 SVG units.
+     Stride = minimum spacing between label centres / xStep, rounded up.
+     We then test the forced last label separately and skip it if it
+     would land within labelGap units of the previous rendered label.    ── */
+  const labelGap=Math.max(82,Math.ceil(19*0.58*7+24));
+  const stride=Math.max(1,Math.ceil(labelGap/xStep));
+  /* Index of the last label that stride alone would render */
+  const lastStrideIdx=Math.floor((pts.length-1)/stride)*stride;
+  /* Only force-render the final point if it is far enough from the last stride label */
+  const showLastLabel=(pts.length-1)%stride!==0&&
+    ((pts.length-1)-lastStrideIdx)*xStep>=labelGap;
 
   return React.createElement("svg",{
     ref:svgRef,
@@ -8736,14 +8756,23 @@ const ShareHistoryChart=({pts,qty,buyPrice,color="#16a34a",gradId="shlg0"})=>{
     React.createElement("line",{x1:padL,y1:padT+chartH,x2:W-padR,y2:padT+chartH,
       stroke:"var(--border)",strokeWidth:2}),
 
-    /* ── Data-point dots (non-hovered) ── */
-    pts.map((d,i)=>i===hoverIdx?null:React.createElement("circle",{key:"dot"+i,
-      cx:padL+i*xStep,cy:yFn(d.value),r:4.8,fill:d.value>=costBasis?"#16a34a":"#ef4444",opacity:.6
-    })),
+    /* ── Data-point dots (non-hovered) — radius shrinks for dense charts ── */
+    (()=>{
+      /* Hide individual dots entirely when points are too close to see them distinctly */
+      const dotR=pts.length<=20?4.8:pts.length<=40?3.2:pts.length<=70?2.2:0;
+      if(dotR===0)return null;
+      return pts.map((d,i)=>i===hoverIdx?null:React.createElement("circle",{key:"dot"+i,
+        cx:padL+i*xStep,cy:yFn(d.value),r:dotR,fill:d.value>=costBasis?"#16a34a":"#ef4444",opacity:.6
+      }));
+    })(),
 
     /* ── X-axis date labels ── */
     pts.map((d,i)=>{
-      if(i%stride!==0&&i!==pts.length-1)return null;
+      /* Render stride-aligned labels, first label, and last label only when
+         it won't crowd the previous stride-aligned label */
+      const isStrideHit=i%stride===0;
+      const isLast=i===pts.length-1;
+      if(!isStrideHit&&!(isLast&&showLastLabel))return null;
       return React.createElement("text",{key:"xl"+i,
         x:padL+i*xStep,y:h-8,
         textAnchor:"middle",fill:"var(--text6)",fontSize:19

@@ -1,19 +1,13 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   ₹ Money Manager — Service Worker  v3.27.4
+   ₹ Money Manager — Service Worker
    ══════════════════════════════════════════════════════════════════════════
-
-   CRITICAL FIX (v3.23.3): Cross-origin requests (live price / NAV API calls)
-   are NO LONGER intercepted by this SW.  Previously the SW could serve a
-   cached network-error response for corsproxy.io / allorigins / mfapi.in,
-   which silently broke "Refresh Live Prices" in Chrome PWA (standalone) mode.
-
    Strategy:
    • Cross-origin requests  → return immediately (browser handles CORS natively)
    • HTML document          → network-first, fallback to cache
    • Same-origin assets     → cache-first, fallback to network
    ══════════════════════════════════════════════════════════════════════════ */
 
-const CACHE_NAME = 'mm-v3-28-0';
+const CACHE_NAME = 'mm-v3-28-3';
 
 /* Assets to precache on install */
 const PRECACHE_URLS = [

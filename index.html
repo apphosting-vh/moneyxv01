@@ -1971,10 +1971,18 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.30.1";
+const APP_VERSION="3.31.0";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.31.0",date:"2026-03-18",title:"localStorage Monitoring, Quota Guard & Cache Cleanup Tools",changes:[
+    "1. Accurate storage measurement: getStorageStats() measures every MM localStorage key (mm_v7_state, mm_v7_theme, mm_v7_pin, mm_nav_col, mm_db_hidden_widgets, mm_fsa_no_warn, itr3_ay2627_v1) using UTF-16 byte counting (length × 2). Uses navigator.storage.estimate() Quota API when available; falls back to assumed 5 MB limit on older browsers.",
+    "2. StorageGauge component in Settings → Data & Backup: replaces the bare 'X KB' text with a full visual gauge — colour-coded progress bar (green <60%, amber 60–85%, red >85%), used/quota figures, % used, source badge (Quota API / Estimated), per-key breakdown table showing each key's size and share.",
+    "3. App-level storage warning banner: persistent amber/red banner appears at the top of every page when usage crosses 80% (warning) or 95% (critical). Banner links to Settings → Data & Backup and has a per-session dismiss button. Rechecks on every state save.",
+    "4. saveState() QuotaExceededError guard: wraps localStorage.setItem in a try/catch that specifically detects DOMException QuotaExceededError. On overflow: runs emergency compaction in three passes — (a) clear historyCache entirely, (b) prune eodPrices to last 7 days, (c) prune eodNavs to last 14 days — then retries the save after each pass. If all three passes fail, dispatches mm:storage-full event so the banner escalates to critical.",
+    "5. Three new reducer actions for manual cache pruning: PRUNE_HISTORY_CACHE (clears all share price history — frees the most space), PRUNE_EOD_PRICES (keeps last 7 days only, down from 30), PRUNE_EOD_NAVS (keeps last 14 days only, down from 90). Buttons for all three exposed in the StorageGauge card under 'Free Up Space'.",
+    "6. Cache size reporting: StorageGauge breakdown identifies cache keys (EOD Prices, NAV History, Price History) separately from user data (transactions, investments, settings) so users know exactly what to prune.",
+  ]},
   {version:"3.30.1",date:"2026-03-18",title:"Fix: ReferenceError — allAccounts & isTransfer not defined in TxEditModal",changes:[
     "Bug: Clicking the Edit button on any transaction in the ledger caused a blank screen crash with ReferenceError: allAccounts is not defined.",
     "Root cause 1: TxEditModal used allAccounts inside its body (account picker dropdown) but the prop was never declared in the component signature ({tx,categories,payees,txTypes,onSave,onClose}).",
@@ -3970,6 +3978,26 @@ const reducer=(s,a)=>{
       return s;
     }
     case"UNDO_STATE":return{...a.snapshot};
+    /* ── Cache pruning actions (manual cleanup from StorageGauge) ── */
+    case"PRUNE_HISTORY_CACHE":
+      /* Wipe all share price history. User can re-fetch by refreshing charts. */
+      return{...s,historyCache:{}};
+    case"PRUNE_EOD_PRICES":{
+      /* Keep only the most recent N days (default 7) */
+      const _keepDays=a.days||7;
+      const _eKeys=Object.keys(s.eodPrices||{}).sort();
+      const _ePruned={};
+      _eKeys.slice(-_keepDays).forEach(k=>{_ePruned[k]=(s.eodPrices||{})[k];});
+      return{...s,eodPrices:_ePruned};
+    }
+    case"PRUNE_EOD_NAVS":{
+      /* Keep only the most recent N days (default 14) */
+      const _keepNavDays=a.days||14;
+      const _nKeys=Object.keys(s.eodNavs||{}).sort();
+      const _nPruned={};
+      _nKeys.slice(-_keepNavDays).forEach(k=>{_nPruned[k]=(s.eodNavs||{})[k];});
+      return{...s,eodNavs:_nPruned};
+    }
     default:return s;
   }
 };
@@ -15779,6 +15807,207 @@ const FSAStoragePanel=({state,dispatch})=>{
   );
 };
 
+/* ══════════════════════════════════════════════════════════════════════════
+   STORAGE GAUGE COMPONENT
+   Visual localStorage usage monitor shown in Settings → Data & Backup.
+   Shows a colour-coded progress bar, per-key breakdown, and pruning actions.
+   ══════════════════════════════════════════════════════════════════════════ */
+const StorageGauge=({dispatch})=>{
+  const[stats,setStats]=useState(()=>getStorageStats());
+  const[showBreakdown,setShowBreakdown]=useState(false);
+  const[pruning,setPruning]=useState(null); /* "hist"|"eod"|"nav" */
+
+  /* Refresh with async quota API on mount */
+  React.useEffect(()=>{
+    getStorageStatsAsync().then(s=>setStats(s));
+    /* Re-read whenever storage changes (e.g. after a save) */
+    const onWarn=()=>getStorageStatsAsync().then(s=>setStats(s));
+    window.addEventListener("mm:storage-warn",onWarn);
+    window.addEventListener("mm:storage-full",onWarn);
+    return()=>{
+      window.removeEventListener("mm:storage-warn",onWarn);
+      window.removeEventListener("mm:storage-full",onWarn);
+    };
+  },[]);
+
+  const{usedBytes,quotaBytes,usedPct,hasQuotaAPI,cacheBreakdown=[]}=stats;
+  const usedKB=(usedBytes/1024).toFixed(1);
+  const quotaKB=(quotaBytes/1024).toFixed(0);
+  const quotaMB=(quotaBytes/1024/1024).toFixed(1);
+
+  /* Colour thresholds */
+  const gaugeCol=usedPct>=95?"#ef4444":usedPct>=80?"#f97316":usedPct>=60?"#ca8a04":"#16a34a";
+  const gaugeBg=usedPct>=95?"rgba(239,68,68,.12)":usedPct>=80?"rgba(249,115,22,.12)":usedPct>=60?"rgba(202,138,4,.12)":"rgba(22,163,74,.08)";
+
+  const fmtBytes=b=>{
+    if(b>=1024*1024)return (b/1024/1024).toFixed(2)+" MB";
+    if(b>=1024)return (b/1024).toFixed(1)+" KB";
+    return b+" B";
+  };
+
+  const doCompact=async(type)=>{
+    setPruning(type);
+    if(type==="hist") dispatch({type:"PRUNE_HISTORY_CACHE"});
+    else if(type==="eod") dispatch({type:"PRUNE_EOD_PRICES",days:7});
+    else if(type==="nav") dispatch({type:"PRUNE_EOD_NAVS",days:14});
+    /* Wait for state to settle then re-measure */
+    await new Promise(r=>setTimeout(r,600));
+    const s=await getStorageStatsAsync();
+    setStats(s);
+    setPruning(null);
+  };
+
+  /* Cache entries from breakdown */
+  const histBytes=(cacheBreakdown.find(c=>c.key==="_histcache")||{}).bytes||0;
+  const eodBytes=(cacheBreakdown.find(c=>c.key==="_eodprices")||{}).bytes||0;
+  const navBytes=(cacheBreakdown.find(c=>c.key==="_eodnavs")||{}).bytes||0;
+  const anyCacheToFree=histBytes>0||eodBytes>0||navBytes>0;
+
+  return React.createElement("div",{style:{marginBottom:16}},
+
+    /* ── Gauge header ── */
+    React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+      React.createElement("div",null,
+        React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"var(--text2)",display:"flex",alignItems:"center",gap:7}},
+          React.createElement("span",null,"💾 Storage Monitor"),
+          React.createElement("span",{style:{
+            fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:10,
+            background:gaugeBg,color:gaugeCol,border:"1px solid "+gaugeCol+"44"
+          }},usedPct>=95?"CRITICAL":usedPct>=80?"WARNING":usedPct>=60?"MODERATE":"HEALTHY")
+        ),
+        React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginTop:3}},
+          usedKB+" KB used of ",
+          React.createElement("span",{style:{fontWeight:600,color:"var(--text3)"}},quotaMB+" MB"),
+          hasQuotaAPI
+            ?React.createElement("span",{style:{marginLeft:5,fontSize:10,color:"var(--accent)",background:"var(--accentbg2)",border:"1px solid var(--accent)33",borderRadius:8,padding:"1px 6px"}},"Quota API")
+            :React.createElement("span",{style:{marginLeft:5,fontSize:10,color:"var(--text6)",background:"var(--bg5)",border:"1px solid var(--border2)",borderRadius:8,padding:"1px 6px"}},"Estimated 5 MB")
+        )
+      ),
+      React.createElement("div",{style:{textAlign:"right"}},
+        React.createElement("div",{style:{fontSize:22,fontWeight:800,fontFamily:"'Sora',sans-serif",color:gaugeCol}},
+          usedPct.toFixed(1)+"%"
+        ),
+        React.createElement("div",{style:{fontSize:10,color:"var(--text5)"}},"of quota")
+      )
+    ),
+
+    /* ── Progress bar ── */
+    React.createElement("div",{style:{background:"var(--bg5)",borderRadius:99,height:10,overflow:"hidden",border:"1px solid var(--border2)",marginBottom:14}},
+      React.createElement("div",{style:{
+        width:Math.min(100,usedPct)+"%",height:"100%",borderRadius:99,
+        background:gaugeCol,transition:"width .5s ease",
+        boxShadow:"0 0 6px "+gaugeCol+"66"
+      }})
+    ),
+
+    /* ── Status message ── */
+    usedPct>=95&&React.createElement("div",{style:{background:"rgba(239,68,68,.1)",border:"1px solid rgba(239,68,68,.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#ef4444",display:"flex",gap:8,alignItems:"flex-start"}},
+      React.createElement("span",{style:{fontSize:16,flexShrink:0}},"🚨"),
+      React.createElement("div",null,
+        React.createElement("div",{style:{fontWeight:700,marginBottom:3}},"Storage Critical — saves may fail"),
+        "Your browser storage is almost full. Please free up space by clearing caches below or downloading a backup and resetting."
+      )
+    ),
+    usedPct>=80&&usedPct<95&&React.createElement("div",{style:{background:"rgba(249,115,22,.08)",border:"1px solid rgba(249,115,22,.3)",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#f97316",display:"flex",gap:8,alignItems:"flex-start"}},
+      React.createElement("span",{style:{fontSize:16,flexShrink:0}},"⚠️"),
+      React.createElement("div",null,
+        React.createElement("div",{style:{fontWeight:700,marginBottom:3}},"Storage running low"),
+        "You've used "+usedPct.toFixed(0)+"% of your browser storage quota. Consider clearing cached data or making a backup."
+      )
+    ),
+
+    /* ── Breakdown toggle ── */
+    React.createElement("button",{
+      onClick:()=>setShowBreakdown(b=>!b),
+      style:{background:"none",border:"none",color:"var(--accent)",fontSize:12,fontWeight:600,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:5,fontFamily:"'DM Sans',sans-serif",marginBottom:showBreakdown?10:0}
+    },
+      React.createElement("span",{style:{fontSize:9,display:"inline-block",transform:showBreakdown?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s"}},"▶"),
+      showBreakdown?"Hide breakdown":"Show storage breakdown"
+    ),
+
+    /* ── Per-key breakdown table ── */
+    showBreakdown&&React.createElement("div",{style:{marginBottom:14}},
+      /* Cache sub-items inside LS_KEY */
+      cacheBreakdown.length>0&&React.createElement("div",{style:{marginBottom:8}},
+        React.createElement("div",{style:{fontSize:10,fontWeight:700,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.7,marginBottom:6}},"App State Breakdown"),
+        React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:3}},
+          cacheBreakdown.map(item=>
+            React.createElement("div",{key:item.key,style:{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:"var(--bg4)",borderRadius:8,border:"1px solid var(--border2)"}},
+              React.createElement("div",{style:{flex:1,fontSize:11,color:item.isCache?"var(--text5)":"var(--text3)",fontWeight:item.isCache?400:500}},
+                item.isCache&&React.createElement("span",{style:{fontSize:9,background:"rgba(202,138,4,.12)",color:"#ca8a04",border:"1px solid rgba(202,138,4,.2)",borderRadius:6,padding:"1px 5px",marginRight:5,fontWeight:700}},"CACHE"),
+                item.label
+              ),
+              React.createElement("div",{style:{fontSize:11,fontWeight:600,color:item.isCache?"#ca8a04":"var(--text2)",whiteSpace:"nowrap"}},fmtBytes(item.bytes)),
+              React.createElement("div",{style:{width:60,height:4,background:"var(--border2)",borderRadius:99,overflow:"hidden"}},
+                React.createElement("div",{style:{width:(item.bytes/(stats.usedBytes||1)*100)+"%",height:"100%",background:item.isCache?"#ca8a04":"var(--accent)",borderRadius:99}})
+              )
+            )
+          )
+        )
+      ),
+      /* Other MM keys */
+      React.createElement("div",{style:{fontSize:10,fontWeight:700,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.7,marginBottom:6}},"All Storage Keys"),
+      React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:3}},
+        stats.keys.map(item=>
+          React.createElement("div",{key:item.key,style:{display:"flex",alignItems:"center",gap:8,padding:"5px 10px",background:"var(--bg5)",borderRadius:8,border:"1px solid var(--border2)"}},
+            React.createElement("div",{style:{flex:1,fontSize:11,color:"var(--text5)"}},
+              React.createElement("span",{style:{fontFamily:"'DM Mono',monospace",fontSize:9,background:"var(--bg2)",border:"1px solid var(--border3)",borderRadius:4,padding:"1px 5px",marginRight:5}},item.key),
+              item.label
+            ),
+            React.createElement("div",{style:{fontSize:11,fontWeight:600,color:"var(--text3)",whiteSpace:"nowrap"}},fmtBytes(item.bytes))
+          )
+        )
+      )
+    ),
+
+    /* ── Free Up Space section ── */
+    anyCacheToFree&&React.createElement("div",{style:{background:"var(--bg4)",border:"1px solid var(--border2)",borderRadius:12,padding:"12px 14px"}},
+      React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"var(--text3)",textTransform:"uppercase",letterSpacing:.6,marginBottom:10}},"🧹 Free Up Space"),
+      React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:8}},
+
+        /* Prune Share History Cache */
+        histBytes>0&&React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"var(--bg3)",border:"1px solid var(--border2)",borderRadius:10}},
+          React.createElement("div",{style:{flex:1}},
+            React.createElement("div",{style:{fontSize:12,fontWeight:600,color:"var(--text2)"}},"Share Price History Cache"),
+            React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},fmtBytes(histBytes)+" · Full historical chart data — re-fetched on demand")
+          ),
+          React.createElement("button",{
+            onClick:()=>doCompact("hist"),
+            disabled:pruning==="hist",
+            style:{padding:"6px 14px",borderRadius:8,border:"1px solid rgba(239,68,68,.3)",background:"rgba(239,68,68,.08)",color:"#ef4444",fontSize:11,fontWeight:700,cursor:pruning?"not-allowed":"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",opacity:pruning?"0.6":"1"}
+          },pruning==="hist"?"Clearing…":"Clear")
+        ),
+
+        /* Prune EOD Prices */
+        eodBytes>0&&React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"var(--bg3)",border:"1px solid var(--border2)",borderRadius:10}},
+          React.createElement("div",{style:{flex:1}},
+            React.createElement("div",{style:{fontSize:12,fontWeight:600,color:"var(--text2)"}},"EOD Share Price Snapshots"),
+            React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},fmtBytes(eodBytes)+" · Keeps last 30 days → prune to 7 days")
+          ),
+          React.createElement("button",{
+            onClick:()=>doCompact("eod"),
+            disabled:pruning==="eod",
+            style:{padding:"6px 14px",borderRadius:8,border:"1px solid rgba(202,138,4,.3)",background:"rgba(202,138,4,.08)",color:"#ca8a04",fontSize:11,fontWeight:700,cursor:pruning?"not-allowed":"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",opacity:pruning?"0.6":"1"}
+          },pruning==="eod"?"Pruning…":"Prune to 7d")
+        ),
+
+        /* Prune EOD NAVs */
+        navBytes>0&&React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"var(--bg3)",border:"1px solid var(--border2)",borderRadius:10}},
+          React.createElement("div",{style:{flex:1}},
+            React.createElement("div",{style:{fontSize:12,fontWeight:600,color:"var(--text2)"}},"EOD Mutual Fund NAV Snapshots"),
+            React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},fmtBytes(navBytes)+" · Keeps last 90 days → prune to 14 days")
+          ),
+          React.createElement("button",{
+            onClick:()=>doCompact("nav"),
+            disabled:pruning==="nav",
+            style:{padding:"6px 14px",borderRadius:8,border:"1px solid rgba(79,70,229,.3)",background:"rgba(79,70,229,.08)",color:"#4f46e5",fontSize:11,fontWeight:700,cursor:pruning?"not-allowed":"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",opacity:pruning?"0.6":"1"}
+          },pruning==="nav"?"Pruning…":"Prune to 14d")
+        )
+      )
+    )
+  );
+};
+
 const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,isMobile})=>{
   const[stab,setStab]=useState("appearance");
   const[confirm,setConfirm]=useState(null);
@@ -16301,15 +16530,16 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
           React.createElement("p",{style:{color:"var(--text5)",fontSize:13,marginTop:4}},"Your data is automatically saved to this browser's local storage. Use backup/restore to move data between devices or keep a safe copy.")
         ),
 
+        /* ── Storage Monitor Card */
+        React.createElement(Card,{sx:{marginBottom:16}},
+          React.createElement(StorageGauge,{dispatch})
+        ),
+
         /* ── Data Management Card */
         React.createElement(Card,{sx:{marginBottom:16}},
           React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18}},
             React.createElement("div",null,
-              React.createElement("div",{style:{fontSize:12,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.7,fontWeight:600,marginBottom:2}},"📊 Data Management"),
-              React.createElement("div",{style:{fontSize:12,color:"var(--text5)"}},
-                "Storage used: ",
-                React.createElement("span",{style:{color:"var(--accent)",fontWeight:700}},((localStorage.getItem(LS_KEY)||"").length/1024).toFixed(1)+" KB")
-              )
+              React.createElement("div",{style:{fontSize:12,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.7,fontWeight:600,marginBottom:2}},"📊 Data Management")
             ),
             React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",background:"rgba(22,163,74,.07)",border:"1px solid rgba(22,163,74,.2)",borderRadius:8}},
               React.createElement("span",{style:{width:6,height:6,borderRadius:"50%",background:"#16a34a",display:"inline-block",boxShadow:"0 0 0 2px #22c55e33"}}),
@@ -17702,9 +17932,129 @@ const loadState=()=>{
   }catch(e){console.warn("Failed to load state:",e);return null;}
 };
 
+/* ══════════════════════════════════════════════════════════════════════════
+   LOCALSTORAGE MONITORING
+   ══════════════════════════════════════════════════════════════════════════
+   MM_LS_KEYS: every localStorage key this app writes.
+   getStorageStats(): returns { usedBytes, quotaBytes, usedPct, keys[], hasQuotaAPI }
+     - usedBytes  = sum of (key.length + value.length) × 2  (JS strings are UTF-16)
+     - quotaBytes = from navigator.storage.estimate() when available, else 5 MB assumed
+     - keys[]     = [{key, label, bytes, isCache}] sorted descending by bytes
+   Note: navigator.storage.estimate() is async; the sync fallback is used for the
+   initial render; components that need live quota should call getStorageStatsAsync().
+   ══════════════════════════════════════════════════════════════════════════ */
+const MM_LS_KEYS=[
+  {key:LS_KEY,         label:"App State (transactions, accounts, investments)"},
+  {key:LS_THEME,       label:"Theme preference"},
+  {key:"mm_v7_pin",    label:"PIN hash"},
+  {key:"mm_nav_col",   label:"Sidebar collapse state"},
+  {key:"mm_db_hidden_widgets", label:"Dashboard widget visibility"},
+  {key:"mm_fsa_no_warn",       label:"FSA warning preference"},
+  {key:"itr3_ay2627_v1",       label:"Tax Estimator (legacy key)"},
+];
+
+const _lsBytes=(key)=>{
+  try{
+    const k=localStorage.getItem(key)||"";
+    /* JS strings are stored as UTF-16: each character = 2 bytes.
+       Key itself also occupies storage space. */
+    return (key.length+k.length)*2;
+  }catch{return 0;}
+};
+
+const getStorageStats=()=>{
+  /* Measure every MM key */
+  const keys=MM_LS_KEYS.map(({key,label})=>{
+    const bytes=_lsBytes(key);
+    const isCache=key===LS_KEY&&(()=>{
+      /* The main state contains cache sub-objects — report them separately */
+      return false;
+    })();
+    return{key,label,bytes,isCache};
+  }).sort((a,b)=>b.bytes-a.bytes);
+
+  /* Also measure cache buckets inside LS_KEY by peeking at parsed state */
+  let cacheBreakdown=[];
+  try{
+    const raw=localStorage.getItem(LS_KEY);
+    if(raw){
+      const p=JSON.parse(raw);
+      const eodPricesBytes=JSON.stringify(p.eodPrices||{}).length*2;
+      const eodNavsBytes=JSON.stringify(p.eodNavs||{}).length*2;
+      const historyCacheBytes=JSON.stringify(p.historyCache||{}).length*2;
+      const coreBytes=(raw.length*2)-eodPricesBytes-eodNavsBytes-historyCacheBytes;
+      cacheBreakdown=[
+        {key:"_core",      label:"Core data (txns, accounts, investments, settings)",bytes:Math.max(0,coreBytes),  isCache:false},
+        {key:"_histcache", label:"Share Price History Cache",                         bytes:historyCacheBytes,       isCache:true},
+        {key:"_eodprices", label:"EOD Share Price Snapshots (last 30 days)",          bytes:eodPricesBytes,         isCache:true},
+        {key:"_eodnavs",   label:"EOD Mutual Fund NAV Snapshots (last 90 days)",      bytes:eodNavsBytes,           isCache:true},
+      ].sort((a,b)=>b.bytes-a.bytes);
+    }
+  }catch{}
+
+  const usedBytes=keys.reduce((s,k)=>s+k.bytes,0);
+  /* Sync: use 5 MB as safe assumed quota — async version updates this */
+  const quotaBytes=5*1024*1024;
+  const usedPct=quotaBytes>0?(usedBytes/quotaBytes)*100:0;
+  return{usedBytes,quotaBytes,usedPct,keys,cacheBreakdown,hasQuotaAPI:false};
+};
+
+/* Async version that uses the Quota API */
+const getStorageStatsAsync=async()=>{
+  const sync=getStorageStats();
+  try{
+    if(navigator.storage&&navigator.storage.estimate){
+      const{quota,usage}=await navigator.storage.estimate();
+      /* quota from the API is for ALL origin storage (IndexedDB + caches + LS).
+         LS is typically a subset; we report our measured LS usage against the
+         full origin quota as a conservative ceiling. */
+      const quotaBytes=quota||5*1024*1024;
+      const usedPct=quotaBytes>0?(sync.usedBytes/quotaBytes)*100:0;
+      return{...sync,quotaBytes,usedPct,hasQuotaAPI:true,browserUsage:usage||0};
+    }
+  }catch{}
+  return sync;
+};
+
+/* ── Compact-then-retry save: called when QuotaExceededError is hit ─── */
+const _emergencyCompact=(s)=>{
+  /* Pass 1: wipe the history cache (largest variable cache) */
+  const p1={...s,historyCache:{}};
+  try{localStorage.setItem(LS_KEY,JSON.stringify(p1));console.warn("[MM] Storage: historyCache cleared to recover space.");return true;}catch{}
+  /* Pass 2: shrink EOD prices to last 7 days */
+  const eodKeys=Object.keys(s.eodPrices||{}).sort();
+  const eodPruned={};eodKeys.slice(-7).forEach(k=>{eodPruned[k]=s.eodPrices[k];});
+  const p2={...p1,eodPrices:eodPruned};
+  try{localStorage.setItem(LS_KEY,JSON.stringify(p2));console.warn("[MM] Storage: eodPrices pruned to 7 days to recover space.");return true;}catch{}
+  /* Pass 3: shrink EOD NAVs to last 14 days */
+  const navKeys=Object.keys(s.eodNavs||{}).sort();
+  const navPruned={};navKeys.slice(-14).forEach(k=>{navPruned[k]=s.eodNavs[k];});
+  const p3={...p2,eodNavs:navPruned};
+  try{localStorage.setItem(LS_KEY,JSON.stringify(p3));console.warn("[MM] Storage: eodNavs pruned to 14 days to recover space.");return true;}catch{}
+  /* All passes failed */
+  console.error("[MM] Storage FULL — emergency compaction failed.");
+  window.dispatchEvent(new CustomEvent("mm:storage-full"));
+  return false;
+};
+
 const saveState=(s)=>{
-  try{localStorage.setItem(LS_KEY,JSON.stringify(s));}
-  catch(e){console.warn("Failed to save state:",e);}
+  try{
+    localStorage.setItem(LS_KEY,JSON.stringify(s));
+    /* After a successful save, check if we are approaching the limit and
+       fire a warning event so the App banner can update */
+    const stats=getStorageStats();
+    if(stats.usedPct>=80){
+      window.dispatchEvent(new CustomEvent("mm:storage-warn",{detail:{pct:stats.usedPct}}));
+    }
+  }catch(e){
+    /* Specifically handle QuotaExceededError */
+    if(e&&(e.name==="QuotaExceededError"||e.name==="NS_ERROR_DOM_QUOTA_REACHED"||e.code===22)){
+      console.warn("[MM] QuotaExceededError — attempting emergency compaction…");
+      _emergencyCompact(s);
+    }else{
+      console.warn("Failed to save state:",e);
+    }
+  }
 };
 
 const loadTheme=()=>{
@@ -23909,6 +24259,28 @@ function App(){
     setFsaLaunchModal(null);
   };
 
+  /* ── Storage Warning Banner — appears at top of every page when usage ≥ 80% ── */
+  const[storageWarnPct,setStorageWarnPct]=useState(()=>{
+    const s=getStorageStats();
+    return s.usedPct>=80?s.usedPct:0;
+  });
+  const[storageWarnDismissed,setStorageWarnDismissed]=useState(false);
+  React.useEffect(()=>{
+    const onWarn=(e)=>{
+      const pct=e.detail&&e.detail.pct?e.detail.pct:getStorageStats().usedPct;
+      setStorageWarnPct(pct);
+      /* Re-show if it escalates to critical even if previously dismissed */
+      if(pct>=95)setStorageWarnDismissed(false);
+    };
+    const onFull=()=>{setStorageWarnPct(99);setStorageWarnDismissed(false);};
+    window.addEventListener("mm:storage-warn",onWarn);
+    window.addEventListener("mm:storage-full",onFull);
+    return()=>{
+      window.removeEventListener("mm:storage-warn",onWarn);
+      window.removeEventListener("mm:storage-full",onFull);
+    };
+  },[]);
+
   React.useEffect(()=>{
     if(!fsaSupported())return;
     (async()=>{
@@ -24323,6 +24695,59 @@ function App(){
     },"×")
   );
 
+  /* ── Storage Warning Banner ─────────────────────────────────────────────────
+     Appears at the top of every page when localStorage usage crosses 80%.
+     Amber at 80-94%, Red at 95%+. Dismissed per-session (re-appears on reload
+     if still over threshold). Always re-shows when it escalates to critical.
+     ─────────────────────────────────────────────────────────────────────────── */
+  const _swCritical=storageWarnPct>=95;
+  const _swVisible=storageWarnPct>=80&&!storageWarnDismissed;
+  const StorageWarnBanner=_swVisible&&React.createElement("div",{style:{
+    position:"fixed",top:0,left:0,right:0,
+    zIndex:9997,
+    background:_swCritical
+      ?"linear-gradient(135deg,#3b0a0a,#7f1d1d)"
+      :"linear-gradient(135deg,#1c0f00,#431407)",
+    borderBottom:"2px solid "+(_swCritical?"#ef4444":"#f97316"),
+    padding:"9px 16px",
+    display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",
+    boxShadow:"0 4px 20px rgba(0,0,0,.45)",
+    fontFamily:"'DM Sans',sans-serif",
+  }},
+    React.createElement("span",{style:{fontSize:16,flexShrink:0}},_swCritical?"🚨":"⚠️"),
+    React.createElement("div",{style:{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}},
+      React.createElement("div",{style:{fontSize:12,fontWeight:700,color:_swCritical?"#fca5a5":"#fdba74",whiteSpace:"nowrap"}},
+        _swCritical?"Storage Critical":"Storage Warning"
+      ),
+      React.createElement("div",{style:{fontSize:11,color:"rgba(255,255,255,.65)"}},
+        storageWarnPct.toFixed(0)+"% of browser quota used"+(
+          _swCritical?" — future saves may fail. Free up space immediately."
+                     :" — consider clearing cached data."
+        )
+      )
+    ),
+    React.createElement("button",{
+      onClick:()=>{setStorageWarnDismissed(false);setTab("settings");},
+      style:{
+        background:_swCritical?"rgba(239,68,68,.25)":"rgba(249,115,22,.2)",
+        border:"1px solid "+(_swCritical?"rgba(239,68,68,.5)":"rgba(249,115,22,.5)"),
+        color:_swCritical?"#fca5a5":"#fdba74",
+        borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:700,
+        cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,
+        fontFamily:"'DM Sans',sans-serif",
+      }
+    },"Free Up Space"),
+    React.createElement("button",{
+      onClick:()=>setStorageWarnDismissed(true),
+      style:{
+        background:"transparent",border:"none",
+        color:"rgba(255,255,255,.35)",cursor:"pointer",
+        fontSize:18,lineHeight:1,padding:"2px 6px",flexShrink:0,
+      },
+      title:"Dismiss for this session"
+    },"×")
+  );
+
   /* ── Collapsed (icon-only) sidebar ── */
   const SidebarCollapsed=()=>React.createElement("div",{className:"sidebar-panel",style:{
     width:64,minWidth:64,background:"var(--sidebar)",
@@ -24540,6 +24965,7 @@ function App(){
     FsaLaunchWarning,
     FsaLaunchSuccess,
     UpdateBanner,
+    StorageWarnBanner,
     /* ── Undo Toast ── */
     undoSnap&&React.createElement("div",{style:{
       position:"fixed",bottom:isMobile?88:28,left:"50%",transform:"translateX(-50%)",

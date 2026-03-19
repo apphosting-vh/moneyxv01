@@ -237,10 +237,21 @@
   window['__'] = _trapObj;
 
   // Method B: Window size heuristic (works for undocked/side-docked DevTools)
-  // Deferred 3 seconds so React/Babel finish loading before first check
+  // Deferred 3 seconds so React/Babel finish loading before first check.
+  // BUG FIX v3.32.2: require the delta to be present across 2 consecutive polls
+  // (≥2 s apart) before locking. A single transient spike (Android split-screen
+  // snap, browser zoom change, OS keyboard appearing) is NOT treated as DevTools.
+  // Threshold raised from 200 → 250 px to further reduce false positives on
+  // unusual but legitimate viewport configurations (e.g. side-docked browser panels).
+  var _sizeFailCount = 0;
   var _sizeCheck = function() {
-    if (window.outerWidth  - window.innerWidth  > 200 ||
-        window.outerHeight - window.innerHeight > 200) { _lockScreen(); }
+    if (window.outerWidth  - window.innerWidth  > 250 ||
+        window.outerHeight - window.innerHeight > 250) {
+      _sizeFailCount++;
+      if (_sizeFailCount >= 2) { _lockScreen(); }
+    } else {
+      _sizeFailCount = 0; // reset on any clean poll
+    }
   };
   var _poll = function() { _sizeCheck(); setTimeout(_poll, 2000 + Math.random() * 1000); };
   setTimeout(_poll, 3000);
@@ -1971,10 +1982,47 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.32.1";
+const APP_VERSION="3.32.4";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.32.4",date:"2026-03-19",title:"FD Timeline — responsive width, collision-free label placement",changes:[
+    "Extracted FD Maturity Timeline from an inline IIFE into a standalone FDTimeline React component so it can use useRef and useEffect for ResizeObserver.",
+    "ResizeObserver on the scrollable wrapper div: SVG canvas width dynamically matches the actual available container width on every resize (window resize, sidebar toggle, panel collapse). Falls back to a window.resize listener on browsers without ResizeObserver.",
+    "Minimum node spacing enforced: after computing linear date-proportional x positions, a forward pass guarantees every adjacent pair of node centres is at least BW+12 px apart. Canvas width auto-expands beyond the container if needed, making the chart scrollable only when there are genuinely too many FDs to fit.",
+    "Greedy position-based row assignment replaces the broken index-based i%2 alternation. Nodes are processed left-to-right. Each node is placed in the lowest-numbered row (0=above, 1=below, 2=above-far, 3=below-far…) where its 136px label box does not overlap any previously placed box on that row. Guarantees zero label overlap regardless of how many FDs cluster near the same date.",
+    "Label boxes widened from 110px to 136px: bank name now shows up to 17 characters before truncation (was 13). Amount→maturity value line fits cleanly.",
+    "Date/days label repositioned: for above-track nodes it renders above the box (not between box and track where it was clipping the connector); for below-track nodes it renders below the box.",
+    "TODAY pill redesigned: solid accent-coloured rectangle with white text, full-height dashed vertical line spanning the entire SVG so it is visible regardless of how many rows are shown.",
+    "Scroll hint (← scroll to see all →) shown in header only when canvas is wider than the container.",
+    "Loading placeholder: 100px blank area shown until the first ResizeObserver callback fires (prevents a flash of incorrectly-sized SVG on mount).",
+    "Removed the stale 'overflowX: scroll to see all' literal string that was showing in the subtitle.",
+  ]},
+  {version:"3.32.3",date:"2026-03-19",title:"FD: Use accrued-to-today value for net worth and portfolio calculations",changes:[
+    "New helper calcFDValueToday(f): computes the current accrued value of an FD using quarterly compounding from startDate to today. Returns principal if not started yet; returns full maturity amount if already matured; otherwise returns principal × (1 + r/4)^(4 × elapsed_years). Always returns at least the principal.",
+    "Net Worth (Dashboard trend widget, Dashboard donut widget): FD now contributes its today-accrued value instead of bare principal. Affects curNW, totalAssets, and the trend chart data.",
+    "Insights Section (NW snapshot, NW breakdown tiles, FIRE corpus): fdVal switched to calcFDValueToday across all three calculation sites.",
+    "Investment Dashboard (hero P&L, XIRR strip, alloc donut): totalCurrent now uses fdTodayVal. Hero sub-row now shows 'FD Value Today' + accrued amount, and 'Remaining FD Interest' (still-to-accrue vs total).",
+    "InvestSection FD tab stat cards: new 'Value Today' card added as the first card showing accrued value with sub-label showing accrued interest. 'Remaining Interest' replaces 'Total Interest'. Principal card retained for cost reference.",
+    "InvestSection FD tab header subtitle: changed from 'Principal:' to 'Value Today:' using fdTodayTotal.",
+    "Individual FD cards: hero value now shows today's accrued value in amber with 'value today' sub-label and accrued amount. Added an interest accrual progress bar (% of total interest earned so far). Maturity badge updated to show full maturity amount when FD has matured.",
+    "Reports — Investment Portfolio (RptInvestments): fdVal uses today value for Current Value and alloc donut; fdPrinc retained for Total Invested cost basis. 'FD Value Today' and 'FD at Maturity' stat cards replace the single 'FD Maturity Value' card.",
+    "Reports — Net Worth Trend (RptNetWorth): fdVal uses today value for curNW and asset breakdown.",
+    "Reports — Summary of Accounts (RptSummary): fdTotal uses today value for totalAssets and per-FD row values.",
+    "Excel export — Net Worth snapshot sheet: fdVal uses today value. FD details sheet gains a new 'Value Today (₹)' column alongside Principal and Maturity Amount, with TOTALS row updated.",
+    "PDF export: fdVal uses today value throughout the Net Worth Breakdown table.",
+    "Principal (f.amount) is intentionally preserved as cost basis in: Total Invested calculations, XIRR cashflow outflows, FD detail export Principal column, and FD tab 'Total Principal' stat card.",
+  ]},
+  {version:"3.32.2",date:"2026-03-19",title:"XIRR Calculator, Google Drive Backup, DevTools false-positive fix, Undo Toast fix",changes:[
+    "Feature: XIRR Calculator — new standalone '📊 XIRR Calculator' tab inside Financial Calculators (Insights). Enter any number of dated cashflows (negative = invest, positive = return). Newton-Raphson solver with multiple seed-guess fallbacks computes the true annualised return. Handles irregular SIPs, lump-sums, and mixed cashflow sequences.",
+    "Feature: XIRR on Share cards — each share's P&L box now shows an '📊 XIRR (annualised)' row using buyDate and current market value via Newton-Raphson. Displayed as e.g. '+14.52% p.a.'.",
+    "Feature: XIRR on MF cards — each MF card shows a purple '📊 XIRR' badge computing annualised return from the fund's startDate (new optional field on Add Fund form) and current value.",
+    "Feature: XIRR strip in Investment Dashboard — when share or FD data is available, a new row below the per-asset stat cards shows annualised XIRR for the Shares portfolio (aggregated using all buyDates) and for Fixed Deposits (using start/maturity dates). Labeled 'Annualised returns via XIRR'.",
+    "Feature: Google Drive Cloud Backup — new '☁ Cloud Backup' panel under Settings. User configures their own Google OAuth Client ID (one-time setup, stored in localStorage). OAuth2 implicit flow opens a popup; token stored in sessionStorage only. Backups are uploaded directly from the browser to a 'Money Manager Backups' folder on the user's own Drive using the Drive API v3 multipart upload. Lists recent backups, auto-prunes to the 7 most recent. No proxy server — data goes directly browser → Google Drive.",
+    "Feature: MF Add form — new optional 'First Investment Date' date field (stores as startDate) used by the XIRR badge on the card.",
+    "Bug fix: DevTools window-size lock false positive — Method B heuristic (outerWidth/outerHeight delta) now requires the condition to persist across 2 consecutive poll cycles (~2–3 s) before triggering lockScreen. Threshold raised from 200 px to 250 px. Counter resets to 0 on any clean poll. Eliminates false triggers on Android split-screen multitasking, browser zoom changes, and OS on-screen keyboard appearance.",
+    "Bug fix: Undo Toast stale closure — undoSnapRef (React.useRef) now mirrors undoSnap state. doUndo reads from the ref rather than the state closure, so it always has the latest snapshot even when the useCallback was captured before the last setUndoSnap settled. Timer cleanup also clears the ref. Toast label corrected from 'Action undone in 6 s' → 'Last action deleted • undo within 6 s'.",
+  ]},
   {version:"3.32.1",date:"2026-03-18",title:"Fix: ReferenceError fireData is not defined in Insights tab",changes:[
     "Bug: Clicking the Insights tab caused a blank screen — ReferenceError: fireData is not defined.",
     "Root cause: The fireData useMemo hook was positioned between the VelocityTab JSX block and the '/* ══ FIRE TAB ══ */' comment in the original file. When VelocityTab was deleted in v3.32.0 using those two markers as start/end anchors, fireData was inside the deleted range and got swept away with it.",
@@ -3554,6 +3602,91 @@ const calcFDMaturity=(principal,ratePercent,startDate,maturityDate)=>{
   const maturity=principal*Math.pow(1+r/4,4*years);
   return Math.round(maturity);
 };
+
+/* ──────────────────────────────────────────────────────────────────────────
+   calcFDValueToday — current accrued value of an FD as of today.
+   • FD not started yet (startDate > today) → returns principal.
+   • FD already matured (maturityDate ≤ today) → returns the full maturity
+     amount (uses stored maturityAmount if accurate, otherwise re-computes).
+   • FD in-progress → returns principal × (1 + r/4)^(4 × elapsed_years)
+     using quarterly compounding, matching Indian bank convention.
+   Always returns at least the principal (never less).
+   Used for net worth, portfolio value, and asset allocation.
+   Do NOT use for "Total Principal" labels or XIRR cost-basis.
+   ────────────────────────────────────────────────────────────────────────── */
+const calcFDValueToday=(f)=>{
+  if(!f||!f.amount||f.amount<=0)return 0;
+  if(!f.startDate||!f.maturityDate||!(f.rate>0))return f.amount;
+  const today=new Date();
+  const start=new Date(f.startDate);
+  const maturity=new Date(f.maturityDate);
+  if(today>=maturity){
+    /* Already matured — full maturity amount is what the investor has */
+    const mat=f.maturityAmount&&f.maturityAmount>f.amount
+      ?f.maturityAmount
+      :calcFDMaturity(f.amount,f.rate,f.startDate,f.maturityDate);
+    return Math.max(mat,f.amount);
+  }
+  if(today<=start)return f.amount; /* not started yet */
+  /* In-progress: accrue from startDate to today */
+  const elapsedYears=Math.max(0,(today-start)/(365.25*24*3600*1000));
+  const accrued=f.amount*Math.pow(1+(f.rate/100)/4,4*elapsedYears);
+  return Math.max(Math.round(accrued),f.amount);
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
+   XIRR — Newton-Raphson annualised return from irregularly-dated cashflows.
+   cashflows : number[]  — negative = outflow (invest), positive = inflow (return)
+   dates     : string[]  — YYYY-MM-DD, parallel to cashflows
+   guess     : number    — starting rate (default 10%)
+   Returns the annualised return as a PERCENTAGE (e.g. 14.52) or null on failure.
+   ══════════════════════════════════════════════════════════════════════════ */
+const computeXIRR=(cashflows,dates,guess=0.1)=>{
+  if(!cashflows||cashflows.length<2)return null;
+  const t0=new Date(dates[0]).getTime();
+  const yr=dates.map(d=>(new Date(d).getTime()-t0)/(365.25*86400000));
+  /* NPV and its derivative w.r.t. rate */
+  const npv =r=>cashflows.reduce((s,cf,i)=>s+cf/Math.pow(1+r,yr[i]),0);
+  const dnpv=r=>cashflows.reduce((s,cf,i)=>s-yr[i]*cf/Math.pow(1+r,yr[i]+1),0);
+  let r=guess;
+  for(let i=0;i<200;i++){
+    const f=npv(r),df=dnpv(r);
+    if(Math.abs(df)<1e-12)break;
+    const nr=r-f/df;
+    if(Math.abs(nr-r)<1e-9){r=nr;break;}
+    r=nr;
+    if(r<=-1)r=-0.9999; /* clamp to prevent negative base in pow */
+  }
+  if(!isFinite(r)||r<=-1||r>50)return null; /* >5000% XIRR is almost certainly a convergence error */
+  return Math.round(r*10000)/100; /* return as % with 2 decimal places */
+};
+
+/* Convenience: XIRR for a single lump-sum buy → current value (no interim cashflows).
+   Returns % string like "14.52%" or null. */
+const xirrSingleBuy=(invested,currentValue,buyDate)=>{
+  if(!invested||!currentValue||!buyDate||invested<=0||currentValue<=0)return null;
+  const today=TODAY();
+  if(buyDate>=today)return null;
+  return computeXIRR([-invested,currentValue],[buyDate,today]);
+};
+
+/* ── OAuth hash detection: runs BEFORE React mounts.
+   When Google Drive OAuth redirects back to our app URL with #access_token=…
+   in a popup window, this snippet extracts the token, posts it to the opener,
+   and closes the popup — the main window receives it via message listener.    */
+(function(){
+  try{
+    const h=window.location.hash;
+    if(h&&h.includes("access_token=")&&window.opener){
+      const p=new URLSearchParams(h.substring(1));
+      const tok=p.get("access_token");
+      if(tok){
+        window.opener.postMessage({type:"mm:gdrive-token",token:tok},window.location.origin);
+        setTimeout(()=>window.close(),200);
+      }
+    }
+  }catch(e){}
+}());
 
 const reducer=(s,a)=>{
   /* Returns max(_sn) + 1 across all transactions in an array — used to assign a permanent SN at creation time */
@@ -7470,7 +7603,7 @@ const Dashboard=React.memo(({data,isMobile})=>{
       const cashBal=data.cash.balance;
       const mfVal=data.mf.reduce((s,m)=>s+(m.currentValue||m.invested),0);
       const shVal=data.shares.reduce((s,sh)=>s+sh.qty*sh.currentPrice,0);
-      const fdVal=data.fd.reduce((s,f)=>s+f.amount,0);
+      const fdVal=data.fd.reduce((s,f)=>s+calcFDValueToday(f),0);
       const reVal=(data.re||[]).reduce((s,r)=>s+(r.currentValue||r.acquisitionCost||0),0);
       const cDebt=data.cards.reduce((s,c)=>s+c.outstanding,0);
       const lDebt=(data.loans||[]).reduce((s,l)=>s+l.outstanding,0);
@@ -7723,7 +7856,7 @@ const Dashboard=React.memo(({data,isMobile})=>{
       const cV=data.cash.balance;
       const mfV=data.mf.reduce((s,m)=>s+(m.currentValue||m.invested),0);
       const shV=data.shares.reduce((s,sh)=>s+sh.qty*sh.currentPrice,0);
-      const fdV=data.fd.reduce((s,f)=>s+f.amount,0);
+      const fdV=data.fd.reduce((s,f)=>s+calcFDValueToday(f),0);
       const reV=(data.re||[]).reduce((s,r)=>s+(r.currentValue||r.acquisitionCost||0),0);
       const ccV=data.cards.reduce((s,c)=>s+c.outstanding,0);
       const lnV=(data.loans||[]).reduce((s,l)=>s+l.outstanding,0);
@@ -8943,16 +9076,45 @@ const InvestDashboard=React.memo(({mf,shares,fd,re=[],dispatch,isMobile,eodPrice
   const reCost  = re.reduce((s,r)=>s+r.acquisitionCost,0);
   const reVal   = re.reduce((s,r)=>s+(r.currentValue||r.acquisitionCost),0);
   /* ── Liquid portfolio = MF + Shares + FD only (RE is illiquid, excluded) ── */
-  const totalInvested = mfCost+shCost+fdPrinc;   /* liquid cost basis */
-  const totalCurrent  = mfVal+shVal+fdPrinc;     /* liquid portfolio value */
+  const fdTodayVal= fd.reduce((s,f)=>s+calcFDValueToday(f),0); /* accrued FD value as of today */
+  const totalInvested = mfCost+shCost+fdPrinc;   /* liquid cost basis — uses principal */
+  const totalCurrent  = mfVal+shVal+fdTodayVal;  /* liquid portfolio value — uses today's FD value */
   const totalPnL      = totalCurrent-totalInvested;
   const pnlPct        = totalInvested>0?((totalPnL/totalInvested)*100):0;
 
+  /* ── Per-asset XIRR (annualised) ── */
+  const sharesXirr=(()=>{
+    /* Weighted-average XIRR across all shares using buyDate */
+    const entries=shares.filter(sh=>sh.buyDate&&sh.qty>0&&sh.buyPrice>0&&sh.currentPrice>0);
+    if(!entries.length)return null;
+    /* Aggregate all share cashflows into a single XIRR */
+    const cfs=[],dts=[];
+    entries.forEach(sh=>{
+      cfs.push(-(sh.qty*sh.buyPrice));
+      dts.push(sh.buyDate);
+    });
+    cfs.push(shares.reduce((s,sh)=>s+sh.qty*sh.currentPrice,0));
+    dts.push(TODAY());
+    return computeXIRR(cfs,dts);
+  })();
+
+  const fdXirr=(()=>{
+    const entries=fd.filter(f=>f.startDate&&f.maturityDate&&f.amount>0);
+    if(!entries.length)return null;
+    const cfs=[],dts=[];
+    entries.forEach(f=>{
+      const mat=f.maturityAmount&&f.maturityAmount>f.amount?f.maturityAmount:calcFDMaturity(f.amount,f.rate,f.startDate,f.maturityDate);
+      cfs.push(-f.amount); dts.push(f.startDate);
+      cfs.push(mat); dts.push(f.maturityDate);
+    });
+    return computeXIRR(cfs,dts);
+  })();
+
   /* ── Allocation donut — liquid investments only (RE is illiquid, shown separately) ── */
   const allocData=[
-    {name:"Mutual Funds",  value:mfVal,   col:"#6d28d9"},
-    {name:"Shares",        value:shVal,   col:"#16a34a"},
-    {name:"Fixed Deposits",value:fdPrinc, col:"#b45309"},
+    {name:"Mutual Funds",  value:mfVal,      col:"#6d28d9"},
+    {name:"Shares",        value:shVal,      col:"#16a34a"},
+    {name:"Fixed Deposits",value:fdTodayVal, col:"#b45309"},
   ].filter(a=>a.value>0);
   const allocTotal=allocData.reduce((s,a)=>s+a.value,0);
 
@@ -9115,12 +9277,14 @@ const InvestDashboard=React.memo(({mf,shares,fd,re=[],dispatch,isMobile,eodPrice
             React.createElement("div",{style:{fontSize:18,fontFamily:"'Sora',sans-serif",fontWeight:700,color:"#0e7490"}},INR(totalInvested))
           ),
           React.createElement("div",null,
-            React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.8,marginBottom:3}},"FD Maturity Value"),
-            React.createElement("div",{style:{fontSize:18,fontFamily:"'Sora',sans-serif",fontWeight:700,color:"#b45309"}},INR(fdMat))
+            React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.8,marginBottom:3}},"FD Value Today"),
+            React.createElement("div",{style:{fontSize:18,fontFamily:"'Sora',sans-serif",fontWeight:700,color:"#b45309"}},INR(fdTodayVal)),
+            fdTodayVal>fdPrinc&&React.createElement("div",{style:{fontSize:11,color:"#16a34a",fontWeight:600}},"+"+INR(fdTodayVal-fdPrinc)+" accrued")
           ),
           React.createElement("div",null,
-            React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.8,marginBottom:3}},"Total FD Interest"),
-            React.createElement("div",{style:{fontSize:18,fontFamily:"'Sora',sans-serif",fontWeight:700,color:"#16a34a"}},"+"+INR(fdMat-fdPrinc))
+            React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.8,marginBottom:3}},"Remaining FD Interest"),
+            React.createElement("div",{style:{fontSize:18,fontFamily:"'Sora',sans-serif",fontWeight:700,color:"#16a34a"}},"+"+INR(fdMat-fdTodayVal)),
+            React.createElement("div",{style:{fontSize:10,color:"var(--text6)",marginTop:2}},"to maturity · total "+INR(fdMat-fdPrinc))
           ),
           reVal>0&&React.createElement("div",null,
             React.createElement("div",{style:{display:"flex",alignItems:"center",gap:5,marginBottom:3}},
@@ -9157,6 +9321,37 @@ const InvestDashboard=React.memo(({mf,shares,fd,re=[],dispatch,isMobile,eodPrice
         React.createElement(StatCard,{label:"Projected FD Gains",val:"+"+INR(fdMat-fdPrinc),sub:"At maturity",col:"#0e7490",icon:"🎯"})
       );
     })(),
+
+    /* ── XIRR summary strip (shows only when data is available) */
+    (sharesXirr!==null||fdXirr!==null)&&React.createElement("div",{style:{
+      display:"flex",gap:10,flexWrap:"wrap",marginBottom:16,
+      padding:"12px 16px",borderRadius:12,
+      background:"linear-gradient(135deg,rgba(109,40,217,.07),rgba(22,163,74,.06))",
+      border:"1px solid rgba(109,40,217,.18)"
+    }},
+      React.createElement("div",{style:{fontSize:10,fontWeight:700,color:"#6d28d9",textTransform:"uppercase",letterSpacing:1,alignSelf:"center",marginRight:6}},"📊 XIRR"),
+      sharesXirr!==null&&React.createElement("div",{style:{
+        padding:"6px 14px",borderRadius:8,
+        background:sharesXirr>=0?"rgba(22,163,74,.1)":"rgba(239,68,68,.1)",
+        border:"1px solid "+(sharesXirr>=0?"rgba(22,163,74,.25)":"rgba(239,68,68,.25)")
+      }},
+        React.createElement("div",{style:{fontSize:10,color:"var(--text6)",marginBottom:2}},"Shares Portfolio"),
+        React.createElement("div",{style:{fontSize:15,fontWeight:700,color:sharesXirr>=0?"#16a34a":"#ef4444"}},
+          (sharesXirr>=0?"+":"")+sharesXirr.toFixed(2)+"% p.a."
+        )
+      ),
+      fdXirr!==null&&React.createElement("div",{style:{
+        padding:"6px 14px",borderRadius:8,
+        background:fdXirr>=0?"rgba(180,83,9,.1)":"rgba(239,68,68,.1)",
+        border:"1px solid "+(fdXirr>=0?"rgba(180,83,9,.25)":"rgba(239,68,68,.25)")
+      }},
+        React.createElement("div",{style:{fontSize:10,color:"var(--text6)",marginBottom:2}},"Fixed Deposits"),
+        React.createElement("div",{style:{fontSize:15,fontWeight:700,color:fdXirr>=0?"#b45309":"#ef4444"}},
+          (fdXirr>=0?"+":"")+fdXirr.toFixed(2)+"% p.a."
+        )
+      ),
+      React.createElement("div",{style:{fontSize:10,color:"var(--text6)",alignSelf:"flex-end",marginLeft:"auto",fontStyle:"italic"}},"Annualised returns via XIRR")
+    ),
 
     /* ── Middle row: allocation + MF performance */
     React.createElement("div",{style:{display:"grid",gridTemplateColumns:isMobile?"1fr":"280px 1fr",gap:14,marginBottom:14}},
@@ -9916,6 +10111,202 @@ const ShareHistoryPanel=({sh,eodPrices,historyCache={},dispatch})=>{
   );
 };
 
+/* ══════════════════════════════════════════════════════════════════════════
+   FD MATURITY TIMELINE — responsive, collision-free
+   Uses ResizeObserver to match the container width exactly.
+   Enforces a minimum horizontal gap between nodes so labels never overlap.
+   Greedy (left-to-right) row assignment places each node in the first
+   row (alternating above/below) where its label box doesn't collide with
+   any already-placed box.
+   ══════════════════════════════════════════════════════════════════════════ */
+const FDTimeline=({fd})=>{
+  const wrapRef=React.useRef(null);
+  const[cw,setCw]=React.useState(0);
+
+  React.useEffect(()=>{
+    const el=wrapRef.current;
+    if(!el)return;
+    const run=()=>setCw(el.offsetWidth||0);
+    run();
+    if(typeof ResizeObserver!=="undefined"){
+      const ob=new ResizeObserver(run);
+      ob.observe(el);
+      return()=>ob.disconnect();
+    }
+    window.addEventListener("resize",run);
+    return()=>window.removeEventListener("resize",run);
+  },[]);
+
+  const sorted=[...fd].filter(f=>f.maturityDate).sort((a,b)=>a.maturityDate.localeCompare(b.maturityDate));
+  if(!sorted.length)return null;
+
+  /* ── Layout constants ── */
+  const BW=136,BH=36,PAD=24;  /* box width/height, horizontal padding */
+  const R=5,NDROP=9;           /* node dot radius, node offset from track */
+  const SGAP=4;                /* gap between node dot edge and box */
+  const MIN_GAP=BW+12;         /* minimum x distance between node centres */
+  const ROW_STEP=BH+20;        /* vertical step between stacked rows on same side */
+  const DATE_OFFSET=10;        /* baseline of date label below/above box */
+
+  /* ── Date span ── */
+  const now=new Date(),todayISO=TODAY();
+  const earliest=new Date(sorted[0].maturityDate);
+  const latest=new Date(sorted[sorted.length-1].maturityDate);
+  const spanMs=Math.max(latest-earliest,1);
+
+  /* ── Responsive canvas width ── */
+  const avail=Math.max(cw||0,320);
+  const minW=sorted.length*MIN_GAP+PAD*2;
+  const W=Math.max(avail,minW);
+
+  /* ── X positions — linear mapping then forward-pass minimum spacing ── */
+  const xs=sorted.map(f=>PAD+((new Date(f.maturityDate)-earliest)/spanMs)*(W-PAD*2));
+  for(let i=1;i<xs.length;i++)if(xs[i]-xs[i-1]<MIN_GAP)xs[i]=xs[i-1]+MIN_GAP;
+  /* If last node overflowed, scale the spread back proportionally */
+  const overflow=xs[xs.length-1]-(W-PAD-BW/2);
+  if(overflow>0){
+    const base=xs[0],span=xs[xs.length-1]-base||1;
+    for(let i=1;i<xs.length;i++)xs[i]=base+(xs[i]-base)*(1-overflow/span*0.5);
+  }
+
+  /* ── Greedy row assignment (left-to-right, no collision) ── */
+  /* Row encoding: even = above track, odd = below track.
+     Row 0 = closest above, 1 = closest below, 2 = further above, 3 = further below … */
+  const rowOcc={};
+  const pickRow=boxL=>{
+    const boxR=boxL+BW;
+    for(let r=0;r<12;r++){
+      const list=rowOcc[r]||[];
+      if(!list.some(o=>boxL<o.r+6&&boxR>o.l-6)){
+        (rowOcc[r]=rowOcc[r]||[]).push({l:boxL,r:boxR});
+        return r;
+      }
+    }
+    return 11;
+  };
+
+  const nodes=sorted.map((f,i)=>{
+    const x=xs[i];
+    const boxL=Math.max(PAD,Math.min(W-PAD-BW,x-BW/2));
+    const row=pickRow(boxL);
+    const above=row%2===0;
+    const depth=Math.floor(row/2); /* 0=nearest, 1=next, … */
+    return{f,x,boxL,row,above,depth};
+  });
+
+  /* ── Compute trackY: topmost above-box top must sit ≥ 26 px from SVG edge ── */
+  const maxAboveDepth=nodes.some(n=>n.above)?Math.max(...nodes.filter(n=>n.above).map(n=>n.depth)):0;
+  const maxBelowDepth=nodes.some(n=>!n.above)?Math.max(...nodes.filter(n=>!n.above).map(n=>n.depth)):0;
+
+  /* Topmost above box top = trackY - NDROP - SGAP - BH - maxAboveDepth*ROW_STEP
+     Date label top = box top - DATE_OFFSET ≥ 26 (TODAY pill height + 8 gap)
+     → trackY ≥ 26 + DATE_OFFSET + BH + SGAP + NDROP + maxAboveDepth*ROW_STEP */
+  const trackY=26+DATE_OFFSET+BH+SGAP+NDROP+maxAboveDepth*ROW_STEP;
+
+  /* ── Box Y helper ── */
+  const getBoxY=(above,depth)=>above
+    ?trackY-NDROP-SGAP-BH-depth*ROW_STEP        /* above: grow upward */
+    :trackY+NDROP+SGAP+depth*ROW_STEP;          /* below: grow downward */
+
+  /* ── SVG total height ── */
+  const belowBottom=nodes.some(n=>!n.above)
+    ?trackY+NDROP+SGAP+maxBelowDepth*ROW_STEP+BH+DATE_OFFSET
+    :trackY+16;
+  const svgH=belowBottom+26; /* 26 for legend */
+
+  /* ── Today marker ── */
+  const todayX=PAD+((now-earliest)/spanMs)*(W-PAD*2);
+  const todayVis=todayX>=PAD-4&&todayX<=W-PAD+4;
+  const totalPrincipal=sorted.reduce((s,f)=>s+f.amount,0);
+  const willScroll=W>avail;
+
+  return React.createElement("div",{style:{marginTop:8,background:"var(--bg4)",borderRadius:14,padding:"14px 16px",border:"1px solid var(--border)"}},
+    /* Header row */
+    React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}},
+      React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"var(--text4)",textTransform:"uppercase",letterSpacing:.8,display:"flex",alignItems:"center",gap:6}},
+        React.createElement("div",{style:{width:3,height:13,borderRadius:2,background:"var(--accent)",flexShrink:0}}),
+        "📅 FD Maturity Timeline"
+      ),
+      willScroll&&React.createElement("span",{style:{fontSize:10,color:"var(--text6)",fontStyle:"italic"}},"← scroll to see all →")
+    ),
+    React.createElement("div",{style:{fontSize:10,color:"var(--text5)",marginBottom:8}},
+      sorted.length+" FDs · Total Principal: "+INR(totalPrincipal)
+    ),
+    /* Scrollable SVG wrapper — ref is here so ResizeObserver measures the true available width */
+    React.createElement("div",{ref:wrapRef,style:{overflowX:"auto",WebkitOverflowScrolling:"touch"}},
+      cw===0
+        /* Loading placeholder — shows until first ResizeObserver callback */
+        ?React.createElement("div",{style:{height:100}})
+        :React.createElement("svg",{
+            width:W,height:svgH,
+            viewBox:"0 0 "+W+" "+svgH,
+            style:{display:"block",fontFamily:"'DM Sans',sans-serif"}
+          },
+          /* ── Track line ── */
+          React.createElement("line",{x1:PAD,y1:trackY,x2:W-PAD,y2:trackY,stroke:"var(--border)",strokeWidth:2}),
+
+          /* ── TODAY vertical marker ── */
+          todayVis&&React.createElement("g",null,
+            React.createElement("line",{
+              x1:todayX,y1:18,x2:todayX,y2:svgH-20,
+              stroke:"var(--accent)",strokeWidth:1.5,strokeDasharray:"4,3",opacity:.6
+            }),
+            React.createElement("rect",{x:todayX-17,y:6,width:34,height:14,rx:4,fill:"var(--accent)"}),
+            React.createElement("text",{x:todayX,y:16,textAnchor:"middle",fill:"#fff",fontSize:8,fontWeight:700},"TODAY")
+          ),
+
+          /* ── FD nodes ── */
+          nodes.map(({f,x,boxL,above,depth})=>{
+            const dl=daysLeft(f.maturityDate);
+            const matured=f.maturityDate<todayISO;
+            const col=matured?"#6d28d9":dl<=30?"#ef4444":dl<=180?"#f59e0b":"#16a34a";
+            const computedMat=calcFDMaturity(f.amount,f.rate,f.startDate,f.maturityDate);
+            const dispMat=f.maturityAmount&&f.maturityAmount>f.amount?f.maturityAmount:computedMat;
+            const bY=getBoxY(above,depth);
+            const nY=above?trackY-NDROP:trackY+NDROP; /* node dot y */
+            const boxCx=boxL+BW/2;
+            /* Connector: from box edge to node dot (dashed) */
+            const connY1=above?bY+BH:bY;
+            const connY2=above?nY+R+1:nY-R-1;
+            return React.createElement("g",{key:f.id},
+              /* Stem: track surface → node dot */
+              React.createElement("line",{x1:x,y1:trackY,x2:x,y2:nY+(above?R:-R),stroke:col,strokeWidth:1.5}),
+              /* Node dot */
+              React.createElement("circle",{cx:x,cy:nY,r:R,fill:col,stroke:"var(--bg3)",strokeWidth:2}),
+              /* Dashed connector: node → box edge */
+              React.createElement("line",{x1:x,y1:connY2,x2:boxCx,y2:connY1,
+                stroke:col,strokeWidth:1,strokeDasharray:"3,2",opacity:.55}),
+              /* Label box */
+              React.createElement("g",{transform:"translate("+boxL+","+bY+")"},
+                React.createElement("rect",{width:BW,height:BH,rx:7,fill:col+"1c",stroke:col+"66",strokeWidth:1}),
+                React.createElement("text",{x:7,y:13,fill:"var(--text2)",fontSize:9,fontWeight:700},
+                  f.bank.length>18?f.bank.slice(0,17)+"…":f.bank),
+                React.createElement("text",{x:7,y:26,fill:col,fontSize:8,fontWeight:600},
+                  INR(f.amount)+" → "+INR(dispMat))
+              ),
+              /* Date / days label — above box for above-nodes, below box for below-nodes */
+              React.createElement("text",{
+                x:boxCx,
+                y:above?bY-3:bY+BH+DATE_OFFSET,
+                textAnchor:"middle",fill:"var(--text5)",fontSize:8
+              },matured?"✓ Matured":dl+"d · "+f.maturityDate.slice(0,7))
+            );
+          }),
+
+          /* ── Legend ── */
+          React.createElement("g",{transform:"translate("+PAD+","+(svgH-14)+")"},
+            [["Matured","#6d28d9"],[">6m","#16a34a"],[">1m","#f59e0b"],["<1m","#ef4444"]].map(([l,c],i)=>
+              React.createElement("g",{key:l,transform:"translate("+(i*82)+",0)"},
+                React.createElement("circle",{cx:5,cy:5,r:4,fill:c}),
+                React.createElement("text",{x:13,y:9,fill:"var(--text5)",fontSize:8},l)
+              )
+            )
+          )
+        )
+    )
+  );
+};
+
 const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eodPrices={},eodNavs={},historyCache={}})=>{
   const[tab,setTab]=useState(defaultTab);const[open,setOpen]=useState(false);const[navLoad,setNavLoad]=useState(false);
   React.useEffect(()=>{setTab(defaultTab);},[defaultTab]);
@@ -9986,11 +10377,12 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
   const shVal=shares.reduce((s,sh)=>s+sh.qty*sh.currentPrice,0);
   const shCost=shares.reduce((s,sh)=>s+sh.qty*sh.buyPrice,0);
   const fdTotal=fd.reduce((s,f)=>s+f.amount,0);
+  const fdTodayTotal=fd.reduce((s,f)=>s+calcFDValueToday(f),0);
   /* Dynamic section config based on active tab */
   const CFG={
     mf:{title:"Mutual Funds",sub:"Portfolio: ",subVal:INR(mfTotal),subCol:"#6d28d9",addLabel:"+ Add Fund"},
     shares:{title:"Shares",sub:"Market Value: ",subVal:INR(shVal),subCol:"#16a34a",addLabel:"+ Add Share"},
-    fd:{title:"Fixed Deposits",sub:"Principal: ",subVal:INR(fdTotal),subCol:"var(--accent)",addLabel:"+ Add FD"},
+    fd:{title:"Fixed Deposits",sub:"Value Today: ",subVal:INR(fdTodayTotal),subCol:"#b45309",addLabel:"+ Add FD"},
     re:{title:"Real Estate",sub:"Portfolio Value: ",subVal:INR(re.reduce((s,r)=>s+(r.currentValue||r.acquisitionCost),0)),subCol:"#c2410c",addLabel:"+ Add Property"},
   };
   const cfg=CFG[tab]||CFG.mf;
@@ -10037,9 +10429,10 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
       React.createElement(StatCard,{label:"Total P&L",val:(shVal-shCost>=0?"+":"")+INR(shVal-shCost),sub:pct(shVal,shCost)+"% return",col:shVal>=shCost?"#16a34a":"#ef4444",icon:shVal>=shCost?"▲":"▼"})
     ),
     tab==="fd"&&React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
+      React.createElement(StatCard,{label:"Value Today",val:INR(fdTodayTotal),sub:fdTodayTotal>fdTotal?"+"+INR(fdTodayTotal-fdTotal)+" accrued interest":"principal "+INR(fdTotal),col:"#b45309",icon:"📊"}),
       React.createElement(StatCard,{label:"Total Principal",val:INR(fdTotal),sub:fd.length+" deposits",col:"var(--accent)",icon:"🏦"}),
       React.createElement(StatCard,{label:"Total at Maturity",val:INR(fd.reduce((s,f)=>{const m=f.maturityAmount&&f.maturityAmount>f.amount?f.maturityAmount:calcFDMaturity(f.amount,f.rate,f.startDate,f.maturityDate);return s+m;},0)),sub:"Quarterly compounding",col:"#16a34a",icon:"🎯"}),
-      React.createElement(StatCard,{label:"Total Interest",val:"+"+INR(fd.reduce((s,f)=>{const m=f.maturityAmount&&f.maturityAmount>f.amount?f.maturityAmount:calcFDMaturity(f.amount,f.rate,f.startDate,f.maturityDate);return s+(m-f.amount);},0)),sub:"Projected earnings",col:"#16a34a",icon:"💵"})
+      React.createElement(StatCard,{label:"Remaining Interest",val:"+"+INR(fd.reduce((s,f)=>{const m=f.maturityAmount&&f.maturityAmount>f.amount?f.maturityAmount:calcFDMaturity(f.amount,f.rate,f.startDate,f.maturityDate);return s+m;},0)-fdTodayTotal),sub:"still to accrue",col:"#0e7490",icon:"💵"})
     ),
     /* ── RE stat row */
     tab==="re"&&(()=>{
@@ -10209,6 +10602,20 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
               React.createElement("span",null,(gain>=0?"▲ Gain":"▼ Loss")+" "+INR(Math.abs(gain))),
               React.createElement("span",{style:{fontSize:12,opacity:.85}},Math.abs(gp)+"%")
             ),
+            /* XIRR / CAGR badge */
+            (()=>{
+              const startDate=m.startDate||(m.notes&&m.notes.match&&m.notes.match(/\b(\d{4}-\d{2}-\d{2})\b/)&&m.notes.match(/\b(\d{4}-\d{2}-\d{2})\b/)[1]);
+              const xirr=startDate&&trueCoA>0&&currentVal>0?xirrSingleBuy(trueCoA,currentVal,startDate):null;
+              if(xirr!==null){
+                const col=xirr>=0?"#6d28d9":"#ef4444";
+                return React.createElement("div",{style:{marginTop:6,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 11px",borderRadius:7,background:"rgba(109,40,217,.07)",border:"1px solid rgba(109,40,217,.18)"}},
+                  React.createElement("span",{style:{fontSize:11,color:"#6d28d9",fontWeight:600}},"📊 XIRR"),
+                  React.createElement("span",{style:{fontSize:13,fontWeight:700,color:col}},(xirr>=0?"+":"")+xirr.toFixed(2)+"% p.a.")
+                );
+              }
+              /* No startDate — show a subtle hint */
+              return null;
+            })(),
             React.createElement("div",{style:{fontSize:11,color:"var(--text6)",marginTop:8}},"Scheme Code: "+m.schemeCode),
             /* Note anchor */
             noteEdit&&noteEdit.type==="mf"&&noteEdit.id===m.id
@@ -10305,7 +10712,19 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
                     (isGain?"+":"")+pnlPct.toFixed(2)+"% · ₹"+(priceDiff>=0?"+":"")+Number(priceDiff).toFixed(2)+" per share"
                   )
                 )
-              )
+              ),
+              /* XIRR row inside P&L box */
+              sh.buyDate&&(()=>{
+                const xirr=xirrSingleBuy(costBasis,currentVal,sh.buyDate);
+                if(xirr===null)return null;
+                return React.createElement("div",{style:{
+                  marginTop:7,paddingTop:7,borderTop:"1px solid "+(isGain?"rgba(22,163,74,.15)":"rgba(239,68,68,.15)"),
+                  display:"flex",justifyContent:"space-between",alignItems:"center"
+                }},
+                  React.createElement("span",{style:{fontSize:11,color:"var(--text5)",fontWeight:600}},"📊 XIRR (annualised)"),
+                  React.createElement("span",{style:{fontSize:12,fontWeight:700,color:xirr>=0?"#16a34a":"#ef4444"}},(xirr>=0?"+":"")+xirr.toFixed(2)+"% p.a.")
+                );
+              })()
             ),
             /* ── Day-change context strip (prev close anchor) ── */
             prevClose&&React.createElement("div",{style:{
@@ -10358,18 +10777,36 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
           const computedMat=calcFDMaturity(f.amount,f.rate,f.startDate,f.maturityDate);
           const displayMat=f.maturityAmount&&f.maturityAmount>f.amount?f.maturityAmount:computedMat;
           const interest=displayMat-f.amount;
+          const valueToday=calcFDValueToday(f);
+          const accruedSoFar=valueToday-f.amount;
+          const accruedPct=interest>0?Math.min(100,Math.round((accruedSoFar/interest)*100)):0;
+          const isMatured=days===0||new Date(f.maturityDate)<=new Date();
           return React.createElement(Card,{key:f.id},
             React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}},
               React.createElement("div",null,React.createElement("div",{style:{fontSize:14,fontWeight:600,color:"var(--text)"}},f.bank),React.createElement(Badge,{ch:f.rate+"% p.a.",col:"var(--accent)"})),
-              React.createElement("div",{style:{fontSize:17,fontFamily:"'Sora',sans-serif",fontWeight:700,color:"var(--accent)"}},INR(f.amount))
+              React.createElement("div",{style:{textAlign:"right"}},
+                React.createElement("div",{style:{fontSize:17,fontFamily:"'Sora',sans-serif",fontWeight:700,color:"#b45309"}},INR(valueToday)),
+                React.createElement("div",{style:{fontSize:10,color:"var(--text6)",marginTop:1}},"value today"),
+                accruedSoFar>0&&React.createElement("div",{style:{fontSize:10,color:"#16a34a",fontWeight:600}},"+"+INR(accruedSoFar)+" accrued")
+              )
             ),
             React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}},
               React.createElement("div",null,React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},"Start"),React.createElement("div",{style:{fontSize:13}},f.startDate)),
               React.createElement("div",null,React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},"Maturity"),React.createElement("div",{style:{fontSize:13}},f.maturityDate)),
-              React.createElement("div",null,React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},"Matures At"),React.createElement("div",{style:{fontSize:13,color:"#16a34a",fontWeight:600}},INR(displayMat))),
-              React.createElement("div",null,React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},"Interest"),React.createElement("div",{style:{fontSize:13,color:"#16a34a",fontWeight:600}},"+"+INR(interest)))
+              React.createElement("div",null,React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},"Principal"),React.createElement("div",{style:{fontSize:13,color:"var(--text3)",fontWeight:600}},INR(f.amount))),
+              React.createElement("div",null,React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},"Matures At"),React.createElement("div",{style:{fontSize:13,color:"#16a34a",fontWeight:600}},INR(displayMat)))
             ),
-            React.createElement("div",{style:{background:days<=30?"rgba(239,68,68,.08)":"rgba(14,116,144,.08)",borderRadius:8,padding:"7px 10px",fontSize:12,color:days<=30?"#ef4444":"#0e7490"}},days===0?"🔔 Matured!":"⏳ "+days+" days to maturity"),
+            /* Accrual progress bar */
+            !isMatured&&interest>0&&React.createElement("div",{style:{marginBottom:10}},
+              React.createElement("div",{style:{display:"flex",justifyContent:"space-between",fontSize:10,color:"var(--text6)",marginBottom:3}},
+                React.createElement("span",null,"Interest accrued: "+INR(accruedSoFar)),
+                React.createElement("span",null,accruedPct+"%")
+              ),
+              React.createElement("div",{style:{height:5,background:"var(--bg5)",borderRadius:3,overflow:"hidden"}},
+                React.createElement("div",{style:{height:"100%",width:accruedPct+"%",background:"linear-gradient(90deg,#b45309,#16a34a)",borderRadius:3,transition:"width .5s"}})
+              )
+            ),
+            React.createElement("div",{style:{background:days<=30?"rgba(239,68,68,.08)":"rgba(14,116,144,.08)",borderRadius:8,padding:"7px 10px",fontSize:12,color:days<=30?"#ef4444":"#0e7490"}},isMatured?"🔔 Matured! Full amount: "+INR(displayMat):"⏳ "+days+" days to maturity"),
             /* Note anchor */
             noteEdit&&noteEdit.type==="fd"&&noteEdit.id===f.id
               ? React.createElement("div",{style:{marginTop:8}},
@@ -10418,83 +10855,7 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
       )
     ),
     /* ── FD Maturity Timeline */
-    tab==="fd"&&fd.length>=2&&(()=>{
-      const sorted=[...fd].filter(f=>f.maturityDate).sort((a,b)=>a.maturityDate.localeCompare(b.maturityDate));
-      if(sorted.length<1)return null;
-      const now=new Date();
-      const todayISO=now.toISOString().split("T")[0];
-      /* Earliest and latest maturity for scale */
-      const earliest=new Date(sorted[0].maturityDate);
-      const latest=new Date(sorted[sorted.length-1].maturityDate);
-      const spanDays=Math.max((latest-earliest)/86400000,1);
-      const W=800,padX=24,trackY=60,nodeH=44;
-      const xOf=d=>padX+((new Date(d)-earliest)/86400000/spanDays)*(W-padX*2);
-      /* Today marker x */
-      const todayX=Math.max(padX,Math.min(W-padX,padX+((now-earliest)/86400000/spanDays)*(W-padX*2)));
-      const totalPrincipal=sorted.reduce((s,f)=>s+f.amount,0);
-      return React.createElement("div",{style:{marginTop:8,background:"var(--bg4)",borderRadius:14,padding:"16px 18px",border:"1px solid var(--border)"}},
-        React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"var(--text4)",textTransform:"uppercase",letterSpacing:.8,marginBottom:4,display:"flex",alignItems:"center",gap:6}},
-          React.createElement("div",{style:{width:3,height:13,borderRadius:2,background:"var(--accent)",flexShrink:0}}),
-          "📅 FD Maturity Timeline"
-        ),
-        React.createElement("div",{style:{fontSize:10,color:"var(--text5)",marginBottom:12}},
-          sorted.length+" FDs · Total Principal: "+INR(totalPrincipal)+" · overflowX: scroll to see all"
-        ),
-        React.createElement("div",{style:{overflowX:"auto",paddingBottom:8}},
-          React.createElement("svg",{
-            width:W,height:trackY+sorted.length*nodeH+24,
-            viewBox:`0 0 ${W} ${trackY+sorted.length*nodeH+24}`,
-            style:{display:"block",minWidth:W,fontFamily:"'DM Sans',sans-serif"}
-          },
-            /* Horizontal track line */
-            React.createElement("line",{x1:padX,y1:trackY,x2:W-padX,y2:trackY,stroke:"var(--border)",strokeWidth:2}),
-            /* Today marker */
-            todayX>=padX&&todayX<=W-padX&&React.createElement("g",null,
-              React.createElement("line",{x1:todayX,y1:trackY-16,x2:todayX,y2:trackY+8,stroke:"var(--accent)",strokeWidth:2,strokeDasharray:"4,3"}),
-              React.createElement("text",{x:todayX,y:trackY-20,textAnchor:"middle",fill:"var(--accent)",fontSize:9,fontWeight:700},"TODAY")
-            ),
-            /* FD nodes */
-            sorted.map((f,i)=>{
-              const x=xOf(f.maturityDate);
-              const dl=daysLeft(f.maturityDate);
-              const matured=f.maturityDate<todayISO;
-              const col=matured?"#6d28d9":dl<=30?"#ef4444":dl<=180?"#f59e0b":"#16a34a";
-              const computedMat=calcFDMaturity(f.amount,f.rate,f.startDate,f.maturityDate);
-              const dispMat=f.maturityAmount&&f.maturityAmount>f.amount?f.maturityAmount:computedMat;
-              const interest=dispMat-f.amount;
-              /* Alternate rows above/below the track */
-              const above=i%2===0;
-              const nodeY=above?trackY-14:trackY+14;
-              const labelY=above?trackY-52:trackY+nodeH+8;
-              return React.createElement("g",{key:f.id},
-                /* Stem */
-                React.createElement("line",{x1:x,y1:trackY,x2:x,y2:nodeY,stroke:col,strokeWidth:1.5}),
-                /* Node dot */
-                React.createElement("circle",{cx:x,cy:nodeY,r:6,fill:col,stroke:"var(--bg3)",strokeWidth:2}),
-                /* Label box */
-                React.createElement("g",{transform:`translate(${Math.max(padX+2,Math.min(W-padX-110,x-55))},${above?trackY-56:trackY+22})`},
-                  React.createElement("rect",{width:110,height:34,rx:7,fill:col+"18",stroke:col+"44",strokeWidth:1}),
-                  React.createElement("text",{x:6,y:13,fill:"var(--text2)",fontSize:9,fontWeight:700},f.bank.length>14?f.bank.slice(0,13)+"…":f.bank),
-                  React.createElement("text",{x:6,y:25,fill:col,fontSize:8,fontWeight:600},INR(f.amount)+" → "+INR(dispMat)),
-                  /* Maturity date below label box */
-                  React.createElement("text",{x:55,y:42,textAnchor:"middle",fill:"var(--text5)",fontSize:8},
-                    matured?"✓ Matured":dl+"d · "+f.maturityDate.slice(0,7))
-                )
-              );
-            }),
-            /* Color legend */
-            React.createElement("g",{transform:`translate(${padX},${trackY+sorted.length*nodeH+10})`},
-              [[">6m","#16a34a"],[">1m","#f59e0b"],["<1m","#ef4444"],["Matured","#6d28d9"]].map(([l,c],i)=>
-                React.createElement("g",{key:l,transform:`translate(${i*90},0)`},
-                  React.createElement("circle",{cx:5,cy:5,r:4,fill:c}),
-                  React.createElement("text",{x:13,y:9,fill:"var(--text5)",fontSize:8},l)
-                )
-              )
-            )
-          )
-        )
-      );
-    })(),
+    tab==="fd"&&fd.length>=2&&React.createElement(FDTimeline,{fd}),
     /* ── Real Estate content */
     tab==="re"&&(re.length===0?React.createElement(Empty,{icon:"🏠",text:"No properties added yet"}):
       React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14}},
@@ -10651,9 +11012,13 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
             : "Enter avg NAV to calculate your true cost of acquisition accurately"
         )
       ),
+      React.createElement(Field,{label:"First Investment Date (for XIRR)"},
+        React.createElement("input",{className:"inp",type:"date",value:mfF.startDate||"",onChange:e=>setMfF(p=>({...p,startDate:e.target.value}))}),
+        React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginTop:5}},"Optional — used to calculate annualised XIRR return on the fund card.")
+      ),
       React.createElement(Field,{label:"Notes (optional)"},React.createElement("textarea",{className:"inp",placeholder:"Folio number, SIP date, goal, portfolio…",value:mfF.notes,onChange:e=>setMfF(p=>({...p,notes:e.target.value})),style:{resize:"vertical",minHeight:60,lineHeight:1.6,fontSize:12}})),
       React.createElement("div",{style:{display:"flex",flexWrap:"wrap",gap:8}},
-        React.createElement(Btn,{onClick:()=>{if(!mfF.units||!mfF.invested)return;dispatch({type:"ADD_MF",p:{id:uid(),...mfF,units:+mfF.units,invested:+mfF.invested,avgNav:+(mfF.avgNav||0),nav:0,currentValue:0,navDate:""}});setMfF({name:"",schemeCode:"",units:"",avgNav:"",invested:"",notes:""});setSrch("");setResults([]);setOpen(false);},sx:{flex:"1 1 auto",justifyContent:"center"}},"Add Mutual Fund"),
+        React.createElement(Btn,{onClick:()=>{if(!mfF.units||!mfF.invested)return;dispatch({type:"ADD_MF",p:{id:uid(),...mfF,units:+mfF.units,invested:+mfF.invested,avgNav:+(mfF.avgNav||0),startDate:mfF.startDate||"",nav:0,currentValue:0,navDate:""}});setMfF({name:"",schemeCode:"",units:"",avgNav:"",invested:"",startDate:"",notes:""});setSrch("");setResults([]);setOpen(false);},sx:{flex:"1 1 auto",justifyContent:"center"}},"Add Mutual Fund"),
         React.createElement(Btn,{v:"secondary",onClick:()=>setOpen(false)},"Cancel")
       )
     ),
@@ -13764,7 +14129,7 @@ const RptSummary=({data})=>{
   const bTotal=data.banks.reduce((s,b)=>s+b.balance,0);
   const cDebt=data.cards.reduce((s,c)=>s+c.outstanding,0);
   const lTotal=data.loans.reduce((s,l)=>s+l.outstanding,0);
-  const fdTotal=data.fd.reduce((s,f)=>s+f.amount,0);
+  const fdTotal=data.fd.reduce((s,f)=>s+calcFDValueToday(f),0);
   const shVal=data.shares.reduce((s,sh)=>s+sh.qty*sh.currentPrice,0);
   const mfVal=data.mf.reduce((s,m)=>s+(m.currentValue||m.invested),0);
   const totalAssets=bTotal+data.cash.balance+fdTotal+shVal+mfVal;
@@ -13775,7 +14140,7 @@ const RptSummary=({data})=>{
     {title:"💵 Cash",rows:[{name:"Cash Account",sub:"Physical cash",val:data.cash.balance,col:"var(--accent)",txns:data.cash.transactions.length}],total:data.cash.balance,colTotal:"var(--accent)"},
     {title:"💳 Credit Cards",rows:data.cards.map(c=>({name:c.name,sub:c.bank+" · Limit "+INR(c.limit),val:c.outstanding,col:"#c2410c",txns:c.transactions.length,neg:true})),total:cDebt,colTotal:"#c2410c"},
     {title:"🏠 Loans",rows:data.loans.map(l=>({name:l.name,sub:l.bank+" · "+l.rate+"% · EMI "+INR(l.emi),val:l.outstanding,col:"#ef4444",neg:true})),total:lTotal,colTotal:"#ef4444"},
-    {title:"📈 Investments",rows:[...data.mf.map(m=>({name:m.name,sub:"Mutual Fund",val:m.currentValue||m.invested,col:"#6d28d9"})),...data.shares.map(s=>({name:s.company,sub:s.ticker+" · "+s.qty+" shares",val:s.qty*s.currentPrice,col:"#16a34a"})),...data.fd.map(f=>({name:f.bank+" FD",sub:f.rate+"% · "+f.maturityDate,val:f.amount,col:"var(--accent)"}))],total:fdTotal+shVal+mfVal,colTotal:"#16a34a"}
+    {title:"📈 Investments",rows:[...data.mf.map(m=>({name:m.name,sub:"Mutual Fund",val:m.currentValue||m.invested,col:"#6d28d9"})),...data.shares.map(s=>({name:s.company,sub:s.ticker+" · "+s.qty+" shares",val:s.qty*s.currentPrice,col:"#16a34a"})),...data.fd.map(f=>({name:f.bank+" FD",sub:f.rate+"% · "+f.maturityDate,val:calcFDValueToday(f),col:"var(--accent)"}))],total:fdTotal+shVal+mfVal,colTotal:"#16a34a"}
   ];
   const allItems=sections.flatMap(sec=>sec.rows.map(r=>({...r,section:sec.title}))).sort((a,b)=>b.val-a.val);
   return React.createElement("div",{className:"fu"},
@@ -13826,9 +14191,10 @@ const RptInvestments=({data})=>{
   const mfVal=data.mf.reduce((s,m)=>s+(m.currentValue||m.invested),0);
   const shInv=data.shares.reduce((s,sh)=>s+sh.qty*sh.buyPrice,0);
   const shVal=data.shares.reduce((s,sh)=>s+sh.qty*sh.currentPrice,0);
-  const fdVal=data.fd.reduce((s,f)=>s+f.amount,0);
-  const fdMat=data.fd.reduce((s,f)=>s+f.maturityAmount,0);
-  const totalInv=mfInv+shInv+fdVal;
+  const fdPrinc=data.fd.reduce((s,f)=>s+f.amount,0);
+  const fdVal=data.fd.reduce((s,f)=>s+calcFDValueToday(f),0);
+  const fdMat=data.fd.reduce((s,f)=>{const m=f.maturityAmount&&f.maturityAmount>f.amount?f.maturityAmount:calcFDMaturity(f.amount,f.rate,f.startDate,f.maturityDate);return s+m;},0);
+  const totalInv=mfInv+shInv+fdPrinc;
   const totalCur=mfVal+shVal+fdVal;
   const totalPnL=totalCur-totalInv;
   const alloc=[{name:"Mutual Funds",val:mfVal,col:"#6d28d9"},{name:"Shares",val:shVal,col:"#16a34a"},{name:"Fixed Deposits",val:fdVal,col:"var(--accent)"}].filter(a=>a.val>0);
@@ -13842,7 +14208,8 @@ const RptInvestments=({data})=>{
       React.createElement(StatCard,{label:"Total Invested",val:INR(totalInv),col:"#0e7490",icon:"💰"}),
       React.createElement(StatCard,{label:"Current Value",val:INR(totalCur),col:"var(--accent)",icon:"📊"}),
       React.createElement(StatCard,{label:"Total P&L",val:INR(totalPnL),sub:totalInv>0?((totalPnL/totalInv)*100).toFixed(2)+"%":"",col:totalPnL>=0?"#16a34a":"#ef4444",icon:totalPnL>=0?"🟢":"🔴"}),
-      React.createElement(StatCard,{label:"FD Maturity Value",val:INR(fdMat),col:"#c2410c",icon:"🏦"})
+      React.createElement(StatCard,{label:"FD Value Today",val:INR(fdVal),sub:fdVal>fdPrinc?"+"+INR(fdVal-fdPrinc)+" accrued":"principal "+INR(fdPrinc),col:"#b45309",icon:"🏦"}),
+      React.createElement(StatCard,{label:"FD at Maturity",val:INR(fdMat),sub:"+"+INR(fdMat-fdPrinc)+" total interest",col:"#c2410c",icon:"🎯"})
     ),
     view==="snapshot"&&React.createElement("div",null,
       alloc.length>0&&React.createElement(Card,{sx:{marginBottom:14,display:"grid",gridTemplateColumns:"180px 1fr",gap:16,alignItems:"center"}},
@@ -14007,7 +14374,7 @@ const RptNetWorth=({data})=>{
   const cashBal=data.cash.balance;
   const shVal=data.shares.reduce((s,sh)=>s+sh.qty*sh.currentPrice,0);
   const mfVal=data.mf.reduce((s,m)=>s+(m.currentValue||m.invested),0);
-  const fdVal=data.fd.reduce((s,f)=>s+f.amount,0);
+  const fdVal=data.fd.reduce((s,f)=>s+calcFDValueToday(f),0);
   const cDebt=data.cards.reduce((s,c)=>s+c.outstanding,0);
   const lDebt=data.loans.reduce((s,l)=>s+l.outstanding,0);
   const curNW=bankBal+cashBal+shVal+mfVal+fdVal-cDebt-lDebt;
@@ -14190,7 +14557,7 @@ const ExportReportModal=({data,onClose})=>{
       const cashBal=data.cash.balance;
       const shVal=data.shares.reduce((s,sh)=>s+sh.qty*sh.currentPrice,0);
       const mfVal=data.mf.reduce((s,m)=>s+(m.currentValue||m.invested),0);
-      const fdVal=data.fd.reduce((s,f)=>s+f.amount,0);
+      const fdVal=data.fd.reduce((s,f)=>s+calcFDValueToday(f),0);
       const reVal=data.re.reduce((s,r)=>s+(r.currentValue||r.acquisitionCost),0);
       const cDebt=data.cards.reduce((s,c)=>s+c.outstanding,0);
       const lDebt=data.loans.reduce((s,l)=>s+l.outstanding,0);
@@ -14285,13 +14652,14 @@ const ExportReportModal=({data,onClose})=>{
 
       /* ── Sheet 6: Fixed Deposits ── */
       addSheet("Fixed Deposits",[
-        ["Bank / Institution","Principal (₹)","Rate (% p.a.)","Start Date","Maturity Date","Maturity Amount (₹)","Interest Earned (₹)","Days to Maturity"],
+        ["Bank / Institution","Principal (₹)","Rate (% p.a.)","Start Date","Maturity Date","Value Today (₹)","Maturity Amount (₹)","Interest Earned (₹)","Days to Maturity"],
         ...data.fd.map(f=>{
           const mat=f.maturityAmount&&f.maturityAmount>f.amount?f.maturityAmount:calcFDMaturity(f.amount,f.rate,f.startDate,f.maturityDate);
-          return[f.bank,fmt(f.amount),f.rate,f.startDate,f.maturityDate,fmt(mat),fmt(mat-f.amount),daysLeft(f.maturityDate)];
+          return[f.bank,fmt(f.amount),f.rate,f.startDate,f.maturityDate,fmt(calcFDValueToday(f)),fmt(mat),fmt(mat-f.amount),daysLeft(f.maturityDate)];
         }),
-        ["","","","","","","",""],
+        ["","","","","","","","",""],
         ["TOTALS","",data.fd.reduce((s,f)=>s+f.amount,0),"","",
+          data.fd.reduce((s,f)=>s+calcFDValueToday(f),0),
           data.fd.reduce((s,f)=>{const m=f.maturityAmount&&f.maturityAmount>f.amount?f.maturityAmount:calcFDMaturity(f.amount,f.rate,f.startDate,f.maturityDate);return s+m;},0),
           data.fd.reduce((s,f)=>{const m=f.maturityAmount&&f.maturityAmount>f.amount?f.maturityAmount:calcFDMaturity(f.amount,f.rate,f.startDate,f.maturityDate);return s+m-f.amount;},0),""],
       ]);
@@ -14354,7 +14722,7 @@ const ExportReportModal=({data,onClose})=>{
       const cashBal=data.cash.balance;
       const shVal=data.shares.reduce((s,sh)=>s+sh.qty*sh.currentPrice,0);
       const mfVal=data.mf.reduce((s,m)=>s+(m.currentValue||m.invested),0);
-      const fdVal=data.fd.reduce((s,f)=>s+f.amount,0);
+      const fdVal=data.fd.reduce((s,f)=>s+calcFDValueToday(f),0);
       const reVal=data.re.reduce((s,r)=>s+(r.currentValue||r.acquisitionCost),0);
       const cDebt=data.cards.reduce((s,c)=>s+c.outstanding,0);
       const lDebt=data.loans.reduce((s,l)=>s+l.outstanding,0);
@@ -15836,6 +16204,269 @@ const FSAStoragePanel=({state,dispatch})=>{
 };
 
 /* ══════════════════════════════════════════════════════════════════════════
+   CLOUD BACKUP PANEL — Google Drive backup via OAuth2 + Drive API v3
+   The user provides their own Google Cloud OAuth client_id (one-time setup).
+   Access tokens are stored in sessionStorage only (cleared on tab close).
+   Backups are uploaded as JSON files to a "Money Manager Backups" folder
+   on the user's own Google Drive. Up to 7 recent backups are kept.
+   ══════════════════════════════════════════════════════════════════════════ */
+const CloudBackupPanel=({state})=>{
+  const[clientId,setClientId]=useState(()=>localStorage.getItem("mm_gdrive_cid")||"");
+  const[editCid,setEditCid]=useState(!localStorage.getItem("mm_gdrive_cid"));
+  const[cidInput,setCidInput]=useState(()=>localStorage.getItem("mm_gdrive_cid")||"");
+  const[token,setToken]=useState(()=>sessionStorage.getItem("mm_gdrive_tok")||"");
+  const[busy,setBusy]=useState(false);
+  const[msg,setMsg]=useState({text:"",ok:true});
+  const[files,setFiles]=useState([]);
+  const[loadingFiles,setLoadingFiles]=useState(false);
+
+  const say=(text,ok=true,ms=5000)=>{setMsg({text,ok});if(ms>0)setTimeout(()=>setMsg({text:"",ok:true}),ms);};
+
+  /* ── Listen for token from OAuth popup ── */
+  React.useEffect(()=>{
+    const onMsg=e=>{
+      if(e.origin!==window.location.origin)return;
+      if(e.data&&e.data.type==="mm:gdrive-token"&&e.data.token){
+        const tok=e.data.token;
+        sessionStorage.setItem("mm_gdrive_tok",tok);
+        setToken(tok);
+        say("✓ Connected to Google Drive!");
+      }
+    };
+    window.addEventListener("message",onMsg);
+    return()=>window.removeEventListener("message",onMsg);
+  },[]);
+
+  /* ── OAuth connect ── */
+  const connect=()=>{
+    const cid=(clientId||"").trim();
+    if(!cid){say("Please save a Google Client ID first.",false);return;}
+    const scope="https://www.googleapis.com/auth/drive.file";
+    const redirect=window.location.origin+window.location.pathname;
+    const url="https://accounts.google.com/o/oauth2/v2/auth?"+new URLSearchParams({
+      client_id:cid,redirect_uri:redirect,response_type:"token",scope,prompt:"consent"
+    });
+    const popup=window.open(url,"gdrive_auth","width=520,height=640,left=200,top=100");
+    if(!popup){say("Popup blocked — please allow popups for this site.",false);return;}
+    /* Poll until popup closes (same-origin after OAuth redirect) */
+    const timer=setInterval(()=>{try{if(popup.closed)clearInterval(timer);}catch{}},600);
+  };
+
+  /* ── Disconnect ── */
+  const disconnect=()=>{
+    sessionStorage.removeItem("mm_gdrive_tok");
+    setToken("");setFiles([]);
+    say("Disconnected from Google Drive. Session token cleared.");
+  };
+
+  /* ── Helper: find or create "Money Manager Backups" folder ── */
+  const getFolderId=async(tok)=>{
+    const q=`name='Money Manager Backups' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    const r=await fetch("https://www.googleapis.com/drive/v3/files?q="+encodeURIComponent(q)+"&fields=files(id,name)",{
+      headers:{Authorization:"Bearer "+tok}
+    });
+    if(!r.ok)return null;
+    const d=await r.json();
+    if(d.files&&d.files.length>0)return d.files[0].id;
+    /* Create folder */
+    const cr=await fetch("https://www.googleapis.com/drive/v3/files",{
+      method:"POST",headers:{Authorization:"Bearer "+tok,"Content-Type":"application/json"},
+      body:JSON.stringify({name:"Money Manager Backups",mimeType:"application/vnd.google-apps.folder"})
+    });
+    if(!cr.ok)return null;
+    const cd=await cr.json();
+    return cd.id||null;
+  };
+
+  /* ── Upload backup ── */
+  const upload=async()=>{
+    if(!token){say("Not connected. Click Connect Google Drive first.",false);return;}
+    setBusy(true);say("Uploading backup…",true,0);
+    try{
+      const folderId=await getFolderId(token);
+      if(!folderId){say("Could not access Drive folder. Token may have expired — please reconnect.",false);setBusy(false);return;}
+      const payload={
+        version:8,exportedAt:new Date().toISOString(),cloudBackup:true,
+        summary:{bankAccounts:state.banks.length,bankTxns:state.banks.reduce((s,b)=>s+b.transactions.length,0),cardAccounts:state.cards.length,cardTxns:state.cards.reduce((s,c)=>s+c.transactions.length,0),cashTxns:state.cash.transactions.length,loans:state.loans.length,mf:state.mf.length,shares:state.shares.length,fd:state.fd.length,categories:state.categories.length,payees:state.payees.length,scheduled:(state.scheduled||[]).length,notes:(state.notes||[]).length,nwSnapshots:Object.keys(state.nwSnapshots||{}).length,hasTaxData:!!(state.taxData)},
+        data:{...state,notes:state.notes||[],scheduled:state.scheduled||[],nwSnapshots:state.nwSnapshots||{},eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{},taxData:state.taxData||null}
+      };
+      const filename="money-manager-backup-"+new Date().toISOString().split("T")[0]+".json";
+      const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+      const meta=JSON.stringify({name:filename,parents:[folderId]});
+      const form=new FormData();
+      form.append("metadata",new Blob([meta],{type:"application/json"}));
+      form.append("file",blob);
+      const r=await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,createdTime",{
+        method:"POST",headers:{Authorization:"Bearer "+token},body:form
+      });
+      if(r.status===401){sessionStorage.removeItem("mm_gdrive_tok");setToken("");say("Session expired — please reconnect.",false);setBusy(false);return;}
+      if(!r.ok){say("Upload failed: "+r.statusText,false);setBusy(false);return;}
+      say("✓ Backup uploaded to Google Drive → Money Manager Backups/"+filename);
+      listFiles();
+      /* Auto-prune: keep only 7 most recent */
+      pruneOld(token,folderId);
+    }catch(e){say("Error: "+e.message,false);}
+    setBusy(false);
+  };
+
+  /* ── List recent backups ── */
+  const listFiles=async()=>{
+    if(!token)return;
+    setLoadingFiles(true);
+    try{
+      const fid=await getFolderId(token);
+      if(!fid){setLoadingFiles(false);return;}
+      const q=`'${fid}' in parents and name contains 'money-manager-backup' and trashed=false`;
+      const r=await fetch("https://www.googleapis.com/drive/v3/files?q="+encodeURIComponent(q)+"&fields=files(id,name,createdTime,size)&orderBy=createdTime desc&pageSize=10",{
+        headers:{Authorization:"Bearer "+token}
+      });
+      if(!r.ok){setLoadingFiles(false);return;}
+      const d=await r.json();
+      setFiles(d.files||[]);
+    }catch{}
+    setLoadingFiles(false);
+  };
+
+  /* ── Prune: delete backups beyond the 7 most recent ── */
+  const pruneOld=async(tok,fid)=>{
+    try{
+      const q=`'${fid}' in parents and name contains 'money-manager-backup' and trashed=false`;
+      const r=await fetch("https://www.googleapis.com/drive/v3/files?q="+encodeURIComponent(q)+"&fields=files(id,name)&orderBy=createdTime desc&pageSize=20",{
+        headers:{Authorization:"Bearer "+tok}
+      });
+      const d=await r.json();
+      const old=(d.files||[]).slice(7);
+      await Promise.all(old.map(f=>fetch("https://www.googleapis.com/drive/v3/files/"+f.id,{method:"DELETE",headers:{Authorization:"Bearer "+tok}})));
+    }catch{}
+  };
+
+  React.useEffect(()=>{if(token)listFiles();},[token]);
+
+  const saveCid=()=>{
+    const v=cidInput.trim();
+    localStorage.setItem("mm_gdrive_cid",v);
+    setClientId(v);setEditCid(false);
+    say("Client ID saved. Click Connect Google Drive to authenticate.");
+  };
+
+  const fmtSize=b=>{
+    if(!b)return"";
+    const n=Number(b);
+    if(n>=1024*1024)return(n/1024/1024).toFixed(1)+" MB";
+    if(n>=1024)return(n/1024).toFixed(0)+" KB";
+    return n+" B";
+  };
+
+  return React.createElement("div",{className:"fu"},
+    /* Header */
+    React.createElement("div",{style:{marginBottom:20}},
+      React.createElement("h3",{style:{fontFamily:"'Sora',sans-serif",fontSize:18,fontWeight:700,color:"var(--text)"}},"Cloud Backup — Google Drive"),
+      React.createElement("p",{style:{color:"var(--text5)",fontSize:13,marginTop:4,lineHeight:1.6}},
+        "Upload a backup JSON to your own Google Drive. Your data never touches a third-party server — it goes directly from your browser to your Drive account using Google's official API.")
+    ),
+
+    /* ── Step 1: Client ID config ── */
+    React.createElement(Card,{sx:{marginBottom:14}},
+      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+        React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"var(--text4)",textTransform:"uppercase",letterSpacing:.7}},
+          clientId?"✓ Google Client ID configured":"Step 1 — Configure Google Client ID"),
+        clientId&&!editCid&&React.createElement("button",{
+          onClick:()=>{setCidInput(clientId);setEditCid(true);},
+          style:{fontSize:11,color:"var(--accent)",background:"none",border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}
+        },"Edit")
+      ),
+      !editCid&&clientId
+        ?React.createElement("div",{style:{fontSize:12,color:"var(--text5)",fontFamily:"'DM Sans',sans-serif",padding:"6px 10px",background:"var(--bg4)",borderRadius:7,border:"1px solid var(--border2)"}},
+          React.createElement("span",{style:{color:"var(--text3)",fontWeight:600}},"Client ID: "),clientId.substring(0,24)+"…")
+        :React.createElement("div",null,
+          React.createElement("p",{style:{fontSize:12,color:"var(--text5)",marginBottom:10,lineHeight:1.7}},
+            "Go to ",
+            React.createElement("a",{href:"https://console.cloud.google.com/",target:"_blank",rel:"noopener noreferrer",style:{color:"var(--accent)"}},"Google Cloud Console"),
+            " → Create/select a project → APIs & Services → Credentials → Create OAuth 2.0 Client ID (Web application). Add this page's URL as an Authorised JavaScript Origin. Paste the Client ID below."
+          ),
+          React.createElement("div",{style:{display:"flex",gap:8}},
+            React.createElement("input",{
+              className:"inp",type:"text",
+              placeholder:"123456789-abc...apps.googleusercontent.com",
+              value:cidInput,onChange:e=>setCidInput(e.target.value),
+              style:{flex:1,fontSize:12}
+            }),
+            React.createElement("button",{
+              onClick:saveCid,disabled:!cidInput.trim(),
+              style:{padding:"8px 16px",borderRadius:8,border:"none",background:"var(--accent)",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",opacity:cidInput.trim()?1:.5}
+            },"Save")
+          )
+        )
+    ),
+
+    /* ── Step 2: Connect & Backup ── */
+    React.createElement(Card,{sx:{marginBottom:14}},
+      React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"var(--text4)",textTransform:"uppercase",letterSpacing:.7,marginBottom:12}},
+        "Step 2 — Connect & Back Up"),
+      React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}},
+        React.createElement("div",{style:{display:"flex",alignItems:"center",gap:7}},
+          React.createElement("span",{style:{width:8,height:8,borderRadius:"50%",background:token?"#16a34a":"#ef4444",display:"inline-block"}}),
+          React.createElement("span",{style:{fontSize:13,fontWeight:600,color:token?"#16a34a":"var(--text5)"}},"Google Drive: "+(token?"Connected (session)":"Not connected"))
+        ),
+        token&&React.createElement("button",{onClick:disconnect,style:{marginLeft:"auto",fontSize:11,color:"var(--text5)",background:"none",border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}},"Disconnect")
+      ),
+      React.createElement("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},
+        !token&&React.createElement("button",{
+          onClick:connect,disabled:!clientId,
+          style:{padding:"10px 20px",borderRadius:9,border:"none",background:clientId?"var(--accent)":"var(--border)",color:clientId?"#fff":"var(--text6)",cursor:clientId?"pointer":"not-allowed",fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}},"🔗 Connect Google Drive"),
+        token&&React.createElement("button",{
+          onClick:upload,disabled:busy,
+          style:{padding:"10px 20px",borderRadius:9,border:"none",background:"#16a34a",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6}},
+          busy?React.createElement(React.Fragment,null,React.createElement("span",{className:"spinr"},"⟳")," Uploading…"):"☁ Upload Backup to Drive"),
+        token&&React.createElement("button",{
+          onClick:listFiles,disabled:loadingFiles,
+          style:{padding:"10px 16px",borderRadius:9,border:"1px solid var(--border)",background:"transparent",color:"var(--text4)",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif"}},
+          loadingFiles?"⟳ Loading…":"↻ Refresh List")
+      )
+    ),
+
+    /* ── Backup list ── */
+    token&&React.createElement(Card,{sx:{marginBottom:14}},
+      React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"var(--text4)",textTransform:"uppercase",letterSpacing:.7,marginBottom:10}},"Recent Drive Backups"),
+      files.length===0&&!loadingFiles
+        ?React.createElement("div",{style:{fontSize:12,color:"var(--text5)",fontStyle:"italic"}},"No backups found in Money Manager Backups folder on Drive yet.")
+        :React.createElement("div",null,
+          files.map(f=>React.createElement("div",{key:f.id,style:{
+            display:"flex",justifyContent:"space-between",alignItems:"center",
+            padding:"9px 12px",borderBottom:"1px solid var(--border2)"
+          }},
+            React.createElement("div",null,
+              React.createElement("div",{style:{fontSize:12,color:"var(--text2)",fontWeight:600}},f.name),
+              React.createElement("div",{style:{fontSize:11,color:"var(--text6)",marginTop:2}},
+                f.createdTime?new Date(f.createdTime).toLocaleString("en-IN",{dateStyle:"medium",timeStyle:"short"}):""
+              )
+            ),
+            React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8}},
+              f.size&&React.createElement("span",{style:{fontSize:10,color:"var(--text6)"}},"("+fmtSize(f.size)+")"),
+              React.createElement("span",{style:{fontSize:11,color:"#16a34a",padding:"2px 7px",borderRadius:6,background:"rgba(22,163,74,.09)",border:"1px solid rgba(22,163,74,.2)"}},
+                "✓ on Drive")
+            )
+          ))
+        )
+    ),
+
+    /* Privacy note */
+    React.createElement("div",{style:{fontSize:11,color:"var(--text6)",lineHeight:1.7,padding:"9px 12px",borderRadius:9,border:"1px solid var(--border2)",background:"var(--bg4)"}},
+      "🔒 ",React.createElement("strong",null,"Your data stays private."),
+      " Backups are uploaded directly from your browser to your Google Drive using your OAuth token. No proxy, no server, no third party. The app only requests the drive.file scope — it can only see files it created itself."
+    ),
+
+    /* Feedback */
+    msg.text&&React.createElement("div",{style:{
+      marginTop:12,padding:"10px 14px",borderRadius:9,fontSize:13,fontWeight:500,
+      background:msg.ok?"rgba(22,163,74,.1)":"rgba(239,68,68,.1)",
+      border:"1px solid "+(msg.ok?"rgba(22,163,74,.3)":"rgba(239,68,68,.3)"),
+      color:msg.ok?"#16a34a":"#ef4444"
+    }},msg.text)
+  );
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
    STORAGE GAUGE COMPONENT
    Visual localStorage usage monitor shown in Settings → Data & Backup.
    Shows a colour-coded progress bar, per-key breakdown, and pruning actions.
@@ -16169,6 +16800,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
     {id:"appearance",label:"Appearance",icon:"🎨"},
     {id:"security",  label:"Security",  icon:"🔐"},
     {id:"filestorage",label:"File Storage",icon:"📁"},
+    {id:"cloudbackup",label:"Cloud Backup",icon:"☁"},
     {id:"banks",label:"Bank Accounts",icon:"🏦"},
     {id:"cards",label:"Credit Cards",icon:"💳"},
     {id:"cash",label:"Cash Account",icon:"💵"},
@@ -16216,6 +16848,9 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
 
       /* ══ FILE STORAGE ══ */
       stab==="filestorage"&&React.createElement(FSAStoragePanel,{state,dispatch}),
+
+      /* ══ CLOUD BACKUP ══ */
+      stab==="cloudbackup"&&React.createElement(CloudBackupPanel,{state}),
 
       /* ══ APPEARANCE ══ */
       stab==="appearance"&&React.createElement("div",{className:"fu"},
@@ -19408,7 +20043,7 @@ const NetWorthInsightTab=({banks,cards,cash,mf,shares,fd,re,loans,categories,pre
   const cashBal=cash.balance;
   const mfVal=mf.reduce((s,m)=>s+(m.currentValue||m.invested),0);
   const sharesVal=shares.reduce((s,sh)=>s+sh.qty*sh.currentPrice,0);
-  const fdVal=fd.reduce((s,f)=>s+f.amount,0);
+  const fdVal=fd.reduce((s,f)=>s+calcFDValueToday(f),0);
   const reVal=(re||[]).reduce((s,r)=>s+(r.currentValue||r.acquisitionCost||0),0);
   const cDebt=cards.reduce((s,c)=>s+c.outstanding,0);
   const lDebt=loans.reduce((s,l)=>s+l.outstanding,0);
@@ -20731,7 +21366,7 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
     const cashBal=(cash.balance)||0;
     const mfVal=(mf||[]).reduce((s,m)=>s+(m.currentValue||m.invested||0),0);
     const sharesVal=(shares||[]).reduce((s,s2)=>s+(s2.qty||0)*(s2.currentPrice||s2.buyPrice||0),0);
-    const fdVal=(fd||[]).reduce((s,f)=>s+(f.amount||0),0);
+    const fdVal=(fd||[]).reduce((s,f)=>s+calcFDValueToday(f),0);
     const reVal=(re||[]).reduce((s,r)=>s+(r.currentValue||r.acquisitionCost||0),0);
     const cardDebt=(cards||[]).reduce((s,c)=>s+(c.outstanding||0),0);
     const loanDebt=(loans||[]).reduce((s,l)=>s+(l.outstanding||0),0);
@@ -20970,6 +21605,108 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
 
 
 /* ══════════════════════════════════════════════════════════════════════════
+   XIRR CALCULATOR — manual cashflow XIRR computation
+   User adds dated cashflows (negative = invest, positive = redemption/sale).
+   Computes true annualised XIRR using Newton-Raphson.
+   ══════════════════════════════════════════════════════════════════════════ */
+const XirrCalc=()=>{
+  const[rows,setRows]=useState([
+    {id:uid(),date:TODAY(),amount:"-100000",label:"Initial investment"},
+    {id:uid(),date:TODAY(),amount:"",label:"Final value / redemption"},
+  ]);
+  const[result,setResult]=useState(null);
+  const[err,setErr]=useState("");
+
+  const addRow=()=>setRows(r=>[...r,{id:uid(),date:TODAY(),amount:"",label:""}]);
+  const delRow=id=>setRows(r=>r.filter(x=>x.id!==id));
+  const upd=(id,field,val)=>setRows(r=>r.map(x=>x.id===id?{...x,[field]:val}:x));
+
+  const calculate=()=>{
+    setErr("");setResult(null);
+    const valid=rows.filter(r=>r.date&&r.amount.trim()!==""&&!isNaN(parseFloat(r.amount)));
+    if(valid.length<2){setErr("Need at least 2 cashflows with a date and amount.");return;}
+    const cfs=valid.map(r=>parseFloat(r.amount));
+    const dts=valid.map(r=>r.date);
+    const hasNeg=cfs.some(c=>c<0),hasPos=cfs.some(c=>c>0);
+    if(!hasNeg||!hasPos){setErr("Need at least one negative (investment) and one positive (return) cashflow.");return;}
+    /* Try multiple starting guesses to improve convergence */
+    const guesses=[0.1,0.5,-0.1,2.0,0.01];
+    let xirr=null;
+    for(const g of guesses){xirr=computeXIRR(cfs,dts,g);if(xirr!==null)break;}
+    if(xirr===null){setErr("Could not converge. Check that cashflows have opposite signs and dates are correct.");return;}
+    setResult(xirr);
+  };
+
+  const rowSty={display:"grid",gridTemplateColumns:"130px 140px 1fr 32px",gap:8,alignItems:"center",marginBottom:8};
+  const labelSty={fontSize:10,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.5};
+  return React.createElement("div",null,
+    React.createElement("div",{style:{marginBottom:14}},
+      React.createElement("h3",{style:{fontFamily:"'Sora',sans-serif",fontSize:16,fontWeight:700,color:"var(--text)",marginBottom:4}},"XIRR Calculator"),
+      React.createElement("p",{style:{fontSize:12,color:"var(--text5)",lineHeight:1.6}},"Enter each cashflow with its date. Use negative amounts for investments/purchases, positive for redemptions/sales/dividends. XIRR gives the true annualised return regardless of irregular intervals.")
+    ),
+    /* Column headers */
+    React.createElement("div",{style:{...rowSty,marginBottom:4}},
+      React.createElement("div",{style:labelSty},"Date"),
+      React.createElement("div",{style:labelSty},"Amount (₹)"),
+      React.createElement("div",{style:labelSty},"Label (optional)"),
+      React.createElement("div",null)
+    ),
+    /* Cashflow rows */
+    rows.map((row,i)=>React.createElement("div",{key:row.id,style:rowSty},
+      React.createElement("input",{className:"inp",type:"date",value:row.date,
+        onChange:e=>upd(row.id,"date",e.target.value),
+        style:{fontSize:12,padding:"7px 8px"}}),
+      React.createElement("input",{className:"inp",type:"number",value:row.amount,
+        placeholder:i===0?"-100000":"120000",
+        onChange:e=>upd(row.id,"amount",e.target.value),
+        style:{fontSize:12,padding:"7px 8px",color:parseFloat(row.amount)<0?"#ef4444":"#16a34a"}}),
+      React.createElement("input",{className:"inp",type:"text",value:row.label,
+        placeholder:"e.g. SIP, Dividend, Redemption",
+        onChange:e=>upd(row.id,"label",e.target.value),
+        style:{fontSize:11,padding:"7px 8px"}}),
+      React.createElement("button",{
+        onClick:()=>delRow(row.id),
+        disabled:rows.length<=2,
+        style:{width:32,height:32,borderRadius:6,border:"1px solid rgba(239,68,68,.3)",background:"rgba(239,68,68,.07)",color:"#ef4444",cursor:rows.length<=2?"not-allowed":"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans',sans-serif",opacity:rows.length<=2?.4:1}},"×")
+    )),
+    /* Add row + action buttons */
+    React.createElement("div",{style:{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}},
+      React.createElement("button",{
+        onClick:addRow,
+        style:{padding:"7px 14px",borderRadius:8,border:"1px dashed var(--accent)",background:"var(--accentbg2)",color:"var(--accent)",cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}},
+        "+ Add Cashflow"),
+      React.createElement("button",{
+        onClick:calculate,
+        style:{padding:"7px 18px",borderRadius:8,border:"none",background:"var(--accent)",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif",marginLeft:"auto"}},
+        "Calculate XIRR"),
+      React.createElement("button",{
+        onClick:()=>{setRows([{id:uid(),date:TODAY(),amount:"-100000",label:"Initial investment"},{id:uid(),date:TODAY(),amount:"",label:"Final value / redemption"}]);setResult(null);setErr("");},
+        style:{padding:"7px 14px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text5)",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif"}},
+        "Reset")
+    ),
+    /* Error */
+    err&&React.createElement("div",{style:{marginBottom:12,padding:"9px 14px",borderRadius:9,background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.25)",fontSize:12,color:"#ef4444"}},err),
+    /* Result */
+    result!==null&&React.createElement("div",{style:{
+      padding:"18px 22px",borderRadius:12,marginBottom:16,
+      background:result>=0?"rgba(22,163,74,.09)":"rgba(239,68,68,.09)",
+      border:"2px solid "+(result>=0?"rgba(22,163,74,.3)":"rgba(239,68,68,.3)"),
+      textAlign:"center"
+    }},
+      React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}},"XIRR (Annualised Return)"),
+      React.createElement("div",{style:{fontSize:40,fontFamily:"'Sora',sans-serif",fontWeight:800,color:result>=0?"#16a34a":"#ef4444"}},
+        (result>=0?"+":"")+result.toFixed(2)+"%"),
+      React.createElement("div",{style:{fontSize:12,color:"var(--text5)",marginTop:4}},"per annum, accounting for timing of all cashflows")
+    ),
+    /* Help note */
+    React.createElement("div",{style:{padding:"10px 14px",borderRadius:9,background:"var(--accentbg2)",border:"1px solid var(--border2)",fontSize:11,color:"var(--text5)",lineHeight:1.7}},
+      React.createElement("strong",{style:{color:"var(--text3)"}},"How to use: "),
+      "Enter each SIP instalment as a separate row with a negative amount on the investment date. Enter the current portfolio value as a positive amount on today's date. XIRR gives the true annualised return factoring in every date and amount."
+    )
+  );
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
    INSIGHTS CALCULATORS — SWP · Child Education · Retirement
    ══════════════════════════════════════════════════════════════════════════ */
 const InsightCalculators=({isMobile})=>{
@@ -21005,6 +21742,7 @@ const InsightCalculators=({isMobile})=>{
     {id:"swp",   label:"📤 SWP Calculator"},
     {id:"edu",   label:"🎓 Child Education"},
     {id:"retire",label:"🏖 Retirement"},
+    {id:"xirr",  label:"📊 XIRR Calculator"},
   ];
   const tabSty=id=>({padding:"8px 16px",borderRadius:8,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:calc===id?700:400,border:"none",background:calc===id?"var(--accentbg)":"transparent",color:calc===id?"var(--accent)":"var(--text5)",transition:"all .15s",whiteSpace:"nowrap"});
 
@@ -21459,7 +22197,8 @@ const InsightCalculators=({isMobile})=>{
     ),
     calc==="swp"&&SwpCalc,
     calc==="edu"&&EduCalc,
-    calc==="retire"&&RetCalc
+    calc==="retire"&&RetCalc,
+    calc==="xirr"&&React.createElement(XirrCalc,null)
   );
 };
 
@@ -23320,20 +24059,26 @@ function App(){
     setTab(accType==="bank"?"banks":accType==="card"?"cards":"cash");
   },[]);
   const onClearTxJump=React.useCallback(()=>setTxJump(null),[]);
-  /* ── Undo: stores one state snapshot for 6 seconds after any destructive dispatch ── */
+  /* ── Undo: stores one state snapshot for 6 seconds after any destructive dispatch ──
+     FIX v3.32.2: undoSnapRef mirrors state so doUndo always reads the live value even
+     when the useCallback closure was captured before the latest setUndoSnap settled.  */
   const[undoSnap,setUndoSnap]=useState(null);
+  const undoSnapRef=React.useRef(null);
   const undoTimerRef=React.useRef(null);
   const pushUndo=React.useCallback((snap)=>{
+    undoSnapRef.current=snap;
     setUndoSnap(snap);
     if(undoTimerRef.current)clearTimeout(undoTimerRef.current);
-    undoTimerRef.current=setTimeout(()=>setUndoSnap(null),6000);
+    undoTimerRef.current=setTimeout(()=>{undoSnapRef.current=null;setUndoSnap(null);},6000);
   },[]);
   const doUndo=React.useCallback(()=>{
-    if(!undoSnap)return;
-    dispatch({type:"UNDO_STATE",snapshot:undoSnap});
+    const snap=undoSnapRef.current;
+    if(!snap)return;
+    dispatch({type:"UNDO_STATE",snapshot:snap});
+    undoSnapRef.current=null;
     setUndoSnap(null);
     if(undoTimerRef.current)clearTimeout(undoTimerRef.current);
-  },[undoSnap,dispatch]);
+  },[dispatch]);
   /* Wire the ref so the wrapped dispatch can call pushUndo */
   _undoPushRef.current=pushUndo;
   /* ── Global search ── */
@@ -24202,7 +24947,7 @@ function App(){
       boxShadow:"0 8px 32px rgba(0,0,0,.45)",minWidth:240,maxWidth:400,
       fontFamily:"'DM Sans',sans-serif"
     }},
-      React.createElement("span",{style:{fontSize:13,color:"rgba(255,255,255,.85)",flex:1}},"Action undone in 6 s"),
+      React.createElement("span",{style:{fontSize:13,color:"rgba(255,255,255,.85)",flex:1}},"Last action deleted • undo within 6 s"),
       React.createElement("button",{onClick:doUndo,style:{
         padding:"6px 16px",borderRadius:8,border:"1px solid rgba(2,132,199,.6)",
         background:"rgba(2,132,199,.2)",color:"#38bdf8",cursor:"pointer",

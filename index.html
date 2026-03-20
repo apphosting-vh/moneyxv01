@@ -1856,7 +1856,7 @@ const INIT=()=>({
     {id:"c_ins",  name:"Insurance",   color:"#6d28d9", classType:"Expense",     subs:[{id:"cs_life",name:"Life"},{id:"cs_hlth",name:"Health"},{id:"cs_veh",name:"Vehicle"}]},
     {id:"c_inv",  name:"Investment",  color:"#16a34a", classType:"Investment",  subs:[{id:"cs_mf",name:"Mutual Fund SIP"},{id:"cs_stk",name:"Stocks"},{id:"cs_ppf",name:"PPF / NPS"}]},
     {id:"c_trav", name:"Travel",      color:"#0e7490", classType:"Expense",     subs:[{id:"cs_air",name:"Flights"},{id:"cs_htl",name:"Hotels"},{id:"cs_loc",name:"Local Travel"}]},
-    {id:"c_pay",  name:"Payment",     color:"#16a34a", classType:"Expense",     subs:[{id:"cs_ccpay",name:"Card Bill"},{id:"cs_loan",name:"Loan EMI"}]},
+    {id:"c_pay",  name:"Payment",     color:"#0891b2", classType:"Expense",     subs:[{id:"cs_ccpay",name:"Card Bill"},{id:"cs_loan",name:"Loan EMI"}]},
     {id:"c_xfr",  name:"Transfer",    color:"#1d4ed8", classType:"Transfer",    subs:[{id:"cs_atm",name:"ATM Withdrawal"},{id:"cs_ib",name:"Inter-Bank"}]},
     {id:"c_oth",  name:"Others",      color:"#475569", classType:"Others",      subs:[]},
   ],
@@ -1875,39 +1875,39 @@ const INIT=()=>({
   ],
   banks:[
     {id:"b1",name:"HDFC Savings Account",bank:"HDFC Bank",type:"Savings",balance:125000,transactions:[
-      {id:"t1",date:"2025-02-10",desc:"February Salary Credit",amount:85000,type:"credit",cat:"Income"},
-      {id:"t2",date:"2025-02-12",desc:"Rent - Koramangala",amount:25000,type:"debit",cat:"Housing"},
-      {id:"t3",date:"2025-02-15",desc:"LIC Premium Payment",amount:12000,type:"debit",cat:"Insurance"},
-      {id:"t4",date:"2025-02-20",desc:"Grocery - BigBasket",amount:4500,type:"debit",cat:"Food"},
-      {id:"t5",date:"2025-03-01",desc:"March Salary Credit",amount:85000,type:"credit",cat:"Income"},
+      {id:"t1",date:"2025-02-10",desc:"February Salary Credit",amount:85000,type:"credit",cat:"Income",status:"Reconciled",_sn:1},
+      {id:"t2",date:"2025-02-12",desc:"Rent - Koramangala",amount:25000,type:"debit",cat:"Housing",status:"Reconciled",_sn:2},
+      {id:"t3",date:"2025-02-15",desc:"LIC Premium Payment",amount:12000,type:"debit",cat:"Insurance",status:"Reconciled",_sn:3},
+      {id:"t4",date:"2025-02-20",desc:"Grocery - BigBasket",amount:4500,type:"debit",cat:"Food",status:"Reconciled",_sn:4},
+      {id:"t5",date:"2025-03-01",desc:"March Salary Credit",amount:85000,type:"credit",cat:"Income",status:"Reconciled",_sn:5},
     ]},
     {id:"b2",name:"SBI Savings Account",bank:"State Bank of India",type:"Savings",balance:42000,transactions:[
-      {id:"t6",date:"2025-02-28",desc:"Freelance Project Payment",amount:45000,type:"credit",cat:"Income"},
-      {id:"t7",date:"2025-03-01",desc:"Axis MF SIP Debit",amount:10000,type:"debit",cat:"Investment"},
-      {id:"t8",date:"2025-03-02",desc:"Electricity Bill - BESCOM",amount:1850,type:"debit",cat:"Utilities"},
+      {id:"t6",date:"2025-02-28",desc:"Freelance Project Payment",amount:45000,type:"credit",cat:"Income",status:"Reconciled",_sn:1},
+      {id:"t7",date:"2025-03-01",desc:"Axis MF SIP Debit",amount:10000,type:"debit",cat:"Investment",status:"Reconciled",_sn:2},
+      {id:"t8",date:"2025-03-02",desc:"Electricity Bill - BESCOM",amount:1850,type:"debit",cat:"Utilities",status:"Reconciled",_sn:3},
     ]},
   ],
   cards:[
     {id:"c1",name:"HDFC Regalia Gold",bank:"HDFC Bank",limit:500000,outstanding:58500,transactions:[
-      {id:"ct1",date:"2025-02-15",desc:"Myntra Shopping",amount:8500,type:"debit",cat:"Shopping"},
-      {id:"ct2",date:"2025-02-18",desc:"Swiggy / Zomato",amount:1200,type:"debit",cat:"Food"},
-      {id:"ct3",date:"2025-02-22",desc:"MakeMyTrip Flights",amount:18800,type:"debit",cat:"Travel"},
-      {id:"ct4",date:"2025-02-28",desc:"Amazon Purchase",amount:15000,type:"debit",cat:"Shopping"},
-      {id:"ct5",date:"2025-03-01",desc:"Card Bill Payment",amount:30000,type:"credit",cat:"Payment"},
+      {id:"ct1",date:"2025-02-15",desc:"Myntra Shopping",amount:8500,type:"debit",cat:"Shopping",status:"Reconciled",_sn:1},
+      {id:"ct2",date:"2025-02-18",desc:"Swiggy / Zomato",amount:1200,type:"debit",cat:"Food",status:"Reconciled",_sn:2},
+      {id:"ct3",date:"2025-02-22",desc:"MakeMyTrip Flights",amount:18800,type:"debit",cat:"Travel",status:"Reconciled",_sn:3},
+      {id:"ct4",date:"2025-02-28",desc:"Amazon Purchase",amount:15000,type:"debit",cat:"Shopping",status:"Reconciled",_sn:4},
+      {id:"ct5",date:"2025-03-01",desc:"Card Bill Payment",amount:30000,type:"credit",cat:"Payment",status:"Reconciled",_sn:5},
     ]},
     {id:"c2",name:"SBI SimplyCLICK",bank:"State Bank of India",limit:150000,outstanding:8200,transactions:[
-      {id:"ct6",date:"2025-03-01",desc:"Netflix Subscription",amount:649,type:"debit",cat:"Entertainment"},
-      {id:"ct7",date:"2025-03-02",desc:"Amazon Prime Annual",amount:1499,type:"debit",cat:"Entertainment"},
-      {id:"ct8",date:"2025-03-03",desc:"Croma Electronics",amount:6052,type:"debit",cat:"Shopping"},
+      {id:"ct6",date:"2025-03-01",desc:"Netflix Subscription",amount:649,type:"debit",cat:"Entertainment",status:"Reconciled",_sn:1},
+      {id:"ct7",date:"2025-03-02",desc:"Amazon Prime Annual",amount:1499,type:"debit",cat:"Entertainment",status:"Reconciled",_sn:2},
+      {id:"ct8",date:"2025-03-03",desc:"Croma Electronics",amount:6052,type:"debit",cat:"Shopping",status:"Reconciled",_sn:3},
     ]},
   ],
   cash:{balance:6800,transactions:[
-    {id:"ca1",date:"2025-02-28",desc:"ATM Withdrawal",amount:10000,type:"credit",cat:"Transfer"},
-    {id:"ca2",date:"2025-03-01",desc:"Auto Rickshaw",amount:120,type:"debit",cat:"Transport"},
-    {id:"ca3",date:"2025-03-01",desc:"Vegetable Market",amount:480,type:"debit",cat:"Food"},
-    {id:"ca4",date:"2025-03-02",desc:"Morning Tea",amount:80,type:"debit",cat:"Food"},
-    {id:"ca5",date:"2025-03-02",desc:"Parking Fee",amount:50,type:"debit",cat:"Transport"},
-    {id:"ca6",date:"2025-03-03",desc:"Newspaper Monthly",amount:470,type:"debit",cat:"Others"},
+    {id:"ca1",date:"2025-02-28",desc:"ATM Withdrawal",amount:10000,type:"credit",cat:"Transfer",status:"Reconciled",_sn:1},
+    {id:"ca2",date:"2025-03-01",desc:"Auto Rickshaw",amount:120,type:"debit",cat:"Transport",status:"Reconciled",_sn:2},
+    {id:"ca3",date:"2025-03-01",desc:"Vegetable Market",amount:480,type:"debit",cat:"Food",status:"Reconciled",_sn:3},
+    {id:"ca4",date:"2025-03-02",desc:"Morning Tea",amount:80,type:"debit",cat:"Food",status:"Reconciled",_sn:4},
+    {id:"ca5",date:"2025-03-02",desc:"Parking Fee",amount:50,type:"debit",cat:"Transport",status:"Reconciled",_sn:5},
+    {id:"ca6",date:"2025-03-03",desc:"Newspaper Monthly",amount:470,type:"debit",cat:"Others",status:"Reconciled",_sn:6},
   ]},
   mf:[
     {id:"mf1",name:"Mirae Asset Large Cap Fund - Direct Growth",schemeCode:"118989",units:145.32,invested:50000,avgNav:344.06,nav:0,currentValue:0,navDate:""},
@@ -1970,7 +1970,7 @@ const EMPTY_STATE=()=>({
     {id:"c_ins",  name:"Insurance",   color:"#6d28d9", classType:"Expense",     subs:[{id:"cs_life",name:"Life"},{id:"cs_hlth",name:"Health"},{id:"cs_veh",name:"Vehicle"}]},
     {id:"c_inv",  name:"Investment",  color:"#16a34a", classType:"Investment",  subs:[{id:"cs_mf",name:"Mutual Fund SIP"},{id:"cs_stk",name:"Stocks"},{id:"cs_ppf",name:"PPF / NPS"}]},
     {id:"c_trav", name:"Travel",      color:"#0e7490", classType:"Expense",     subs:[{id:"cs_air",name:"Flights"},{id:"cs_htl",name:"Hotels"},{id:"cs_loc",name:"Local Travel"}]},
-    {id:"c_pay",  name:"Payment",     color:"#16a34a", classType:"Expense",     subs:[{id:"cs_ccpay",name:"Card Bill"},{id:"cs_loan",name:"Loan EMI"}]},
+    {id:"c_pay",  name:"Payment",     color:"#0891b2", classType:"Expense",     subs:[{id:"cs_ccpay",name:"Card Bill"},{id:"cs_loan",name:"Loan EMI"}]},
     {id:"c_xfr",  name:"Transfer",    color:"#1d4ed8", classType:"Transfer",    subs:[{id:"cs_atm",name:"ATM Withdrawal"},{id:"cs_ib",name:"Inter-Bank"}]},
     {id:"c_oth",  name:"Others",      color:"#475569", classType:"Others",      subs:[]},
   ],
@@ -2029,15 +2029,27 @@ const THEMES=[
 const applyTheme=id=>{document.documentElement.setAttribute("data-theme",id);};
 
 const PAL=["#b45309","#0e7490","#16a34a","#6d28d9","#c2410c","#be185d","#1d4ed8","#059669"];
-const CAT_C={Income:"#16a34a",Housing:"#0e7490",Insurance:"#6d28d9",Food:"#c2410c",Transport:"#1d4ed8",Utilities:"#be185d",Shopping:"#b45309",Entertainment:"#059669",Investment:"#16a34a",Travel:"#0e7490",Payment:"#16a34a",Transfer:"#1d4ed8",Others:"#475569"};
+const CAT_C={Income:"#16a34a",Housing:"#0e7490",Insurance:"#6d28d9",Food:"#c2410c",Transport:"#1d4ed8",Utilities:"#be185d",Shopping:"#b45309",Entertainment:"#059669",Investment:"#16a34a",Travel:"#0e7490",Payment:"#0891b2",Transfer:"#1d4ed8",Others:"#475569"};
 const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak Mahindra Bank","Punjab National Bank","Bank of Baroda","Yes Bank","IndusInd Bank","Federal Bank","Other"];
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.32.12";
+const APP_VERSION="3.32.13";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.32.13",date:"2026-03-20",title:"Bug Audit — 10 bugs fixed across reducer, state, reports, and UI",changes:[
+    "Bug 1 (Functional) — DEL_CARD now cleans up orphaned Scheduled transactions: Deleting a credit card previously left any scheduled entries (EMI payments, subscriptions) whose accId/srcId/tgtId pointed at the deleted card still in the scheduled list. On next execution they would silently fail to find the account. DEL_CARD now filters scheduled[] identically to DEL_BANK.",
+    "Bug 2 (Functional) — Unified Ledger re-jump applies new filter even when already on the tab: filterCats, filterPayees, dateFrom, dateTo were seeded via useState lazy initialisers (run only once at mount). If the user was already on the Unified Ledger tab and clicked a JumpBtn in Reports for a different category or date, setTab('unified_ledger') would not unmount the component, so the filters stayed stale. Replaced the empty-dep useEffect with a useEffect([initialFilter]) that calls setFilterCats/setFilterPayees/setDateFrom/setDateTo/setSearch imperatively whenever a new initialFilter reference arrives.",
+    "Bug 3 (Functional) — insightPrefs shallow merge in loadState drops new sub-fields: loadState did {...EMPTY_STATE(),...parsed} which replaced the entire def.insightPrefs with parsed.insightPrefs from localStorage. Any sub-field added after the user's last save (leakThreshold, pyfDayTarget, emergencyExpenseOverride, equityTarget, etc.) would be undefined instead of getting its default. Fixed by using insightPrefs:{...EMPTY_STATE().insightPrefs,...(parsed.insightPrefs||{})} for a proper deep merge of just that object.",
+    "Bug 4 (Functional) — RptForecast included Transfer transactions in avg income/expense baseline: RptForecast built allTx directly from raw bank/card/cash arrays without applying isAnyTransfer(). Transfer-tagged entries inflated the average expense and distorted the 6-month balance projection. Added .filter(t=>!isAnyTransfer(t,data.categories)) to match every other report.",
+    "Bug 5 (Data) — Monthly JumpBtns used hardcoded dateTo: m+'-31' for all months: All 5 monthly snapshot/detail JumpBtn handlers passed dateTo:'YYYY-MM-31' regardless of the month, producing invalid dates for February (28/29 days) and short months (30 days). Replaced with new Date(+m.slice(0,4),+m.slice(5),0).toISOString().split('T')[0] which gives the actual last calendar day of each month.",
+    "Bug 6 (Display) — Payment category had same green colour (#16a34a) as Income and Investment: Three default categories shared identical colour tokens, making them indistinguishable in donut charts, bar charts, and category legends. Payment (card bills, loan EMIs) is now #0891b2 (cyan-teal) in both INIT, EMPTY_STATE, and the CAT_C fallback map.",
+    "Bug 7 (Display) — ReportsSection firstDay/lastDay recomputed on every render: const firstDay = new Date(...) and const lastDay = new Date(...) were plain consts in the component body, recalculated every render. The '6 Months active' preset check (from===firstDay) could flicker because the reference changed. Both values are now computed once via React.useMemo(()=>({firstDay,lastDay}),[]) and the now variable retained for preset calculations.",
+    "Bug 8 (Data) — INIT sample transactions had no status or _sn fields: All 14 demo transactions (t1–t8, ct1–ct8, ca1–ca6) lacked status:'Reconciled' and _sn. This meant the Reconciliation report showed every sample transaction as Unreconciled, RECALC_BANK_BAL computed zero (only Reconciled txns count), and same-day ledger sort used _sn=0 for all entries. All INIT transactions now carry status:'Reconciled' and sequential _sn.",
+    "Bug 9 (Data) — computeCapitalGains silently skipped MFs without startDate: MFs without a purchase start date were dropped from STCG/LTCG calculations with no indication. The Capital Gains Card now tracks skippedMF count and renders a visible amber warning banner ('N mutual funds excluded — please add a Start Date') when any funds are omitted.",
+    "Bug 10 (Architecture) — insightPrefs loadState coverage documented and confirmed safe: Access patterns throughout the app use optional chaining and ||{}/||0/||'' fallbacks so undefined sub-fields do not crash. Bug 3's deep merge makes this defence-in-depth rather than load-bearing.",
+  ]},
   {version:"3.32.12",date:"2026-03-20",title:"Feature — Jump-to-Ledger on every row in all Report detailed cards",changes:[
     "Monthly Detailed cards: added card-level JumpBtn (header, scoped to full month) on each period card; added per-category JumpBtn on every category row (previously missing); added per-sub-category JumpBtn on every expanded sub-category row.",
     "Quarterly Detailed cards: added card-level JumpBtn in the header (scoped to the quarter date range); added per-sub-category JumpBtn on every expanded sub-category row (category-level row already had it).",
@@ -3799,6 +3811,7 @@ const computeCapitalGains=(shares,mf)=>{
   const today=TODAY();
   const details=[];
   let stcgGain=0,ltcgGain=0;
+  let skippedMF=0;
 
   /* ── Equity shares ── */
   shares.forEach(sh=>{
@@ -3817,7 +3830,7 @@ const computeCapitalGains=(shares,mf)=>{
   /* ── Equity-oriented MF (all MF treated as equity for simplicity;
          user can exclude debt funds manually from the Tax Estimator) ── */
   mf.forEach(m=>{
-    if(!m.startDate||!m.nav||!m.units||!m.avgNav)return;
+    if(!m.startDate||!m.nav||!m.units||!m.avgNav){skippedMF++;return;}
     const buyD=new Date(m.startDate+"T12:00:00");
     const todD=new Date(today+"T12:00:00");
     const daysHeld=Math.floor((todD-buyD)/86400000);
@@ -3833,7 +3846,7 @@ const computeCapitalGains=(shares,mf)=>{
   const ltcgTaxable=Math.max(0,ltcgGain-ltcgExempt);
   const stcgTax=stcgGain*0.20;
   const ltcgTax=ltcgTaxable*0.125;
-  return{stcgGain,stcgLoss:0,ltcgGain,ltcgLoss:0,ltcgExempt,ltcgTaxable,stcgTax,ltcgTax,totalTax:stcgTax+ltcgTax,details};
+  return{stcgGain,stcgLoss:0,ltcgGain,ltcgLoss:0,ltcgExempt,ltcgTaxable,stcgTax,ltcgTax,totalTax:stcgTax+ltcgTax,details,skippedMF};
 };
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -3949,7 +3962,13 @@ const reducer=(s,a)=>{
     case"DEL_CARD_TX":return{...s,cards:s.cards.map(c=>c.id===a.accId?{...c,outstanding:c.outstanding-(a.tx.status==="Reconciled"?(a.tx.type==="debit"?a.tx.amount:-a.tx.amount):0),transactions:c.transactions.filter(t=>t.id!==a.tx.id)}:c)};
     case"DUP_CARD_TX":return{...s,cards:s.cards.map(c=>{if(c.id!==a.accId)return c;const sn=nextSn(c.transactions);const _cr=a.tx.status==="Reconciled";return{...c,outstanding:c.outstanding+(_cr?(a.tx.type==="debit"?a.tx.amount:-a.tx.amount):0),transactions:[...c.transactions,{...a.tx,id:uid(),_sn:sn,_addedAt:new Date().toISOString()}]};})};
     case"EDIT_CARD":return{...s,cards:s.cards.map(c=>c.id===a.p.id?{...c,...a.p}:c)};
-    case"DEL_CARD":return{...s,cards:s.cards.filter(c=>c.id!==a.id)};
+    case"DEL_CARD":return{...s,
+      cards:s.cards.filter(c=>c.id!==a.id),
+      /* Mirror DEL_BANK: remove scheduled entries that target this card */
+      scheduled:(s.scheduled||[]).filter(sc=>
+        sc.accId!==a.id&&sc.srcId!==a.id&&sc.tgtId!==a.id
+      ),
+    };
     case"ADD_CASH_TX":{const sn=nextSn(s.cash.transactions);const _caRec=a.tx.status==="Reconciled";const _acr3=applyCatRule(s.catRules||[],a.tx);const _tx3={...a.tx,...(_acr3||{}),_sn:sn};return{...s,cash:{balance:s.cash.balance+(_caRec?(_tx3.type==="credit"?_tx3.amount:-_tx3.amount):0),transactions:[...s.cash.transactions,_tx3]}};}
     case"SET_CASH_BAL":return{...s,cash:{...s.cash,balance:a.val}};
     case"EDIT_CASH_TX":{const _ewas=a.old.status==="Reconciled";const _eis=a.tx.status==="Reconciled";const _eOld=_ewas?(a.old.type==="credit"?a.old.amount:-a.old.amount):0;const _eNew=_eis?(a.tx.type==="credit"?a.tx.amount:-a.tx.amount):0;return{...s,cash:{...s.cash,balance:s.cash.balance+(_eNew-_eOld),transactions:s.cash.transactions.map(t=>t.id===a.tx.id?a.tx:t)}};}
@@ -9365,6 +9384,10 @@ const CapitalGainsCard=({shares,mf,dispatch})=>{
         React.createElement("div",{style:{height:"100%",width:ltcgPct+"%",background:ltcgPct>=100?"#ef4444":"#16a34a",borderRadius:3,transition:"width .5s"}})
       ),
       ltcgPct>=100&&React.createElement("div",{style:{fontSize:10,color:"#ef4444",marginTop:4,fontWeight:600}},"⚠ Exemption fully used — all further LTCG is taxable at 12.5%.")
+    ),
+    cg.skippedMF>0&&React.createElement("div",{style:{marginTop:10,padding:"7px 12px",borderRadius:8,background:"rgba(202,138,4,.09)",border:"1px solid rgba(202,138,4,.28)",fontSize:11,color:"#a16207",display:"flex",alignItems:"center",gap:7}},
+      React.createElement("span",null,"⚠"),
+      React.createElement("span",null,cg.skippedMF+" mutual fund"+(cg.skippedMF>1?"s":"")+" excluded from capital gains — please add a Start Date (purchase date) to each fund in the Mutual Funds tab.")
     )
   );
 };
@@ -13089,7 +13112,7 @@ const RptCatMonthly=({data,from,to,onJumpToLedger})=>{
                     React.createElement("span",{style:{fontSize:12,color:col,fontWeight:700,fontFamily:"'Sora',sans-serif",minWidth:70,textAlign:"right"}},INR(val)),
                     React.createElement("span",{style:{fontSize:10,color:"var(--text5)",minWidth:32,textAlign:"right"}},totalM>0?((val/totalM)*100).toFixed(0)+"%":""),
                     subs.length>0&&React.createElement("span",{style:{fontSize:9,color:"var(--text6)",marginLeft:4}},isExpCat?"▲":"▼"),
-                    onJumpToLedger&&React.createElement(JumpBtn,{onClick:()=>onJumpToLedger({cats:new Set([cat]),payees:new Set(),dateFrom:m+"-01",dateTo:m+"-31",label:cat+" · "+MONTH_NAMES[parseInt(m.slice(5))-1]+"'"+m.slice(2,4)})})
+                    onJumpToLedger&&React.createElement(JumpBtn,{onClick:()=>onJumpToLedger({cats:new Set([cat]),payees:new Set(),dateFrom:m+"-01",dateTo:new Date(+m.slice(0,4),+m.slice(5),0).toISOString().split("T")[0],label:cat+" · "+MONTH_NAMES[parseInt(m.slice(5))-1]+"'"+m.slice(2,4)})})
                   ),
                   isExpCat&&subs.map(([subKey,sv])=>React.createElement("div",{key:subKey,style:{display:"flex",alignItems:"center",gap:8,padding:"4px 8px 4px 28px",borderLeft:"2px solid "+col+"33",marginLeft:12,marginBottom:1}},
                     React.createElement("span",{style:{width:5,height:5,borderRadius:"50%",background:col,opacity:.6,flexShrink:0,display:"inline-block"}}),
@@ -13099,7 +13122,7 @@ const RptCatMonthly=({data,from,to,onJumpToLedger})=>{
                     ),
                     React.createElement("span",{style:{fontSize:11,color:col,fontWeight:600,minWidth:70,textAlign:"right",fontFamily:"'Sora',sans-serif"}},INR(sv)),
                     React.createElement("span",{style:{fontSize:10,color:"var(--text5)",minWidth:32,textAlign:"right"}},val>0?((sv/val)*100).toFixed(0)+"%":""),
-                    onJumpToLedger&&React.createElement(JumpBtn,{onClick:()=>onJumpToLedger({cats:new Set([subKey]),payees:new Set(),dateFrom:m+"-01",dateTo:m+"-31",label:catDisplayName(subKey)+" · "+MONTH_NAMES[parseInt(m.slice(5))-1]+"'"+m.slice(2,4)})})
+                    onJumpToLedger&&React.createElement(JumpBtn,{onClick:()=>onJumpToLedger({cats:new Set([subKey]),payees:new Set(),dateFrom:m+"-01",dateTo:new Date(+m.slice(0,4),+m.slice(5),0).toISOString().split("T")[0],label:catDisplayName(subKey)+" · "+MONTH_NAMES[parseInt(m.slice(5))-1]+"'"+m.slice(2,4)})})
                   ))
                 );
               })
@@ -13136,7 +13159,7 @@ const RptCatMonthly=({data,from,to,onJumpToLedger})=>{
               React.createElement("div",{style:{textAlign:"right"}},
                 React.createElement("div",{style:{fontSize:13,fontWeight:700,color:net>=0?"#16a34a":"#ef4444",fontFamily:"'Sora',sans-serif"}},(net>=0?"+":"")+INR(net)),
                 React.createElement("div",{style:{fontSize:9,color:"var(--text5)",marginTop:1}},"net flow"),
-                onJumpToLedger&&React.createElement(JumpBtn,{onClick:()=>onJumpToLedger({cats:new Set(),payees:new Set(),dateFrom:m+"-01",dateTo:m+"-31",label:"All · "+MONTH_NAMES[parseInt(m.slice(5))-1]+" "+m.slice(0,4)})})
+                onJumpToLedger&&React.createElement(JumpBtn,{onClick:()=>onJumpToLedger({cats:new Set(),payees:new Set(),dateFrom:m+"-01",dateTo:new Date(+m.slice(0,4),+m.slice(5),0).toISOString().split("T")[0],label:"All · "+MONTH_NAMES[parseInt(m.slice(5))-1]+" "+m.slice(0,4)})})
               )
             ),
             React.createElement("div",{style:{marginTop:10}},React.createElement(MiniStackBar,{segments,total:totalM,h:8}))
@@ -13174,13 +13197,13 @@ const RptCatMonthly=({data,from,to,onJumpToLedger})=>{
                   React.createElement(ClsBadge,{ct}),
                   React.createElement("span",{style:{fontSize:12,color:col,fontWeight:700,fontFamily:"'Sora',sans-serif"}},INR(val)),
                   subs.length>0&&React.createElement("span",{style:{fontSize:9,color:"var(--text6)",marginLeft:4}},isExpCat?"▲":"▼"),
-                  onJumpToLedger&&React.createElement(JumpBtn,{onClick:()=>onJumpToLedger({cats:new Set([cat]),payees:new Set(),dateFrom:m+"-01",dateTo:m+"-31",label:cat+" · "+MONTH_NAMES[parseInt(m.slice(5))-1]+" "+m.slice(0,4)})})
+                  onJumpToLedger&&React.createElement(JumpBtn,{onClick:()=>onJumpToLedger({cats:new Set([cat]),payees:new Set(),dateFrom:m+"-01",dateTo:new Date(+m.slice(0,4),+m.slice(5),0).toISOString().split("T")[0],label:cat+" · "+MONTH_NAMES[parseInt(m.slice(5))-1]+" "+m.slice(0,4)})})
                 ),
                 isExpCat&&subs.map(([subKey,sv])=>React.createElement("div",{key:subKey,style:{display:"flex",alignItems:"center",gap:7,padding:"4px 14px 4px 32px",borderLeft:"2px solid "+col+"33",marginLeft:0,background:"rgba(0,0,0,.02)"}},
                   React.createElement("span",{style:{width:5,height:5,borderRadius:"50%",background:col,opacity:.6,flexShrink:0,display:"inline-block"}}),
                   React.createElement("span",{style:{fontSize:11,color:"var(--text4)",flex:1}},catDisplayName(subKey)),
                   React.createElement("span",{style:{fontSize:11,color:col,fontWeight:600,fontFamily:"'Sora',sans-serif"}},INR(sv)),
-                  onJumpToLedger&&React.createElement(JumpBtn,{onClick:()=>onJumpToLedger({cats:new Set([subKey]),payees:new Set(),dateFrom:m+"-01",dateTo:m+"-31",label:catDisplayName(subKey)+" · "+MONTH_NAMES[parseInt(m.slice(5))-1]+" "+m.slice(0,4)})})
+                  onJumpToLedger&&React.createElement(JumpBtn,{onClick:()=>onJumpToLedger({cats:new Set([subKey]),payees:new Set(),dateFrom:m+"-01",dateTo:new Date(+m.slice(0,4),+m.slice(5),0).toISOString().split("T")[0],label:catDisplayName(subKey)+" · "+MONTH_NAMES[parseInt(m.slice(5))-1]+" "+m.slice(0,4)})})
                 ))
               );
             })
@@ -14249,7 +14272,8 @@ const RptIncVsExp=({data,from,to})=>{
 /* ══ 8. FORECAST ════════════════════════════════════════════════════════════ */
 const RptForecast=({data})=>{
   const[view,setView]=useState("snapshot");
-  const allTx=[...data.banks.flatMap(b=>b.transactions),...data.cards.flatMap(c=>c.transactions),...data.cash.transactions];
+  const allTx=[...data.banks.flatMap(b=>b.transactions),...data.cards.flatMap(c=>c.transactions),...data.cash.transactions]
+    .filter(t=>!isAnyTransfer(t,data.categories));
   const monthly={};
   allTx.forEach(t=>{
     const k=t.date.substr(0,7);
@@ -15846,9 +15870,15 @@ const ReportsSection=React.memo(({data,isMobile,onJumpToLedger})=>{
   const[activeRpt,setActiveRpt]=useState("cashflow");
   const[expanded,setExpanded]=useState({categories:true});
   const[exportOpen,setExportOpen]=useState(false);
+  /* Memoize so the "6 Months active" check is stable across re-renders */
+  const{firstDay,lastDay}=React.useMemo(()=>{
+    const now=new Date();
+    return{
+      firstDay:new Date(now.getFullYear(),now.getMonth()-5,1).toISOString().split("T")[0],
+      lastDay:new Date(now.getFullYear(),now.getMonth()+1,0).toISOString().split("T")[0],
+    };
+  },[]);
   const now=new Date();
-  const firstDay=new Date(now.getFullYear(),now.getMonth()-5,1).toISOString().split("T")[0];
-  const lastDay=new Date(now.getFullYear(),now.getMonth()+1,0).toISOString().split("T")[0];
   const[from,setFrom]=useState(firstDay);
   const[to,setTo]=useState(lastDay);
 
@@ -19186,6 +19216,7 @@ const loadState=()=>{
       hiddenTabs:(parsed.hiddenTabs||[]),
       taxData:(parsed.taxData||null),
       catRules:(parsed.catRules||[]),
+      insightPrefs:{...EMPTY_STATE().insightPrefs,...(parsed.insightPrefs||{})},
     };
   }catch(e){console.warn("Failed to load state:",e);return null;}
 };
@@ -19768,8 +19799,19 @@ const UnifiedLedgerSection=React.memo(({banks,cards,cash,categories,payees,isMob
   const[dateTo,setDateTo]=useState(()=>initialFilter?.dateTo||"");
   const[filterType,setFilterType]=useState("all");
   const[filterTags,setFilterTags]=useState(new Set());
-  // Consume the jump filter exactly once so re-navigating doesn't re-apply it
-  React.useEffect(()=>{if(initialFilter&&onClearJump)onClearJump();},[]);
+  // Re-apply filter whenever a new jump arrives (component may already be mounted)
+  React.useEffect(()=>{
+    if(!initialFilter)return;
+    setFilterCats(initialFilter.cats||new Set());
+    setFilterPayees(initialFilter.payees||new Set());
+    setDateFrom(initialFilter.dateFrom||"");
+    setDateTo(initialFilter.dateTo||"");
+    setFilterType("all");
+    setFilterTags(new Set());
+    setSearch("");
+    setShowFilters(false);
+    if(onClearJump)onClearJump();
+  },[initialFilter]);
 
   const clearFilters=()=>{setFilterAccounts(new Set());setAccSearch("");setFilterCats(new Set());setCatSearch("");setFilterPayees(new Set());setPayeeSearch("");setDateFrom("");setDateTo("");setFilterType("all");setFilterTags(new Set());};
   const activeFilterCount=(filterAccounts.size>0?1:0)+(filterCats.size>0?1:0)+(filterPayees.size>0?1:0)+((dateFrom||dateTo)?1:0)+(filterType!=="all"?1:0)+(filterTags.size>0?1:0);

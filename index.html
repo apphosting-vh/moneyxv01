@@ -2034,10 +2034,16 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.32.7";
+const APP_VERSION="3.32.8";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.32.8",date:"2026-03-20",title:"Bug Fix — Heatmap FY grouping, MF day-change, budget rollover, tax form sync",changes:[
+    "Fix #1 — Reports → Categories → Yearly → Heatmap now groups by Indian Financial Year (Apr–Mar) instead of calendar year: Replaced buildHeatRowsY (which keyed transactions by YYYY from t.date.substr(0,4)) with buildHeatRowsFY, which applies the same toFY() Apr-Mar logic used by the rest of RptCatYearly. Column keys now match the FY period keys so transactions dated Jan–Mar are attributed to the previous FY (e.g. Jan 2026 → FY 2025). Column labels continue to render as 'FY 2024-25' via getIndianFYLabel(). Hint text updated to explicitly say 'Apr–Mar'.",
+    "Fix #2 — InvestDashboard MF day-change badge now compares D-1 vs D-2 (two completed trading days) instead of live value vs D-1: MF NAVs are published after market close, so comparing the live mfVal (which may not have moved yet today) against yesterday's NAV produced a misleading 'change' before it had occurred. The stat card now looks up _d1 (most recent EOD snapshot before today) and _d2 (the one before that) from eodNavs and computes the change between those two completed-day values — matching the logic already correctly used in the MF tab hero card. Sub-label updated from '% today' to '% prev day chg' to accurately describe the comparison.",
+    "Fix #3 — Budget rollover summary strips phantom 'Rolled Over' amounts when overall budget was overspent: Previously each category's rollover was clamped independently (max(0, plan-prevActual)), so savings in category A could not offset overspending in category B. The totalRollover shown in the summary strip was the sum of all per-category clamps, which was non-zero even when the household as a whole overspent. Now netRolloverRaw = sum of all raw (unclamped) deltas is computed first, then a single max(0, …) clamp is applied — so overspending in any category reduces the visible rollover amount. Per-category '+₹X rolled' badges still use the per-category clamp so individual savers are still recognised.",
+    "Fix #4 — TaxEstimatorSection re-syncs its form state when taxData prop changes externally: The component initialised regime, f, tdsRows, atRows once via useState at mount and never re-read the prop. A RESTORE_ALL (backup restore) or RESET_ALL would update state.taxData but the form would continue showing the old values; any subsequent edit would then overwrite the correct restored data. Added a useEffect([taxData]) that detects when the prop reference changes (comparing against prevTaxDataRef), then calls the four setters to reload from the new taxData or reset to defaults if taxData is null. isFirstRender.current is set to true before the programmatic updates to suppress the auto-save effect for that render cycle, preventing an immediate redundant SET_TAX_DATA dispatch.",
+  ]},
   {version:"3.32.7",date:"2026-03-20",title:"Bug Fix — 10 correctness & reliability fixes",changes:[
     "Fix #1 & #2 — MF NAV snapshot dates now stored in ISO YYYY-MM-DD format: mfapi.in returns navDate as 'DD-MMM-YYYY' (e.g. '22-Feb-2026'). eodNavs keys are now converted to ISO via mfNavDateToISO() before dispatch. All three SET_EOD_NAVS call-sites updated. loadState() migrates any legacy DD-MMM-YYYY keys on startup. SET_EOD_NAVS reducer also normalises incoming keys. MF portfolio chart label generation updated to parse ISO keys correctly. Day-change pill and chart comparisons (d < todayIST) now work correctly because both sides are YYYY-MM-DD.",
     "Fix #3 — XIRR for FDs uses current accrued value instead of waiting for maturity: For each active (not-yet-matured) FD, calcFDValueToday() is used as a positive cashflow on today's date. Matured FDs continue to use the maturity amount at the maturity date. This makes the XIRR strip reflect the real annualised return on capital deployed to date.",
@@ -7921,11 +7927,14 @@ const Dashboard=React.memo(({data,isMobile})=>{
         .map(([cat,plan])=>{
           const actual=curActuals[cat]||0;
           const prevActual=prevActuals[cat]||0;
-          const prevSaving=Math.max(0,plan-prevActual); /* unspent last month */
-          const rollover=prevSaving; /* carry forward unspent */
+          /* Per-category raw delta: positive = saved, negative = overspent last month.
+             We do NOT clamp here — the net across all categories is clamped below. */
+          const rawDelta=plan-prevActual;
+          /* Display rollover badge only for categories that genuinely saved last month */
+          const rollover=Math.max(0,rawDelta);
           const effectivePlan=plan+rollover; /* this month's effective budget */
           const pct=Math.min((actual/effectivePlan)*100,120);
-          return{cat,plan,actual,prevActual,rollover,effectivePlan,pct};
+          return{cat,plan,actual,prevActual,rawDelta,rollover,effectivePlan,pct};
         })
         .sort((a,b)=>b.pct-a.pct)
         .slice(0,8);
@@ -7934,7 +7943,11 @@ const Dashboard=React.memo(({data,isMobile})=>{
       const cat4Color=name=>(data.categories.find(c=>c.name===name)||{}).color||CAT_C[name]||"var(--accent)";
       const totalPlan=rows.reduce((s,r)=>s+r.plan,0);
       const totalActual=rows.reduce((s,r)=>s+r.actual,0);
-      const totalRollover=rows.reduce((s,r)=>s+r.rollover,0);
+      /* Net rollover: sum the raw per-category deltas and clamp at zero once.
+         This means overspending in one category cancels out savings in another —
+         the "Rolled Over" pill is only shown when the whole budget truly came in under. */
+      const netRolloverRaw=rows.reduce((s,r)=>s+r.rawDelta,0);
+      const totalRollover=Math.max(0,netRolloverRaw);
 
       return React.createElement("div",{className:"db-card"},
         SL("Budget vs Actuals",curName+" — with rollover from "+prevName+" · set budgets in Settings → Preferences"),
@@ -9574,18 +9587,24 @@ const InvestDashboard=React.memo(({mf,shares,fd,re=[],dispatch,isMobile,eodPrice
 
     /* ── Per-asset stat row */
     (()=>{
-      /* Compute aggregate MF day-change from eodNavs */
+      /* Compute aggregate MF day-change from eodNavs.
+         MF NAVs are published after market close, so the correct comparison is
+         D-1 vs D-2 (the two most recent completed trading days), not live vs D-1.
+         Using the live mfVal vs D-1 would show a "change" before it has occurred. */
       const todayIST=getISTDateStr();
-      const prevNavDate=Object.keys(eodNavs||{}).filter(d=>d<todayIST).sort().slice(-1)[0];
+      const _datesBeforeToday=Object.keys(eodNavs||{}).filter(d=>d<todayIST).sort();
+      const _d1=_datesBeforeToday.slice(-1)[0];   // most recent completed day
+      const _d2=_datesBeforeToday.slice(-2,-1)[0]; // day before that
       let mfDayChgPct=null;
-      if(prevNavDate){
-        const prevTotal=mf.reduce((s,m)=>{const n=eodNavs[prevNavDate][m.schemeCode];return s+(n?n*m.units:0);},0);
-        if(prevTotal>0&&mfVal>0)mfDayChgPct=((mfVal-prevTotal)/prevTotal*100);
+      if(_d1&&_d2){
+        const d1Total=mf.reduce((s,m)=>{const n=(eodNavs[_d1]||{})[m.schemeCode];return s+(n?n*m.units:0);},0);
+        const d2Total=mf.reduce((s,m)=>{const n=(eodNavs[_d2]||{})[m.schemeCode];return s+(n?n*m.units:0);},0);
+        if(d2Total>0&&d1Total>0)mfDayChgPct=((d1Total-d2Total)/d2Total*100);
       }
       return React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
         React.createElement(StatCard,{label:"Mutual Funds",val:INR(mfVal),
           sub:mfDayChgPct!==null
-            ?(mfDayChgPct>=0?"▲ +":"▼ ")+Math.abs(mfDayChgPct).toFixed(2)+"% today"
+            ?(mfDayChgPct>=0?"▲ +":"▼ ")+Math.abs(mfDayChgPct).toFixed(2)+"% prev day chg"
             :(mfVal-mfCost>=0?"▲ ":"▼ ")+INR(Math.abs(mfVal-mfCost))+" P&L",
           col:"#6d28d9",icon:"📊"}),
         React.createElement(StatCard,{label:"Shares",val:INR(shVal),sub:(shVal-shCost>=0?"▲ ":"▼ ")+pct(shVal,shCost)+"% return",col:"#16a34a",icon:"📈"}),
@@ -12526,12 +12545,19 @@ const buildHeatRowsQ=(allTx,categories)=>{
   });
 };
 
-/* Helper: build category×year heatmap rows — keys are "YYYY" */
-const buildHeatRowsY=(allTx,categories)=>{
+/* Helper: build category×year heatmap rows — keys are FY start year (e.g. 2024 = FY 2024-25).
+   Groups transactions by Indian Financial Year (Apr–Mar), matching the rest of RptCatYearly. */
+const buildHeatRowsFY=(allTx,categories)=>{
+  /* Convert a date string to its Indian FY start year (Apr-Dec → same year, Jan-Mar → year-1) */
+  const toFYKey=dateStr=>{
+    const y=parseInt(dateStr.slice(0,4));
+    const m=parseInt(dateStr.slice(5,7));
+    return String(m>=4?y:y-1); /* return as string so keys are consistent */
+  };
   const grid={};
   allTx.forEach(t=>{
     const main=catMainName(t.cat||"Others");
-    const yk=t.date.substr(0,4);
+    const yk=toFYKey(t.date);
     if(!grid[main])grid[main]={};
     grid[main][yk]=(grid[main][yk]||0)+t.amount;
   });
@@ -13704,12 +13730,12 @@ const RptCatYearly=({data,from,to,onJumpToLedger})=>{
         );
       })
     ),
-    /* HEATMAP */
+    /* HEATMAP — keys are FY start year strings matching periods[] */
     view==="heatmap"&&React.createElement(HeatGrid,{
-      rows:buildHeatRowsY(allTx,data.categories),
-      months:periods,
+      rows:buildHeatRowsFY(allTx,data.categories),
+      months:periods.map(String),
       colLabel:y=>getIndianFYLabel(parseInt(y)),
-      hint:"🔥 Colour intensity = relative spend within each category row. Grouped by financial year."
+      hint:"🔥 Colour intensity = relative spend within each category row. Grouped by Indian Financial Year (Apr–Mar)."
     })
   );
 };
@@ -23268,6 +23294,34 @@ function TaxEstimatorSection({taxData, dispatch}) {
       const t = setTimeout(() => setSaveStatus("idle"), 1800);
       return () => clearTimeout(t);
     }, [regime, f, tdsRows, atRows]);
+
+    /* ── EXTERNAL SYNC: re-initialise form when taxData prop changes from outside
+       (e.g. RESTORE_ALL restores a backup, RESET_ALL clears all data, or the
+       Capital Gains card pre-fills via SET_TAX_DATA). Without this the component
+       keeps its stale useState values and any subsequent user edit overwrites the
+       correct restored data.
+       prevTaxDataRef tracks the last seen reference so the effect is a no-op on
+       the initial render (prevRef === taxData at that point). ── */
+    const prevTaxDataRef = React.useRef(taxData);
+    React.useEffect(() => {
+      if (prevTaxDataRef.current === taxData) return; /* same ref — no external change */
+      prevTaxDataRef.current = taxData;
+      /* Suppress the auto-save effect for this programmatic state update so we
+         don't immediately write the just-restored data back as a "change". */
+      isFirstRender.current = true;
+      if (taxData) {
+        setRegime(taxData.regime ?? "new");
+        setF({ ...DEFAULT_F, ...(taxData.f ?? {}) });
+        setTds(taxData.tdsRows?.length ? taxData.tdsRows : DEFAULT_TDS);
+        setAt(taxData.atRows?.length  ? taxData.atRows  : DEFAULT_AT);
+      } else {
+        /* taxData was nulled (RESET_ALL or explicit clear) — fall back to defaults */
+        setRegime("new");
+        setF({ ...DEFAULT_F });
+        setTds([{ id:uid(), deductor:"", amount:"", date:"" }]);
+        setAt([{ id:uid(), amount:"", date:"", ref:"" }]);
+      }
+    }, [taxData]);
 
     const handleClear = () => {
       if (!window.confirm("Clear all saved data and reset the form?")) return;

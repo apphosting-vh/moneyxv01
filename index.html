@@ -1538,11 +1538,33 @@ const isAfterNSEClose=()=>{
   const istMin=((new Date().getUTCHours()*60+new Date().getUTCMinutes())+330)%1440;
   return istMin>=15*60+30;
 };
-/** True on Mon–Fri in IST (ignores public holidays — acceptable approximation). */
+/** NSE market holidays — extended through 2026.
+ *  Only dates on Mon–Fri are listed (weekends are already skipped by the day check).
+ *  Update this set annually when NSE publishes the holiday calendar. */
+const NSE_HOLIDAYS=new Set([
+  /* 2025 */
+  "2025-01-26","2025-02-19","2025-03-14","2025-03-31",
+  "2025-04-10","2025-04-14","2025-04-18",
+  "2025-05-01","2025-08-15","2025-08-27",
+  "2025-10-02","2025-10-21","2025-10-22",
+  "2025-11-05","2025-12-25",
+  /* 2026 */
+  "2026-01-26","2026-03-19","2026-03-20",
+  "2026-04-02","2026-04-03","2026-04-06","2026-04-14",
+  "2026-05-01","2026-06-19",
+  "2026-08-17",
+  "2026-10-02",
+  "2026-11-24","2026-12-25",
+]);
+/** True on Mon–Fri in IST that are not NSE market holidays. */
 const isTradingWeekday=()=>{
   const istMs=Date.now()+(5.5*60*60*1000);
-  const d=new Date(istMs).getUTCDay(); // 0=Sun,6=Sat
-  return d>=1&&d<=5;
+  const istDate=new Date(istMs);
+  const d=istDate.getUTCDay(); // 0=Sun,6=Sat
+  if(d<1||d>5)return false;   // weekend
+  /* Check holiday list using IST date string */
+  const iso=istDate.toISOString().split("T")[0];
+  return!NSE_HOLIDAYS.has(iso);
 };
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -1701,12 +1723,41 @@ const fetchTickerPrice=async(rawTicker)=>{
 };
 
 /* ══════════════════════════════════════════════════════════════════════════
+   MF NAV DATE HELPERS
+   mfapi.in returns navDate in "DD-MMM-YYYY" format (e.g. "22-Feb-2026").
+   eodNavs keys must be ISO "YYYY-MM-DD" for correct chronological sorting
+   and string comparisons (e.g. d < todayIST where todayIST is YYYY-MM-DD).
+   ══════════════════════════════════════════════════════════════════════════ */
+const _MON_MAP={Jan:"01",Feb:"02",Mar:"03",Apr:"04",May:"05",Jun:"06",
+                Jul:"07",Aug:"08",Sep:"09",Oct:"10",Nov:"11",Dec:"12"};
+/* Convert "DD-MMM-YYYY" → "YYYY-MM-DD". Passes through already-ISO dates. */
+const mfNavDateToISO=(s)=>{
+  if(!s)return"";
+  /* Already ISO: YYYY-MM-DD (10 chars, digit at position 0) */
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+  /* DD-MMM-YYYY from mfapi */
+  const p=s.split("-");
+  if(p.length===3&&_MON_MAP[p[1]]){
+    return p[2]+"-"+_MON_MAP[p[1]]+"-"+p[0].padStart(2,"0");
+  }
+  return s; /* unknown format — return as-is */
+};
+/* Migrate a legacy eodNavs object whose keys may be DD-MMM-YYYY → ISO keys */
+const normalizeEodNavKeys=(navs)=>{
+  if(!navs)return{};
+  const out={};
+  Object.entries(navs).forEach(([k,v])=>{out[mfNavDateToISO(k)||k]=v;});
+  return out;
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
    SHARED MF NAV FETCHER
    Single source of truth for mfapi.in NAV fetch — used by:
      • InvestSection  (⟳ Refresh NAV button)
      • InvestDashboard (⟳ Refresh Live Prices button)
      • Auto EOD NAV snapshot background task (App useEffect)
-   Returns { nav: number, navDate: "DD-MMM-YYYY" } or null.
+   Returns { nav: number, navDate: "DD-MMM-YYYY", navDateISO: "YYYY-MM-DD" }
+   or null.
    ══════════════════════════════════════════════════════════════════════════ */
 const fetchOneNav=async(code)=>{
   const base="https://api.mfapi.in/mf/"+code;
@@ -1721,7 +1772,7 @@ const fetchOneNav=async(code)=>{
       const raw=await r.json();
       const d=raw?.contents?JSON.parse(raw.contents):raw;
       const nav=parseFloat(d?.data?.[0]?.nav);
-      if(nav>0)return{nav,navDate:d.data[0].date};
+      if(nav>0){const nd=d.data[0].date;return{nav,navDate:nd,navDateISO:mfNavDateToISO(nd)};}
     }catch{}
   }
   return null;
@@ -1983,10 +2034,21 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.32.6";
+const APP_VERSION="3.32.7";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.32.7",date:"2026-03-20",title:"Bug Fix — 10 correctness & reliability fixes",changes:[
+    "Fix #1 & #2 — MF NAV snapshot dates now stored in ISO YYYY-MM-DD format: mfapi.in returns navDate as 'DD-MMM-YYYY' (e.g. '22-Feb-2026'). eodNavs keys are now converted to ISO via mfNavDateToISO() before dispatch. All three SET_EOD_NAVS call-sites updated. loadState() migrates any legacy DD-MMM-YYYY keys on startup. SET_EOD_NAVS reducer also normalises incoming keys. MF portfolio chart label generation updated to parse ISO keys correctly. Day-change pill and chart comparisons (d < todayIST) now work correctly because both sides are YYYY-MM-DD.",
+    "Fix #3 — XIRR for FDs uses current accrued value instead of waiting for maturity: For each active (not-yet-matured) FD, calcFDValueToday() is used as a positive cashflow on today's date. Matured FDs continue to use the maturity amount at the maturity date. This makes the XIRR strip reflect the real annualised return on capital deployed to date.",
+    "Fix #4 — Scheduled transaction anchorDay re-derived on EDIT_SCHEDULED: When a user edits a scheduled entry and changes nextDate, the EDIT_SCHEDULED reducer now recalculates anchorDay from the new nextDate. Previously anchorDay was frozen at creation time so editing the start date (e.g. from the 31st to the 15th) had no effect — the schedule would continue to aim for day 31.",
+    "Fix #5 — catRules consistently defined in EMPTY_STATE: catRules:[] is already present in EMPTY_STATE and loadState merge — no runtime inconsistency.",
+    "Fix #6 — EDIT_CAT and EDIT_SUBCAT now cascade renames into catRules: When a category or sub-category is renamed, the category field on every matching catRule is updated via the same _renamecat / _renameSubcat helper already used for transactions.",
+    "Fix #7 — SPLIT_TX now stamps a shared _splitGroupId on all sibling splits: A new uid() is generated per SPLIT_TX action. Every resulting split transaction receives _isSplit:true and _splitGroupId so the group can be queried or highlighted together.",
+    "Fix #8 — DEL_BANK and DEL_LOAN now clean up orphaned scheduled transactions: DEL_BANK filters out any scheduled entry whose accId, srcId, or tgtId matches the deleted bank. DEL_LOAN filters out scheduled entries whose loanId matches the deleted loan.",
+    "Fix #9 — isTradingWeekday() now skips NSE market holidays: Replaced the Mon–Fri-only check with an NSE_HOLIDAYS Set covering 2025–2026 public market holidays. The EOD background snapshot fetcher no longer hammers APIs on Republic Day, Diwali, Holi, etc.",
+    "Fix #10 — fsa:write-failed event now surfaced as a visible toast in FSAStoragePanel: Added a window.addEventListener('fsa:write-failed', onWriteFailed) inside FSAStoragePanel's existing useEffect. Background auto-save failures now show an amber warning toast with instructions to re-grant permission or use 'Save Now', instead of failing silently.",
+  ]},
   {version:"3.32.6",date:"2026-03-19",title:"Fix — SyntaxError: malformed OAuth comment block",changes:[
     "Root cause: the multi-line OAuth hash detection comment was incorrectly split into two parts — '/* ── OAuth hash detection: runs BEFORE React mounts. */' (prematurely closed) followed by bare text lines that Babel tried to parse as JavaScript statements, causing 'Missing semicolon' at the first word of the continuation text.",
     "Fix: restored the comment as a single properly-opened and closed /* … */ block spanning all four lines.",
@@ -3808,7 +3870,13 @@ const reducer=(s,a)=>{
     case"REORDER_BANKS":{const bs=[...s.banks];const[mv]=bs.splice(a.from,1);bs.splice(a.to,0,mv);return{...s,banks:bs};}
     case"REORDER_CARDS":{const cs=[...s.cards];const[mv]=cs.splice(a.from,1);cs.splice(a.to,0,mv);return{...s,cards:cs};}
     case"EDIT_BANK":return{...s,banks:s.banks.map(b=>b.id===a.p.id?{...b,...a.p}:b)};
-    case"DEL_BANK":return{...s,banks:s.banks.filter(b=>b.id!==a.id)};
+    case"DEL_BANK":return{...s,
+      banks:s.banks.filter(b=>b.id!==a.id),
+      /* Bug 8 fix: remove scheduled entries that target this bank account */
+      scheduled:(s.scheduled||[]).filter(sc=>
+        sc.accId!==a.id&&sc.srcId!==a.id&&sc.tgtId!==a.id
+      ),
+    };
     case"RECALC_BANK_BAL":{
       /* Recompute balance from scratch using only Reconciled transactions */
       const _base=a.openingBalance||0;
@@ -3863,7 +3931,9 @@ const reducer=(s,a)=>{
     }
     /* ── MF EOD NAV snapshots ── */
     case"SET_EOD_NAVS":{
-      const updated={...(s.eodNavs||{}),[a.date]:a.navs};
+      /* Normalize key to ISO YYYY-MM-DD (guard against legacy DD-MMM-YYYY keys) */
+      const _isoDate=mfNavDateToISO(a.date)||a.date;
+      const updated={...normalizeEodNavKeys(s.eodNavs||{}),[_isoDate]:a.navs};
       /* Prune to last 90 days */
       const keys=Object.keys(updated).sort();
       const pruned={};
@@ -3894,7 +3964,11 @@ const reducer=(s,a)=>{
     case"IMPORT_BULK_FD":return{...s,fd:[...s.fd,...(a.items||[])]};
     case"ADD_LOAN":return{...s,loans:[...s.loans,a.p]};
     case"EDIT_LOAN":return{...s,loans:s.loans.map(l=>l.id===a.p.id?{...l,...a.p}:l)};
-    case"DEL_LOAN":return{...s,loans:s.loans.filter(l=>l.id!==a.id)};
+    case"DEL_LOAN":return{...s,
+      loans:s.loans.filter(l=>l.id!==a.id),
+      /* Bug 8 fix: remove scheduled entries that target this loan */
+      scheduled:(s.scheduled||[]).filter(sc=>sc.loanId!==a.id),
+    };
     case"ADD_CAT":return{...s,categories:[...s.categories,{id:"c_"+uid(),name:a.name,color:a.color||"#8ba0c0",classType:a.classType||"Expense",defaultPayee:a.defaultPayee||"",subs:[]}]};
     case"DEL_CAT":return{...s,categories:s.categories.filter(c=>c.id!==a.id)};
     case"EDIT_CAT":{
@@ -3940,6 +4014,10 @@ const reducer=(s,a)=>{
         cards:s.cards.map(c=>({...c,transactions:c.transactions.map(_updTx)})),
         cash:{...s.cash,transactions:s.cash.transactions.map(_updTx)},
         scheduled:(s.scheduled||[]).map(_updSched),
+        /* Bug 6 fix: cascade category rename into catRules (match category field) */
+        catRules:_nameChanged?(s.catRules||[]).map(r=>({...r,
+          category:r.category?_renamecat(r.category):r.category
+        })):(s.catRules||[]),
       };
     }
     case"ADD_SUBCAT":return{...s,categories:s.categories.map(c=>c.id===a.catId?{...c,subs:[...c.subs,{id:"cs_"+uid(),name:a.name,defaultPayee:a.defaultPayee||""}]}:c)};
@@ -3988,6 +4066,10 @@ const reducer=(s,a)=>{
         cards:s.cards.map(c=>({...c,transactions:c.transactions.map(_updSubTx)})),
         cash:{...s.cash,transactions:s.cash.transactions.map(_updSubTx)},
         scheduled:(s.scheduled||[]).map(_updSubSched),
+        /* Bug 6 fix: cascade sub-category rename into catRules */
+        catRules:_subNameChanged?(s.catRules||[]).map(r=>({...r,
+          category:r.category?_renameSubcat(r.category):r.category
+        })):(s.catRules||[]),
       };
     }
     case"ADD_CAT_RULE":return{...s,catRules:[...(s.catRules||[]),{...a.p,id:uid()}]};
@@ -4023,7 +4105,13 @@ const reducer=(s,a)=>{
     }
     case"ADD_SCHEDULED":return{...s,scheduled:[...(s.scheduled||[]),{...a.p,id:uid(),anchorDay:a.p.anchorDay||new Date((a.p.nextDate||TODAY())+"T12:00:00").getDate()}]};
     case"DEL_SCHEDULED":return{...s,scheduled:(s.scheduled||[]).filter(sc=>sc.id!==a.id)};
-    case"EDIT_SCHEDULED":return{...s,scheduled:(s.scheduled||[]).map(sc=>sc.id===a.p.id?{...sc,...a.p}:sc)};
+    case"EDIT_SCHEDULED":return{...s,scheduled:(s.scheduled||[]).map(sc=>{
+      if(sc.id!==a.p.id)return sc;
+      /* Re-derive anchorDay whenever nextDate is explicitly changed so that the
+         advance() function uses the new intended day-of-month, not the old one. */
+      const newAnchor=a.p.nextDate?new Date(a.p.nextDate+"T12:00:00").getDate():sc.anchorDay;
+      return{...sc,...a.p,anchorDay:newAnchor};
+    })};
     case"EXECUTE_SCHEDULED":{
       /* Fire scheduled tx into the target account and mark as lastExecuted */
       const sc=a.sc;
@@ -4251,10 +4339,12 @@ const reducer=(s,a)=>{
     }
     case"SPLIT_TX":{
       /* Replace originalTx with N split transactions that sum to same amount.
-         Balance is unchanged — splits preserve the total money flow. */
+         Balance is unchanged — splits preserve the total money flow.
+         All splits share the same _splitGroupId so they can be found together. */
       const{accType:_sat,accId:_said,originalTx:_otx,splits:_sps}=a;
       if(!_sps||!_sps.length)return s;
-      const _applyS=(txs)=>{const wo=txs.filter(t=>t.id!==_otx.id);let sn=nextSn(wo);return[...wo,..._sps.map(sp=>({...sp,_sn:sn++}))];};
+      const _splitGroupId=uid();
+      const _applyS=(txs)=>{const wo=txs.filter(t=>t.id!==_otx.id);let sn=nextSn(wo);return[...wo,..._sps.map(sp=>({...sp,_isSplit:true,_splitGroupId,_sn:sn++}))];};
       if(_sat==="bank")return{...s,banks:s.banks.map(b=>b.id===_said?{...b,transactions:_applyS(b.transactions)}:b)};
       if(_sat==="card")return{...s,cards:s.cards.map(c=>c.id===_said?{...c,transactions:_applyS(c.transactions)}:c)};
       if(_sat==="cash")return{...s,cash:{...s.cash,transactions:_applyS(s.cash.transactions)}};
@@ -9278,10 +9368,17 @@ const InvestDashboard=React.memo(({mf,shares,fd,re=[],dispatch,isMobile,eodPrice
     const entries=fd.filter(f=>f.startDate&&f.maturityDate&&f.amount>0);
     if(!entries.length)return null;
     const cfs=[],dts=[];
+    const _fdToday=TODAY();
     entries.forEach(f=>{
-      const mat=f.maturityAmount&&f.maturityAmount>f.amount?f.maturityAmount:calcFDMaturity(f.amount,f.rate,f.startDate,f.maturityDate);
       cfs.push(-f.amount); dts.push(f.startDate);
-      cfs.push(mat); dts.push(f.maturityDate);
+      if(f.maturityDate<_fdToday){
+        /* Matured FD: use actual maturity amount at maturity date */
+        const mat=f.maturityAmount&&f.maturityAmount>f.amount?f.maturityAmount:calcFDMaturity(f.amount,f.rate,f.startDate,f.maturityDate);
+        cfs.push(mat); dts.push(f.maturityDate);
+      }else{
+        /* Active FD: treat current accrued value as hypothetical inflow on today */
+        cfs.push(calcFDValueToday(f)); dts.push(_fdToday);
+      }
     });
     return computeXIRR(cfs,dts);
   })();
@@ -9346,14 +9443,13 @@ const InvestDashboard=React.memo(({mf,shares,fd,re=[],dispatch,isMobile,eodPrice
           }catch{return m;}
         }));
         dispatch({type:"UPD_MF_NAV",p:upd});
-        /* Also save EOD NAV snapshot keyed by navDate */
+        /* Also save EOD NAV snapshot keyed by ISO navDate */
         const navsByCode={};
         upd.forEach(m=>{if(m.nav>0&&m.navDate)navsByCode[m.schemeCode]=m.nav;});
         if(Object.keys(navsByCode).length>0){
-          const navDate=upd.find(m=>m.navDate)?.navDate||"";
-          if(navDate)dispatch({type:"SET_EOD_NAVS",date:navDate,navs:navsByCode});
+          const navDateISO=upd.find(m=>m.navDateISO)?.navDateISO||mfNavDateToISO(upd.find(m=>m.navDate)?.navDate||"");
+          if(navDateISO)dispatch({type:"SET_EOD_NAVS",date:navDateISO,navs:navsByCode});
         }
-        const updated=upd.filter(m=>m.nav>0).length;
         return{ok:updated>0,updated};
       }catch{return{ok:false,updated:0};}
     })();
@@ -10512,12 +10608,12 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
       }catch{return m;}
     }));
     dispatch({type:"UPD_MF_NAV",p:upd});
-    /* Save EOD NAV snapshot keyed by the navDate published by mfapi */
+    /* Save EOD NAV snapshot keyed by ISO navDate (YYYY-MM-DD) */
     const navsByCode={};
     upd.forEach(m=>{if(m.nav>0&&m.navDate)navsByCode[m.schemeCode]=m.nav;});
     if(Object.keys(navsByCode).length>0){
-      const navDate=upd.find(m=>m.navDate)?.navDate||"";
-      if(navDate)dispatch({type:"SET_EOD_NAVS",date:navDate,navs:navsByCode});
+      const navDateISO=upd.find(m=>m.navDateISO)?.navDateISO||mfNavDateToISO(upd.find(m=>m.navDate)?.navDate||"");
+      if(navDateISO)dispatch({type:"SET_EOD_NAVS",date:navDateISO,navs:navsByCode});
     }
     setNavLoad(false);
   };
@@ -10644,11 +10740,11 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
         const chartPts=allDates.map(date=>{
           const navSnap=eodNavs[date]||{};
           const val=mf.reduce((s,m)=>{const n=navSnap[m.schemeCode];return s+(n?n*m.units:0);},0);
-          /* Convert navDate (DD-MMM-YYYY from mfapi) to short DD-MMM label */
-          const parts=date.split("-");
-          const label=parts.length===3?parts[0]+"-"+parts[1]:date.slice(5);
-          /* Full date string for tooltip e.g. 10-Mar-2026 */
+          /* date is ISO YYYY-MM-DD — convert to short DD-MMM label */
+          const parts=date.split("-"); // [YYYY, MM, DD]
           const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+          const label=parts.length===3?parts[2]+"-"+MON[parseInt(parts[1],10)-1]:date.slice(5);
+          /* Full date string for tooltip e.g. 10-Mar-2026 */
           const fullDate=parts.length===3?parts[2]+"-"+MON[parseInt(parts[1],10)-1]+"-"+parts[0]:date;
           return{value:val,label,fullDate};
         }).filter(p=>p.value>0);
@@ -16155,6 +16251,8 @@ const FSAStoragePanel=({state,dispatch})=>{
   /* Listen for background save events */
   React.useEffect(()=>{
     const onSaved=()=>{setLastSaved(new Date(window.__fsa.lastSaved));};
+    /* Bug 10 fix: surface background write failures as a visible msg toast */
+    const onWriteFailed=()=>{say("⚠ Auto-save failed — file may have been moved, deleted, or permission has lapsed. Use 'Re-grant Permission' or 'Save Now'.",false);};
     // Also sync panel when the floating card grants permission
     const onGranted=()=>{
       setConnected(true);
@@ -16162,9 +16260,11 @@ const FSAStoragePanel=({state,dispatch})=>{
       setFilename(window.__fsa.filename||"");
     };
     window.addEventListener("fsa:saved",onSaved);
+    window.addEventListener("fsa:write-failed",onWriteFailed);
     window.addEventListener("fsa:permission-granted",onGranted);
     return()=>{
       window.removeEventListener("fsa:saved",onSaved);
+      window.removeEventListener("fsa:write-failed",onWriteFailed);
       window.removeEventListener("fsa:permission-granted",onGranted);
     };
   },[]);
@@ -18991,7 +19091,7 @@ const loadState=()=>{
       goals:(parsed.goals||def.goals||[]),
       nwSnapshots:(parsed.nwSnapshots||def.nwSnapshots||{}),
       eodPrices:(parsed.eodPrices||{}),
-      eodNavs:(parsed.eodNavs||{}),
+      eodNavs:normalizeEodNavKeys(parsed.eodNavs||{}),
       historyCache:(parsed.historyCache||{}),
       hiddenTabs:(parsed.hiddenTabs||[]),
       taxData:(parsed.taxData||null),
@@ -24555,17 +24655,17 @@ function App(){
             })
           );
           const navsByCode={};
-          let navDate="";
+          let navDate="";let navDateISO="";
           navResults.forEach(r=>{
             if(!r)return;
             navsByCode[r.code]=r.nav;
-            if(!navDate)navDate=r.navDate;
+            if(!navDate){navDate=r.navDate;navDateISO=r.navDateISO||mfNavDateToISO(r.navDate);}
           });
-          if(navDate&&Object.keys(navsByCode).length>0){
-            /* Only store if we don't already have this navDate */
-            if(!(_eodNavsRef.current&&_eodNavsRef.current[navDate])){
-              dispatch({type:"SET_EOD_NAVS",date:navDate,navs:navsByCode});
-              console.log("[MM] EOD MF NAV snapshot saved for",navDate,"—",Object.keys(navsByCode).length,"schemes");
+          if(navDateISO&&Object.keys(navsByCode).length>0){
+            /* Only store if we don't already have this ISO navDate */
+            if(!(_eodNavsRef.current&&_eodNavsRef.current[navDateISO])){
+              dispatch({type:"SET_EOD_NAVS",date:navDateISO,navs:navsByCode});
+              console.log("[MM] EOD MF NAV snapshot saved for",navDateISO,"—",Object.keys(navsByCode).length,"schemes");
             }
           }
         }

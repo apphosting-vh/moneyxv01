@@ -2034,10 +2034,16 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.32.14";
+const APP_VERSION="3.32.15";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.32.15",date:"2026-03-20",title:"Bug Audit Round 3 — 4 bugs fixed: amortization, dashboard chart, account totals, double-execution",changes:[
+    "Bug 1 (Functional) — calcAmortization produced corrupt data when EMI ≤ monthly interest: If a loan's EMI was set too low to cover even the first month's interest, principal_part = emi − interest became negative. The outstanding balance grew each month instead of reducing, and the while-loop ran to its 600-iteration cap producing 600 rows of nonsensical data. Fixed: a guard checks if emi ≤ firstInterest before entering the loop and returns an empty array immediately. A secondary break inside the loop stops if principal_part ever goes non-positive mid-schedule. Both the Loan card and the Amortization modal now render an explicit amber warning explaining the EMI is too low and showing the minimum amount needed.",
+    "Bug 2 (Functional) — Dashboard Monthly Cash Flow chart and This-Month KPIs used unsigned t.amount instead of txCatDelta: Both the bank-only chart (Section 3) and the all-accounts KPI block (Section 4) accumulated t.amount directly — so a debit tagged as Income (income reversal) added to expenses instead of reducing income, and a credit tagged as Expense (refund) added to income instead of reducing expenses. This is the same class of bug fixed in Reports in v3.32.9 but Dashboard was not updated at that time. Both sections now use txCatDelta(t, ct) matching the Reports fix.",
+    "Bug 3 (Display) — TxPanel account header showed total Inc/Exp including Void and Duplicate transactions: The ↑ credit / ↓ debit totals in the account panel summary header (shown above every bank, card, and cash ledger) counted all transactions regardless of status. Void and Duplicate transactions were included, making the displayed totals inconsistent with the reconciled balance shown next to them. Fixed: both totals now filter to .status==='Reconciled' only, matching the balance calculation logic in the reducer.",
+    "Bug 4 (Functional) — Scheduled 'Execute All Due' and individual 'Execute Now' could double-execute entries auto-run on app load: The auto-execute useEffect on App mount dispatches EXECUTE_SCHEDULED for all due entries. The ScheduledSection 'Execute All Due' button and individual 'Execute Now' button both recomputed 'due' from live state with nextDate <= today. In the window between mount and state settlement (or if the user opened the tab quickly), the same entry could execute twice. Fixed: both buttons now filter to sc.lastExecuted !== today before dispatching — entries the auto-executor already ran today are silently skipped.",
+  ]},
   {version:"3.32.14",date:"2026-03-20",title:"Bug Audit Round 2 — 7 functional & display bugs fixed",changes:[
     "Bug 1 (Functional) — Reconciliation report 'Flagged' stat included Void but snapshot list excluded Void: The flagged count (bySt.Duplicate + bySt['Follow Up'] + bySt.Void) was displayed as one stat card, but the snapshot list filtered out Void transactions with status!=='Void', causing the count to exceed the visible rows. Fixed: flagged stat now counts only Duplicate + Follow Up. Void gets its own separate stat card. The snapshot list now shows ALL non-Reconciled transactions including Void so every counted row is visible.",
     "Bug 2 (Functional) — RptNetWorth back-projection included Void, Duplicate, and Unreconciled transactions: The Net Worth Trend allTx array was built from raw account data with no status filter. Void and Duplicate transactions were treated as real settled flows, distorting the month-by-month net-worth estimation. Fixed: allTx now filters .status==='Reconciled' and also applies isAnyTransfer() to exclude inter-account transfers from the projection.",
@@ -6913,8 +6919,9 @@ const TxPanel=({account,label,onAddTx,onEditTx,onDeleteTx,onDupTx,onSplitTx,onIm
     React.createElement("div",{style:{fontSize:36}},"👈"),
     React.createElement("div",{style:{fontSize:14}},`Select ${label} to view transactions`)
   );
-  const inc=account.transactions.filter(t=>t.type==="credit").reduce((s,t)=>s+t.amount,0);
-  const exp=account.transactions.filter(t=>t.type==="debit").reduce((s,t)=>s+t.amount,0);
+  const reconTx=account.transactions.filter(t=>t.status==="Reconciled");
+  const inc=reconTx.filter(t=>t.type==="credit").reduce((s,t)=>s+t.amount,0);
+  const exp=reconTx.filter(t=>t.type==="debit").reduce((s,t)=>s+t.amount,0);
   return React.createElement("div",{className:"si",style:{flex:1,display:"flex",flexDirection:"column",gap:12,minWidth:0,minHeight:0}},
     /* Account summary header */
     React.createElement("div",{style:{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px",flexShrink:0}},
@@ -7220,8 +7227,9 @@ const Dashboard=React.memo(({data,isMobile})=>{
     if(ct==="Transfer")return;
     const k=t.date.substr(0,7);
     if(!flowMap[k])flowMap[k]={inc:0,exp:0};
-    if(ct==="Income")flowMap[k].inc+=t.amount;
-    else flowMap[k].exp+=t.amount;
+    const d=txCatDelta(t,ct);
+    if(ct==="Income")flowMap[k].inc+=d;
+    else flowMap[k].exp+=d;
   });
   const monthlyFlow=Object.entries(flowMap).sort().slice(-6).map(([k,v])=>({
     key:k,label:MNAMES[+k.slice(5)-1]+" '"+k.slice(2,4),inc:v.inc,exp:v.exp
@@ -7234,8 +7242,9 @@ const Dashboard=React.memo(({data,isMobile})=>{
     if(ct==="Transfer")return;
     const k=t.date.substr(0,7);
     if(!allFlowMap[k])allFlowMap[k]={inc:0,exp:0};
-    if(ct==="Income")allFlowMap[k].inc+=t.amount;
-    else allFlowMap[k].exp+=t.amount;
+    const d=txCatDelta(t,ct);
+    if(ct==="Income")allFlowMap[k].inc+=d;
+    else allFlowMap[k].exp+=d;
   });
   const curMD    = allFlowMap[thisMonth]||{inc:0,exp:0};
   const smKeys   = Object.keys(allFlowMap).sort();
@@ -11510,6 +11519,10 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
 const calcAmortization=(principal,annualRate,emi)=>{
   const r=annualRate/12/100;
   if(!r||!emi||!principal)return[];
+  /* Guard: if EMI does not cover the first month's interest the loan can never be repaid.
+     Return an empty array so callers show a "EMI too low" warning instead of corrupt data. */
+  const firstInterest=Math.round(principal*r*100)/100;
+  if(emi<=firstInterest)return[];
   const schedule=[];
   let bal=principal;
   let month=0;
@@ -11517,6 +11530,7 @@ const calcAmortization=(principal,annualRate,emi)=>{
     month++;
     const interest=Math.round(bal*r*100)/100;
     const principal_part=Math.min(Math.round((emi-interest)*100)/100,bal);
+    if(principal_part<=0)break; /* safety: stop if principal part ever goes non-positive */
     const actualEmi=Math.round((interest+principal_part)*100)/100;
     bal=Math.round((bal-principal_part)*100)/100;
     schedule.push({month,emi:actualEmi,interest,principal:principal_part,balance:Math.max(0,bal)});
@@ -11603,7 +11617,11 @@ const AmortizationModal=({loan,onClose})=>{
     ),
     /* Schedule table */
     schedule.length===0
-      ? React.createElement("div",{style:{textAlign:"center",padding:"20px",color:"var(--text5)",fontSize:13}},"Cannot calculate schedule — please ensure EMI, Rate and Outstanding are all set.")
+      ? React.createElement("div",{style:{padding:"14px 16px",borderRadius:9,background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.3)",fontSize:12,color:"#ef4444",lineHeight:1.7}},
+          loan.rate>0&&loan.emi>0&&loan.outstanding>0
+            ?"⚠ EMI ("+INR(loan.emi)+") is too low to cover the first month's interest ("+INR(Math.round(loan.outstanding*(loan.rate/12/100)*100)/100)+"). The loan balance will grow every month instead of reducing. Please increase the EMI above this interest amount."
+            :"Cannot calculate schedule — please ensure EMI, Rate, and Outstanding are all set."
+        )
       : React.createElement("div",null,
           React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginBottom:8}},
             "Showing months "+(viewFrom+1)+"–"+Math.min(viewFrom+PAGE,schedule.length)+" of "+schedule.length
@@ -11756,6 +11774,7 @@ const LoanSection=React.memo(({loans,dispatch,allBanks=[],allCards=[],cash,isMob
         const pp=l.principal>0?((l.principal-l.outstanding)/l.principal*100):0;
         const col=LC[l.type]||"var(--text3)";
         const amortSch=calcAmortization(l.outstanding,l.rate,l.emi);
+        const emiTooLow=l.rate>0&&l.emi>0&&l.outstanding>0&&amortSch.length===0;
         const nextInterest=amortSch.length>0?amortSch[0].interest:null;
         const nextPrincipal=amortSch.length>0?amortSch[0].principal:null;
         return React.createElement(Card,{key:l.id,sx:{position:"relative"}},
@@ -11787,7 +11806,10 @@ const LoanSection=React.memo(({loans,dispatch,allBanks=[],allCards=[],cash,isMob
             )
           ),
           /* Next EMI breakdown (from amortization) */
-          nextInterest!=null&&React.createElement("div",{style:{display:"flex",gap:8,marginBottom:12}},
+          emiTooLow&&React.createElement("div",{style:{marginBottom:12,padding:"8px 12px",borderRadius:8,background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.3)",fontSize:11,color:"#ef4444",lineHeight:1.5}},
+            "⚠ EMI ("+INR(l.emi)+") is too low to cover monthly interest ("+INR(Math.round(l.outstanding*(l.rate/12/100)*100)/100)+"). The loan balance will grow instead of shrinking. Please increase the EMI."
+          ),
+          !emiTooLow&&nextInterest!=null&&React.createElement("div",{style:{display:"flex",gap:8,marginBottom:12}},
             React.createElement("div",{style:{flex:1,padding:"7px 10px",borderRadius:8,background:"rgba(109,40,217,.08)",border:"1px solid rgba(109,40,217,.2)",textAlign:"center"}},
               React.createElement("div",{style:{fontSize:9,color:"#6d28d9",textTransform:"uppercase",letterSpacing:.4,marginBottom:2}},"Next Interest"),
               React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#6d28d9",fontFamily:"'Sora',sans-serif"}},INR(nextInterest))
@@ -18977,7 +18999,11 @@ const ScheduledSection=React.memo(({state,dispatch})=>{
       ),
       !isCompleted&&React.createElement("div",{style:{display:"flex",gap:7,flexWrap:"wrap"}},
         React.createElement(Btn,{v:"success",sz:"sm",onClick:()=>{
-          if(isDue)return executeOne(sc);
+          if(isDue){
+            /* Guard: skip if already executed today */
+            if(sc.lastExecuted===today)return;
+            return executeOne(sc);
+          }
           setExecConfirm(sc);
         },sx:{flex:1,justifyContent:"center",minWidth:80}},isDue?"✓ Execute Now":"⚡ Execute Now"),
         React.createElement(Btn,{sz:"sm",onClick:()=>setEditSc(sc),sx:{justifyContent:"center",background:"var(--accentbg3)",border:"1px solid var(--border)",color:"var(--text3)"}},"✏ Edit"),
@@ -19058,7 +19084,11 @@ const ScheduledSection=React.memo(({state,dispatch})=>{
         React.createElement("div",{style:{fontSize:14,fontWeight:600,color:"#ef4444",marginBottom:3}},due.length+" scheduled transaction"+(due.length>1?"s":"")+" are due"),
         React.createElement("div",{style:{fontSize:12,color:"var(--text4)"}},"Execute all at once or click individual cards below")
       ),
-      React.createElement(Btn,{v:"danger",onClick:()=>due.forEach(sc=>dispatch({type:"EXECUTE_SCHEDULED",sc}))},"⚡ Execute All Due")
+      React.createElement(Btn,{v:"danger",onClick:()=>{
+        /* Guard: skip any entry whose lastExecuted already equals today (auto-executed on load) */
+        const safeToRun=due.filter(sc=>sc.lastExecuted!==today);
+        safeToRun.forEach(sc=>dispatch({type:"EXECUTE_SCHEDULED",sc}));
+      }},"⚡ Execute All Due")
     ),
 
     /* ── Due Now (top priority) */

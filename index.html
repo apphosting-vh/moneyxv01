@@ -1954,6 +1954,7 @@ const INIT=()=>({
     foodBudget:"",leakThreshold:500,
     pyfDayTarget:10,
     budgetPlans:{},
+    yearlyBudgetPlans:{},
   },
 });
 
@@ -2005,6 +2006,7 @@ const EMPTY_STATE=()=>({
     foodBudget:"",leakThreshold:500,
     pyfDayTarget:10,
     budgetPlans:{},
+    yearlyBudgetPlans:{},
   },
 });
 
@@ -2034,10 +2036,19 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.32.17";
+const APP_VERSION="3.32.18";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.32.18",date:"2026-03-20",title:"Feature — Separate Yearly Budget Planning & dual Monthly/Yearly Budget views in Insights",changes:[
+    "New insightPrefs field: yearlyBudgetPlans{} — a per-category yearly budget amount stored independently from the monthly budgetPlans. This lets users plan one-off or infrequent annual expenses (insurance premiums, travel, festivals, school fees, etc.) separately from month-on-month budgets.",
+    "Settings → Insights Config: new '📅 Yearly Budget Planning' card section below the existing Monthly Budget Planning card. Per-category amount inputs, colour-coded dot, running total of yearly budget and a derived monthly average. Only expense + investment categories are shown.",
+    "Insights → Budget tab ('💰 Budget'): the 'Planned vs Actual' section now has a Monthly / Yearly view toggle. Monthly view is unchanged (12-month cards + 3-year summary using monthly plan × 12). Yearly view shows last 3 Indian Financial Years using the direct yearlyBudgetPlans amounts — current FY expanded by default, prior two years collapsed.",
+    "Yearly view: each year card shows planned vs actual per category directly against the yearly figure (not derived from monthly). Separate Investment sub-section mirrors the monthly view pattern.",
+    "hasYearlyBudgets flag: if only yearlyBudgetPlans are configured (no monthly plans), the 'No budget plans configured' empty state is suppressed and the Yearly tab is shown.",
+    "budgetTrackData useMemo: added yearsBudget[] array (parallel to existing years[]) computed from yearlyBudgetPlans. Dependency array updated to include P.yearlyBudgetPlans.",
+    "Reset Insights Config handler updated to also clear yearlyBudgetPlans:{}.",
+  ]},
   {version:"3.32.17",date:"2026-03-20",title:"Fix — Dashboard budget widgets incorrectly counted investments as expenses",changes:[
     "Root cause: Both Dashboard budget widgets (H: Budget vs Actuals strip, L: Category Budget Alerts) computed expense actuals with if(ct==='Transfer'||ct==='Income')return — they excluded Transfers and Income but NOT Investment. Any SIP, stock purchase, or PPF debit tagged with an Investment category was silently included in the expense actual, inflating 'Spent This Month' totals and triggering false budget overrun warnings.",
     "Fix — Budget vs Actuals strip (Widget H): getActuals() now adds ct==='Investment' to the exclusion guard. Investment-classified categories are also filtered out of the rows list so investment budget targets do not appear as expense progress bars with red/orange danger colours.",
@@ -16256,13 +16267,57 @@ const InsightPrefsPanel=({state,dispatch})=>{
         );
       })()
     ),
+    React.createElement(Card,{sx:{marginBottom:16}},
+      React.createElement(SecHdr,{icon:"📆",title:"Yearly Budget Planning",sub:"Set a direct annual spending target per category — ideal for one-off or infrequent expenses like insurance premiums, travel, festivals, school fees. Shown in the Insights → Budget → Yearly view."}),
+      (()=>{
+        const spendCats=state.categories.filter(c=>c.classType!=="Income"&&c.classType!=="Transfer");
+        const yPlans=P.yearlyBudgetPlans||{};
+        const totalYearly=spendCats.reduce((s,c)=>s+(yPlans[c.name]||0),0);
+        return React.createElement(React.Fragment,null,
+          React.createElement("div",{className:"grid-2col"},
+            spendCats.map(cat=>
+              React.createElement("div",{key:"yb-"+cat.id,style:{marginBottom:13}},
+                React.createElement("label",{style:{display:"flex",alignItems:"center",gap:6,color:"var(--text5)",fontSize:11,textTransform:"uppercase",letterSpacing:.5,marginBottom:5}},
+                  React.createElement("span",{style:{width:8,height:8,borderRadius:"50%",background:cat.color||"#8ba0c0",flexShrink:0,display:"inline-block"}}),
+                  cat.name
+                ),
+                React.createElement("div",{style:{position:"relative",display:"flex",alignItems:"center"}},
+                  React.createElement("span",{style:{position:"absolute",left:10,fontSize:13,color:"var(--text5)",pointerEvents:"none"}},"₹"),
+                  React.createElement("input",{
+                    className:"inp",type:"number",min:0,
+                    value:yPlans[cat.name]||"",
+                    placeholder:"e.g. 60000",
+                    style:{paddingLeft:28,width:"100%"},
+                    onChange:e=>{
+                      const n=parseFloat(e.target.value);
+                      set("yearlyBudgetPlans",{...yPlans,[cat.name]:isNaN(n)?0:n});
+                      flash();
+                    }
+                  })
+                )
+              )
+            )
+          ),
+          totalYearly>0&&React.createElement("div",{style:{marginTop:4,padding:"10px 14px",background:"var(--bg4)",borderRadius:8,display:"flex",gap:24,flexWrap:"wrap",borderTop:"1px solid var(--border2)"}},
+            React.createElement("div",null,
+              React.createElement("div",{style:{fontSize:9,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.5,marginBottom:2}},"Total Yearly Budget"),
+              React.createElement("div",{style:{fontSize:16,fontFamily:"'Sora',sans-serif",fontWeight:800,color:"var(--accent)"}},INR(totalYearly))
+            ),
+            React.createElement("div",null,
+              React.createElement("div",{style:{fontSize:9,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.5,marginBottom:2}},"Monthly Average"),
+              React.createElement("div",{style:{fontSize:16,fontFamily:"'Sora',sans-serif",fontWeight:800,color:"var(--text3)"}},INR(Math.round(totalYearly/12)))
+            )
+          )
+        );
+      })()
+    ),
     React.createElement(Card,{sx:{border:"1px solid rgba(180,83,9,.2)",background:"rgba(180,83,9,.03)"}},
       React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}},
         React.createElement("div",null,
           React.createElement("div",{style:{fontSize:13,fontWeight:600,color:"var(--text3)",marginBottom:3}},"Reset Insights Config"),
           React.createElement("div",{style:{fontSize:12,color:"var(--text5)"}},"Restore all Insights settings to recommended defaults.")
         ),
-        React.createElement(Btn,{v:"secondary",onClick:()=>{dispatch({type:"SET_INSIGHT_PREFS",p:{currentAge:"",retirementAge:45,fireMode:"auto",manualFireNumber:"",annualReturnPct:10,withdrawalRatePct:4,expenseMode:"auto",manualMonthlyExpense:"",manualMonthlyIncome:"",incomeMode:"auto",emergencyTargetMonths:6,emergencyExpenseOverride:"",savingsRateTarget:30,discSpendTarget:15,benchmarkReturnPct:12,equityTarget:70,debtTarget:15,reTarget:15,foodBudget:"",leakThreshold:500,pyfDayTarget:10,expRatioDanger:80,budgetPlans:{}}});flash();}},"↺ Reset to Defaults")
+        React.createElement(Btn,{v:"secondary",onClick:()=>{dispatch({type:"SET_INSIGHT_PREFS",p:{currentAge:"",retirementAge:45,fireMode:"auto",manualFireNumber:"",annualReturnPct:10,withdrawalRatePct:4,expenseMode:"auto",manualMonthlyExpense:"",manualMonthlyIncome:"",incomeMode:"auto",emergencyTargetMonths:6,emergencyExpenseOverride:"",savingsRateTarget:30,discSpendTarget:15,benchmarkReturnPct:12,equityTarget:70,debtTarget:15,reTarget:15,foodBudget:"",leakThreshold:500,pyfDayTarget:10,expRatioDanger:80,budgetPlans:{},yearlyBudgetPlans:{}}});flash();}},"↺ Reset to Defaults")
       )
     )
   );
@@ -21292,6 +21347,7 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
   const P=prefs||{};
   const[stab,setStab]=useState("pulse");
   const[schedConfirm,setSchedConfirm]=useState(null);
+  const[budgetView,setBudgetView]=useState("monthly"); /* "monthly" | "yearly" */
 
   const now=new Date();
   const pad=n=>String(n).padStart(2,"0");
@@ -21408,7 +21464,9 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
   /* ── BUDGET PLANNED vs ACTUAL ── */
   const budgetTrackData=React.useMemo(()=>{
     const plans=P.budgetPlans||{};
+    const yPlans=P.yearlyBudgetPlans||{};
     const hasBudgets=Object.values(plans).some(v=>v>0);
+    const hasYearlyBudgets=Object.values(yPlans).some(v=>v>0);
     const buildMonthData=(mS,mE)=>{
       const actualByCat={};
       const actualInvestByCat={};
@@ -21492,8 +21550,43 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
     };
     const currentFY=getCurrentIndianFY();
     const years=[buildYearData(currentFY-2),buildYearData(currentFY-1),buildYearData(currentFY)];
-    return {hasBudgets,months,years};
-  },[allTxns,categories,P.budgetPlans]);
+    /* ── Yearly budget plans (direct yearly amounts, not monthly×12) ── */
+    const buildYearlyBudgetData=(fyStartYear)=>{
+      const fyDates=getIndianFYDates(fyStartYear);
+      const yS=fyDates.from,yE=fyDates.to;
+      const isCurrent=fyStartYear===currentFY;
+      const yCatAmt={},yInvAmt={};
+      allTxns.filter(t=>t.type==="debit"&&t.date>=yS&&t.date<=yE).forEach(t=>{
+        const ct=catClassType(categories,t.cat||"Others");
+        if(ct==="Transfer")return;
+        const cat=catMainName(t.cat||"Others");
+        if(ct==="Investment"){yInvAmt[cat]=(yInvAmt[cat]||0)+t.amount;}
+        else if(ct!=="Income"){yCatAmt[cat]=(yCatAmt[cat]||0)+t.amount;}
+      });
+      const income=allTxns.filter(t=>catClassType(categories,t.cat||"Others")==="Income"&&t.date>=yS&&t.date<=yE).reduce((s,t)=>s+t.amount,0);
+      const allCats=new Set([...Object.keys(yPlans).filter(k=>(yPlans[k]||0)>0),...Object.keys(yCatAmt)]);
+      const catRows=[];
+      allCats.forEach(cat=>{
+        const ct=catClassType(categories,cat);
+        if(ct==="Transfer"||ct==="Income"||ct==="Investment")return;
+        catRows.push({cat,planned:yPlans[cat]||0,actual:yCatAmt[cat]||0});
+      });
+      catRows.sort((a,b)=>(b.planned+b.actual)-(a.planned+a.actual));
+      const totalPlanned=catRows.reduce((s,r)=>s+r.planned,0);
+      const totalActual=catRows.reduce((s,r)=>s+r.actual,0);
+      const allInvCats=new Set([...Object.keys(yPlans).filter(k=>(yPlans[k]||0)>0&&catClassType(categories,k)==="Investment"),...Object.keys(yInvAmt)]);
+      const invCatRows=[];
+      allInvCats.forEach(cat=>invCatRows.push({cat,planned:yPlans[cat]||0,actual:yInvAmt[cat]||0}));
+      invCatRows.sort((a,b)=>(b.planned+b.actual)-(a.planned+a.actual));
+      const actualInvest=invCatRows.reduce((s,r)=>s+r.actual,0);
+      const plannedInvest=invCatRows.reduce((s,r)=>s+r.planned,0);
+      let monthsElapsed=12;
+      if(isCurrent){const nowMonth=now.getMonth();monthsElapsed=nowMonth>=3?(nowMonth-3+1):(nowMonth+9+1);}
+      return {year:getIndianFYLabel(fyStartYear),fyStartYear,isCurrent,catRows,totalPlanned,totalActual,income,invCatRows,actualInvest,plannedInvest,monthsElapsed,dateFrom:yS,dateTo:yE};
+    };
+    const yearsBudget=[buildYearlyBudgetData(currentFY-2),buildYearlyBudgetData(currentFY-1),buildYearlyBudgetData(currentFY)];
+    return {hasBudgets,hasYearlyBudgets,months,years,yearsBudget};
+  },[allTxns,categories,P.budgetPlans,P.yearlyBudgetPlans]);
 
   /* ── SUBSCRIPTION TRACKER (existing logic) ── */
   const subscriptionData=React.useMemo(()=>{
@@ -21988,39 +22081,90 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
 
     /* ── Planned vs Actual section ── */
     React.createElement("div",{style:{marginTop:22,paddingTop:18,borderTop:"1.5px solid var(--border)"}},
-      React.createElement(SHead,{t:"📊 Planned vs Actual",s:"Set monthly category budgets in Settings → Insights Config → Budget Planning"}),
-      !budgetTrackData.hasBudgets
+      React.createElement(SHead,{t:"📊 Planned vs Actual",s:"Set budgets in Settings → Insights Config → Budget Planning"}),
+      !(budgetTrackData.hasBudgets||budgetTrackData.hasYearlyBudgets)
         ?React.createElement(Card2,{sx:{textAlign:"center",padding:"28px 20px"}},
             React.createElement("div",{style:{fontSize:32,marginBottom:10}},"📋"),
             React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"var(--text3)",marginBottom:6}},"No budget plans configured"),
-            React.createElement("div",{style:{fontSize:12,color:"var(--text5)",lineHeight:1.7,maxWidth:360,margin:"0 auto"}},"Go to ",React.createElement("strong",null,"Settings → Insights Config → Budget Planning")," to set monthly targets per category. Once set, you'll see 12-month and yearly planned vs actual cards here.")
+            React.createElement("div",{style:{fontSize:12,color:"var(--text5)",lineHeight:1.7,maxWidth:360,margin:"0 auto"}},"Go to ",React.createElement("strong",null,"Settings → Insights Config → Budget Planning")," to set monthly targets, or ",React.createElement("strong",null,"Yearly Budget Planning")," for annual targets. Once set, you'll see planned vs actual cards here.")
           )
         :React.createElement(React.Fragment,null,
-            /* 6-month grid */
-            React.createElement(SHead,{t:"Last 12 Months",s:"Each card shows planned targets vs actual spend · click any card to expand or collapse"}),
-            React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:12,marginBottom:22}},
-              budgetTrackData.months.map(m=>React.createElement(BudgetMonthCard,{
-                key:m.mName+m.mYear,mName:m.mName,mYear:m.mYear,
-                catRows:m.catRows,totalPlanned:m.totalPlanned,totalActual:m.totalActual,
-                income:m.income,isCurrent:m.isCurrent,
-                actualInvest:m.actualInvest,plannedInvest:m.plannedInvest,invCatRows:m.invCatRows,
-                dateFrom:m.dateFrom,dateTo:m.dateTo,onJumpToLedger
-              }))
+            /* ── View Toggle ── */
+            React.createElement("div",{style:{display:"flex",gap:0,marginBottom:18,background:"var(--bg4)",borderRadius:10,padding:3,width:"fit-content",border:"1px solid var(--border2)"}},
+              ["monthly","yearly"].map(v=>React.createElement("button",{
+                key:v,
+                onClick:()=>setBudgetView(v),
+                style:{
+                  padding:"7px 20px",borderRadius:8,cursor:"pointer",
+                  fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:budgetView===v?700:400,
+                  border:"none",
+                  background:budgetView===v?"var(--accent)":"transparent",
+                  color:budgetView===v?"#fff":"var(--text5)",
+                  transition:"all .15s",whiteSpace:"nowrap"
+                }
+              },v==="monthly"?"📅 Monthly":"📆 Yearly"))
             ),
-            /* Yearly summary — last 3 years */
-            React.createElement(SHead,{t:"Last 3 Years",s:"Annual budget (monthly plan x 12) vs actual spend · current year shown expanded · click to expand or collapse"}),
-            React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:12}},
-              budgetTrackData.years.map(y=>React.createElement(BudgetYearCard,{
-                key:y.year,year:y.year,isCurrent:y.isCurrent,
-                catRows:y.catRows,totalPlanned:y.totalPlanned,totalActual:y.totalActual,
-                income:y.income,invCatRows:y.invCatRows,
-                actualInvest:y.actualInvest,plannedInvest:y.plannedInvest,
-                monthsElapsed:y.monthsElapsed,
-                dateFrom:y.dateFrom,dateTo:y.dateTo,onJumpToLedger
-              }))
+            /* ── MONTHLY VIEW ── */
+            budgetView==="monthly"&&React.createElement(React.Fragment,null,
+              !budgetTrackData.hasBudgets
+                ?React.createElement(Card2,{sx:{textAlign:"center",padding:"20px",marginBottom:16}},
+                    React.createElement("div",{style:{fontSize:13,color:"var(--text5)",lineHeight:1.7}},
+                      "No ",React.createElement("strong",null,"monthly")," budget set. Go to ",
+                      React.createElement("strong",null,"Settings → Insights Config → Budget Planning"),
+                      " to configure monthly targets per category."
+                    )
+                  )
+                :React.createElement(React.Fragment,null,
+                    React.createElement(SHead,{t:"Last 12 Months",s:"Each card shows planned targets vs actual spend · click any card to expand or collapse"}),
+                    React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:12,marginBottom:22}},
+                      budgetTrackData.months.map(m=>React.createElement(BudgetMonthCard,{
+                        key:m.mName+m.mYear,mName:m.mName,mYear:m.mYear,
+                        catRows:m.catRows,totalPlanned:m.totalPlanned,totalActual:m.totalActual,
+                        income:m.income,isCurrent:m.isCurrent,
+                        actualInvest:m.actualInvest,plannedInvest:m.plannedInvest,invCatRows:m.invCatRows,
+                        dateFrom:m.dateFrom,dateTo:m.dateTo,onJumpToLedger
+                      }))
+                    ),
+                    /* Yearly summary — monthly plan × 12 */
+                    React.createElement(SHead,{t:"Last 3 Years (Monthly Plan × 12)",s:"Annual budget derived from your monthly plan · current year shown expanded · click to expand or collapse"}),
+                    React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:12}},
+                      budgetTrackData.years.map(y=>React.createElement(BudgetYearCard,{
+                        key:y.year,year:y.year,isCurrent:y.isCurrent,
+                        catRows:y.catRows,totalPlanned:y.totalPlanned,totalActual:y.totalActual,
+                        income:y.income,invCatRows:y.invCatRows,
+                        actualInvest:y.actualInvest,plannedInvest:y.plannedInvest,
+                        monthsElapsed:y.monthsElapsed,
+                        dateFrom:y.dateFrom,dateTo:y.dateTo,onJumpToLedger
+                      }))
+                    )
+                  )
+            ),
+            /* ── YEARLY VIEW ── */
+            budgetView==="yearly"&&React.createElement(React.Fragment,null,
+              !budgetTrackData.hasYearlyBudgets
+                ?React.createElement(Card2,{sx:{textAlign:"center",padding:"20px"}},
+                    React.createElement("div",{style:{fontSize:13,color:"var(--text5)",lineHeight:1.7}},
+                      "No ",React.createElement("strong",null,"yearly")," budget set. Go to ",
+                      React.createElement("strong",null,"Settings → Insights Config → Yearly Budget Planning"),
+                      " to configure annual targets per category (insurance premiums, travel, festivals, school fees, etc.)."
+                    )
+                  )
+                :React.createElement(React.Fragment,null,
+                    React.createElement(SHead,{t:"Last 3 Financial Years — Yearly Budget",s:"Direct annual targets (not derived from monthly) · current FY expanded · click to expand or collapse"}),
+                    React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:12}},
+                      [...budgetTrackData.yearsBudget].reverse().map(y=>React.createElement(BudgetYearCard,{
+                        key:y.year+"_yb",year:y.year,isCurrent:y.isCurrent,
+                        catRows:y.catRows,totalPlanned:y.totalPlanned,totalActual:y.totalActual,
+                        income:y.income,invCatRows:y.invCatRows,
+                        actualInvest:y.actualInvest,plannedInvest:y.plannedInvest,
+                        monthsElapsed:y.monthsElapsed,
+                        dateFrom:y.dateFrom,dateTo:y.dateTo,onJumpToLedger
+                      }))
+                    )
+                  )
             )
+          )
     )
-  )
   );
 
   /* ══ 9. SUBSCRIPTIONS TAB (original) ══ */

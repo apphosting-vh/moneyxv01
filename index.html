@@ -2036,10 +2036,23 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.32.21";
+const APP_VERSION="3.32.23";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.32.23",date:"2026-03-21",title:"Crash Fix — Cash tab blank screen (TypeError: undefined is not iterable in catColor)",changes:[
+    "Root cause: v3.32.21 introduced accountName:'Cash' into the CashSection TxLedger prop list. The str_replace that inserted it replaced two lines — 'accType:\"cash\",' and the following 'categories,payees,' — with only the single accountName line, silently dropping both categories and payees from the Cash ledger's props.",
+    "Fix: categories and payees props restored to the CashSection TxLedger call immediately after accountName:'Cash'. All three props are now present: accType, accountName, categories, payees.",
+    "catColor(), txCatOptions useMemo, and several filter panel helpers inside TxLedger all iterate over categories; without it every for-of / .find / .filter crashed with 'undefined is not iterable', producing a blank screen as soon as the Cash tab was rendered.",
+  ]},
+  {version:"3.32.22",date:"2026-03-21",title:"Fix — Financial Calculator inputs and results persist across browser close/reopen",changes:[
+    "New localStorage key mm_calc_v1 stores all calculator state independently from the main app state (mm_v7_state). The calc key is listed in MM_LS_KEYS so it appears in the Storage Gauge breakdown.",
+    "InsightCalculators: all six pieces of state (swp inputs, swpResult, edu inputs, eduResult, ret inputs, retResult) plus the active calculator tab are saved to mm_calc_v1 on every change via a useEffect. Lazy useState initialisers load from the key on first mount so the last values are immediately available without any Calculate click.",
+    "XirrCalc: cashflow rows array and the computed XIRR result are saved to mm_calc_v1 on every change. Lazy initialisers restore them on mount. Default placeholder rows (Initial investment / Final value) are used only when no saved state exists.",
+    "loadCalcState() / saveCalcState() helpers are pure try/catch wrappers around localStorage; any parse or quota error is silently swallowed so a corrupted key never crashes the app.",
+    "Result objects (swpResult, eduResult, retResult) are also persisted so the last chart and table are visible immediately on reopen without needing to click Calculate again.",
+    "The active tab (swp / edu / retire / xirr) is also persisted, so reopening the browser lands on the same calculator the user was on.",
+  ]},
   {version:"3.32.21",date:"2026-03-20",title:"Feature — Export ledger to Excel & Re-import with upsert (no duplicates)",changes:[
     "New '⬇ Export Excel' button in every bank, card, and cash ledger toolbar (desktop). Exports the currently visible/filtered transactions to a .xlsx file. Columns: MM_ID (internal key), SN, Date, Reference/Number, Status, Type, Description, Payee, Category, Debit, Credit, Notes, Tags. The MM_ID column is the identity anchor used during re-import.",
     "Export filename includes the account name and today's date for easy identification (e.g. 'HDFC Savings Account-txns-2026-03-20.xlsx').",
@@ -9339,6 +9352,7 @@ const CashSection=React.memo(({cash,dispatch,categories,payees,allBanks,allCards
           openBalance:cash.balance-cash.transactions.filter(t=>t.status==="Reconciled").reduce((s,t)=>s+(t.type==="credit"?t.amount:-t.amount),0),
           accType:"cash",
           accountName:"Cash",
+          categories,payees,
           jumpTxId,
           jumpSerial,
           txTypes:TX_TYPES_CASH,
@@ -19625,6 +19639,11 @@ const LS_KEY="mm_v7_state";
 const LS_THEME="mm_v7_theme";
 const LS_PIN="mm_v7_pin";   /* stores SHA-256 hex hash of the 6-digit PIN */
 const SS_UNLOCK="mm_v7_unlocked"; /* sessionStorage — cleared when tab closes */
+const CALC_LS_KEY="mm_calc_v1"; /* Financial calculator inputs + results */
+
+/* ── Calculator state persistence helpers ── */
+const loadCalcState=()=>{try{return JSON.parse(localStorage.getItem(CALC_LS_KEY)||"{}");}catch{return {};}};
+const saveCalcState=data=>{try{localStorage.setItem(CALC_LS_KEY,JSON.stringify(data));}catch{};};
 
 const loadState=()=>{
   try{
@@ -19683,6 +19702,7 @@ const MM_LS_KEYS=[
   {key:"mm_db_hidden_widgets", label:"Dashboard widget visibility"},
   {key:"mm_fsa_no_warn",       label:"FSA warning preference"},
   {key:"itr3_ay2627_v1",       label:"Tax Estimator (legacy key)"},
+  {key:CALC_LS_KEY,            label:"Financial Calculator inputs & results"},
 ];
 
 /* The true localStorage limit — 5 MB, enforced per-origin by all major browsers
@@ -22722,12 +22742,22 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
    Computes true annualised XIRR using Newton-Raphson.
    ══════════════════════════════════════════════════════════════════════════ */
 const XirrCalc=()=>{
-  const[rows,setRows]=useState([
-    {id:uid(),date:TODAY(),amount:"-100000",label:"Initial investment"},
-    {id:uid(),date:TODAY(),amount:"",label:"Final value / redemption"},
-  ]);
-  const[result,setResult]=useState(null);
+  const[rows,setRows]=useState(()=>{
+    const saved=loadCalcState().xirrRows;
+    if(saved&&Array.isArray(saved)&&saved.length>=2)return saved;
+    return[
+      {id:uid(),date:TODAY(),amount:"-100000",label:"Initial investment"},
+      {id:uid(),date:TODAY(),amount:"",label:"Final value / redemption"},
+    ];
+  });
+  const[result,setResult]=useState(()=>loadCalcState().xirrResult||null);
   const[err,setErr]=useState("");
+
+  /* Persist rows and result on every change */
+  React.useEffect(()=>{
+    const current=loadCalcState();
+    saveCalcState({...current,xirrRows:rows,xirrResult:result});
+  },[rows,result]);
 
   const addRow=()=>setRows(r=>[...r,{id:uid(),date:TODAY(),amount:"",label:""}]);
   const delRow=id=>setRows(r=>r.filter(x=>x.id!==id));
@@ -22822,7 +22852,7 @@ const XirrCalc=()=>{
    INSIGHTS CALCULATORS — SWP · Child Education · Retirement
    ══════════════════════════════════════════════════════════════════════════ */
 const InsightCalculators=({isMobile})=>{
-  const[calc,setCalc]=useState("swp");
+  const[calc,setCalc]=useState(()=>loadCalcState().calc||"swp");
 
   /* ── shared helpers ── */
   const fmtCr=v=>{if(v>=10000000)return(v/10000000).toFixed(2)+" Cr";if(v>=100000)return(v/100000).toFixed(2)+" L";if(v>=1000)return(v/1000).toFixed(1)+"K";return Math.round(v).toString();};
@@ -22861,8 +22891,8 @@ const InsightCalculators=({isMobile})=>{
   /* ════════════════════════════════════════════════════
      1. SWP CALCULATOR
   ════════════════════════════════════════════════════ */
-  const[swp,setSwp]=useState({corpus:5000000,monthly:25000,years:20,returnPct:10,stepUpPct:5});
-  const[swpResult,setSwpResult]=useState(null);
+  const[swp,setSwp]=useState(()=>loadCalcState().swp||{corpus:5000000,monthly:25000,years:20,returnPct:10,stepUpPct:5});
+  const[swpResult,setSwpResult]=useState(()=>loadCalcState().swpResult||null);
   const ss=k=>v=>setSwp(p=>({...p,[k]:Number(v)||0}));
 
   const calcSWP=()=>{
@@ -22972,8 +23002,8 @@ const InsightCalculators=({isMobile})=>{
   /* ════════════════════════════════════════════════════
      2. CHILD EDUCATION CALCULATOR
   ════════════════════════════════════════════════════ */
-  const[edu,setEdu]=useState({costToday:2000000,childAge:5,targetAge:18,eduInflation:10,returnPct:12,currentSavings:0,sipStepUp:10,plannedSip:0});
-  const[eduResult,setEduResult]=useState(null);
+  const[edu,setEdu]=useState(()=>loadCalcState().edu||{costToday:2000000,childAge:5,targetAge:18,eduInflation:10,returnPct:12,currentSavings:0,sipStepUp:10,plannedSip:0});
+  const[eduResult,setEduResult]=useState(()=>loadCalcState().eduResult||null);
   const es=k=>v=>setEdu(p=>({...p,[k]:Number(v)||0}));
 
   const calcEdu=()=>{
@@ -23130,9 +23160,14 @@ const InsightCalculators=({isMobile})=>{
   /* ════════════════════════════════════════════════════
      3. RETIREMENT CALCULATOR
   ════════════════════════════════════════════════════ */
-  const[ret,setRet]=useState({monthlyExpense:50000,currentAge:30,retirementAge:60,lifeExpectancy:85,currentSavings:0,inflation:6,returnPct:10,postReturnPct:7,sipStepUp:10});
-  const[retResult,setRetResult]=useState(null);
+  const[ret,setRet]=useState(()=>loadCalcState().ret||{monthlyExpense:50000,currentAge:30,retirementAge:60,lifeExpectancy:85,currentSavings:0,inflation:6,returnPct:10,postReturnPct:7,sipStepUp:10});
+  const[retResult,setRetResult]=useState(()=>loadCalcState().retResult||null);
   const rs=k=>v=>setRet(p=>({...p,[k]:Number(v)||0}));
+
+  /* ── Persist all calculator state to localStorage on every change ── */
+  React.useEffect(()=>{
+    saveCalcState({calc,swp,swpResult,edu,eduResult,ret,retResult});
+  },[calc,swp,swpResult,edu,eduResult,ret,retResult]);
 
   const calcRet=()=>{
     const{monthlyExpense,currentAge,retirementAge,lifeExpectancy,currentSavings,inflation,returnPct,postReturnPct,sipStepUp}=ret;

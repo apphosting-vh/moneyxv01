@@ -2036,10 +2036,26 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.32.23";
+const APP_VERSION="3.32.25";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.32.25",date:"2026-03-21",title:"Crash Fix — SyntaxError in MonteCarloCalc RE Age div (} instead of ))",changes:[
+    "Root cause: in the RE Age badge inside MonteCarloCalc's input panel, the closing parenthesis of React.createElement was accidentally written as } instead of ), causing Babel to throw 'Unexpected token, expected \",\"' at parse time and produce a blank screen.",
+    "Fix: changed the single erroneous } to ) on that line. No logic change.",
+  ]},
+  {version:"3.32.24",date:"2026-03-21",title:"Feature — Monte Carlo FIRE Simulation added as new Financial Calculators tab",changes:[
+    "New '🎲 Monte Carlo' tab in Insights → Financial Calculators. Port of the FIRE_Model component, fully converted from JSX + Recharts to React.createElement + pure SVG — no new library dependencies.",
+    "Three-phase life model: Pre-FI (accumulation), Semi-retirement (FI→RE), Full retirement (post-RE drawdown). Each phase has configurable income, equity SIP, debt SIP increments.",
+    "Stochastic simulation: equity returns, debt returns, and inflation each independently drawn from NORM.INV(RAND(), μ, σ) per year per trial using the Box-Muller transform (normRand). 100–10,000 configurable trials.",
+    "Portfolio trajectory SVG chart: stacked P10-P25 / P25-P75 (core) / P75-P90 percentile bands + median line. Vertical reference lines mark FI age (amber) and RE age (red).",
+    "Survival probability SVG chart: fraction of trials where portfolio covers expenses at each age. Green area fill with reference lines at 80% and 50%.",
+    "Hover tooltip on both charts: tracks mouse X to nearest age, shows P10/P25/Median/P75/P90 values (portfolio chart) or survival % (survival chart) in a floating callout.",
+    "KPI cards: Median survival age · Corpus multiple at retirement · Survive-to-80 probability · Survive-to-90 probability. Color-coded green/amber/red by threshold.",
+    "All values in ₹ Lakhs (auto-formatted to Cr when ≥100L).",
+    "Inputs and last simulation result persisted to mm_calc_v1 localStorage key — same mechanism as other calculators. Reopening the browser restores the last configuration and result immediately.",
+    "Sidebar collapse note: the FI Age / RE Age indicator live-updates as inputs change, before running the simulation.",
+  ]},
   {version:"3.32.23",date:"2026-03-21",title:"Crash Fix — Cash tab blank screen (TypeError: undefined is not iterable in catColor)",changes:[
     "Root cause: v3.32.21 introduced accountName:'Cash' into the CashSection TxLedger prop list. The str_replace that inserted it replaced two lines — 'accType:\"cash\",' and the following 'categories,payees,' — with only the single accountName line, silently dropping both categories and payees from the Cash ledger's props.",
     "Fix: categories and payees props restored to the CashSection TxLedger call immediately after accountName:'Cash'. All three props are now present: accType, accountName, categories, payees.",
@@ -22741,6 +22757,422 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
    User adds dated cashflows (negative = invest, positive = redemption/sale).
    Computes true annualised XIRR using Newton-Raphson.
    ══════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   MONTE CARLO FIRE SIMULATION
+   Box-Muller normal RNG · Three-phase life model (pre-FI / semi-retire / full-retire)
+   Pure SVG charts — no Recharts dependency.
+   ══════════════════════════════════════════════════════════════════════════ */
+function mcNormRand(mu,sig){let u,v;do{u=Math.random();}while(!u);do{v=Math.random();}while(!v);return mu+sig*Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
+function mcQPct(sorted,f){return sorted[Math.min(Math.floor(sorted.length*f),sorted.length-1)]??0;}
+function mcFmtL(v,d=1){if(v==null||isNaN(v))return"—";const av=Math.abs(v);if(av>=10000000)return"₹"+(v/10000000).toFixed(d)+"Cr";if(av>=100000)return"₹"+(v/100000).toFixed(d)+"L";return"₹"+av.toFixed(d)+"L";}
+
+const MC_DEFAULTS={currentAge:36,fiYear:new Date().getFullYear()+5,fiWorkingYears:3,equityPort:80,debtPort:40,equityIn:25,debtIn:10,income:40,expense:15,incPreFI:20,eqPreFI:20,dbtPreFI:10,incPostFI:5,eqPostFI:10,dbtPostFI:10,payCut:50,eq2Dbt:5,dbt2Exp:80,inflMu:7,inflSig:2,eqMu:8,eqSig:30,dbtMu:4,dbtSig:0.7,trials:3000};
+
+function mcSimulate(cfg){
+  const baseYear=new Date().getFullYear();
+  const reYear=cfg.fiYear+cfg.fiWorkingYears;
+  const maxAge=100;
+  const n=maxAge-cfg.currentAge+1;
+  const byAge=Array.from({length:n},()=>[]);
+  const lastsArr=[],corpusArr=[];
+  for(let t=0;t<cfg.trials;t++){
+    let eq=cfg.equityPort,dbt=cfg.debtPort,eqIn=cfg.equityIn,dbtIn=cfg.debtIn,inc=cfg.income,exp=cfg.expense;
+    let dead=false,lastsAge=maxAge+1,corpus=0;
+    for(let i=0;i<n;i++){
+      const year=baseYear+i,age=cfg.currentAge+i;
+      const eqR=mcNormRand(cfg.eqMu/100,cfg.eqSig/100);
+      const dbtR=mcNormRand(cfg.dbtMu/100,cfg.dbtSig/100);
+      const infl=mcNormRand(cfg.inflMu/100,cfg.inflSig/100);
+      let nEqIn,nDbtIn,nInc,nExp;
+      if(i===0){nEqIn=eqIn;nDbtIn=dbtIn;nInc=inc;nExp=exp;}
+      else{
+        nExp=exp*(1+infl);
+        if(year>reYear){nEqIn=-(1-cfg.dbt2Exp/100)*exp-(cfg.eq2Dbt/100)*eq;nDbtIn=-(cfg.dbt2Exp/100)*exp+(cfg.eq2Dbt/100)*eq;nInc=0;}
+        else if(year>cfg.fiYear){nEqIn=eqIn*(1+cfg.eqPostFI/100);nDbtIn=dbtIn*(1+cfg.dbtPostFI/100);nInc=inc*(1+cfg.incPostFI/100);}
+        else{nEqIn=eqIn*(1+cfg.eqPreFI/100);nDbtIn=dbtIn*(1+cfg.dbtPreFI/100);nInc=year===cfg.fiYear?inc*(1-cfg.payCut/100):inc*(1+cfg.incPreFI/100);}
+      }
+      const nEq=Math.max(0,eq*(1+eqR)+nEqIn);
+      const nDbt=Math.max(0,dbt*(1+dbtR)+nDbtIn);
+      const port=nEq+nDbt;
+      if(!dead&&port<nExp){dead=true;lastsAge=age;}
+      if(!corpus&&year>=reYear)corpus=nExp>0?port/nExp:0;
+      byAge[i].push(dead?0:port);
+      eq=nEq;dbt=nDbt;eqIn=nEqIn;dbtIn=nDbtIn;inc=nInc;exp=nExp;
+    }
+    lastsArr.push(lastsAge);corpusArr.push(corpus);
+  }
+  const chartData=Array.from({length:n},(_,i)=>{
+    const s=[...byAge[i]].sort((a,b)=>a-b);
+    const age=cfg.currentAge+i;
+    const [p10,p25,p50,p75,p90]=[0.1,0.25,0.5,0.75,0.9].map(q=>mcQPct(s,q));
+    return{age,p10,p25,p50,p75,p90};
+  });
+  const survData=Array.from({length:n},(_,i)=>({
+    age:cfg.currentAge+i,
+    prob:+(lastsArr.filter(l=>l>cfg.currentAge+i).length/cfg.trials*100).toFixed(1),
+  }));
+  const sL=[...lastsArr].sort((a,b)=>a-b);
+  return{chartData,survData,
+    fiAge:cfg.fiYear-baseYear+cfg.currentAge,
+    reAge:reYear-baseYear+cfg.currentAge,
+    medianLasts:sL[Math.floor(cfg.trials/2)],
+    prob80:+(lastsArr.filter(l=>l>80).length/cfg.trials*100).toFixed(1),
+    prob90:+(lastsArr.filter(l=>l>90).length/cfg.trials*100).toFixed(1),
+    avgCorpus:+(corpusArr.reduce((a,b)=>a+b,0)/cfg.trials).toFixed(1),
+  };
+}
+
+const MonteCarloCalc=({isMobile})=>{
+  const[cfg,setCfg]=useState(()=>loadCalcState().monteCarlo?.cfg||MC_DEFAULTS);
+  const[res,setRes]=useState(()=>loadCalcState().monteCarlo?.res||null);
+  const[busy,setBusy]=useState(false);
+  const[hovPt,setHovPt]=useState(null); /* {type,idx,x,y} */
+
+  const set=(k,v)=>setCfg(c=>({...c,[k]:parseFloat(v)||0}));
+
+  React.useEffect(()=>{
+    const cur=loadCalcState();
+    saveCalcState({...cur,monteCarlo:{cfg,res}});
+  },[cfg,res]);
+
+  const run=()=>{
+    setBusy(true);
+    setTimeout(()=>{setRes(mcSimulate(cfg));setBusy(false);},20);
+  };
+
+  const baseYear=new Date().getFullYear();
+  const fiAge=cfg.fiYear-baseYear+cfg.currentAge;
+  const reAge=fiAge+cfg.fiWorkingYears;
+  const survCol=v=>v>=80?"#16a34a":v>=50?"#b45309":"#ef4444";
+
+  /* ── Input helpers ── */
+  const SecHead=({t})=>React.createElement("div",{style:{fontSize:10,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"var(--text5)",borderBottom:"1px solid var(--border2)",paddingBottom:5,margin:"14px 0 8px"}},"⟫ "+t);
+  const Inp2=({label,hint,value,onChange,step=1,min=0,max})=>React.createElement("div",{style:{marginBottom:8}},
+    React.createElement("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:3}},
+      React.createElement("span",{style:{fontSize:11,color:"var(--text5)"}},"₹ "+label),
+      hint&&React.createElement("span",{style:{fontSize:9,color:"var(--text6)"}},hint)
+    ),
+    React.createElement("input",{type:"number",className:"inp",value,min,max,step,
+      onChange:e=>onChange(e.target.value),
+      style:{padding:"6px 8px",fontSize:12,fontFamily:"'Sora',sans-serif",width:"100%"}})
+  );
+  const Grid2=(...children)=>React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},children);
+
+  /* ── SVG Portfolio Trajectory Chart ── */
+  const PortfolioChart=React.useMemo(()=>{
+    if(!res)return null;
+    const cd=res.chartData;
+    const W=560,H=240,pL=64,pR=20,pT=18,pB=34;
+    const pw=W-pL-pR,ph=H-pT-pB;
+    const ageMin=cd[0].age,ageMax=cd[cd.length-1].age;
+    const yMax=Math.max(...cd.map(d=>d.p90))*1.08||1;
+    const sx=a=>pL+(a-ageMin)/(ageMax-ageMin)*pw;
+    const sy=v=>pT+ph-(v/yMax)*ph;
+    const pts=key=>cd.map((d,i)=>(i===0?"M":"L")+sx(d.age).toFixed(1)+","+sy(d[key]).toFixed(1)).join(" ");
+    const band=(topK,botK)=>{
+      const fwd=cd.map((d,i)=>(i===0?"M":"L")+sx(d.age).toFixed(1)+","+sy(d[topK]).toFixed(1)).join(" ");
+      const bwd=[...cd].reverse().map(d=>"L"+sx(d.age).toFixed(1)+","+sy(d[botK]).toFixed(1)).join(" ");
+      return fwd+" "+bwd+" Z";
+    };
+    const yTicks=[0,0.25,0.5,0.75,1].map(f=>({v:yMax*f,y:sy(yMax*f)}));
+    const xTicks=[];for(let a=Math.ceil(ageMin/5)*5;a<=ageMax;a+=5)xTicks.push({a,x:sx(a)});
+    const onMove=e=>{
+      const rect=e.currentTarget.getBoundingClientRect();
+      const fracX=(e.clientX-rect.left-pL/rect.width*rect.width)/((pw/W)*rect.width);
+      const idx=Math.max(0,Math.min(cd.length-1,Math.round(fracX*(cd.length-1))));
+      const d=cd[idx];
+      const relX=(sx(d.age)/W)*rect.width;
+      const relY=rect.height*0.3;
+      setHovPt({type:"portfolio",idx,d,relX,relY});
+    };
+    return React.createElement("div",{style:{position:"relative",marginBottom:16}},
+      React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"var(--text3)",marginBottom:2}},"Portfolio Trajectory"),
+      React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginBottom:10}},
+        "Bands: P10–P25 / P25–P75 (core) / P75–P90 across "+cfg.trials.toLocaleString()+" trials · line = median"
+      ),
+      React.createElement("div",{style:{position:"relative"},
+        onMouseMove:onMove,onMouseLeave:()=>setHovPt(null)},
+        React.createElement("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",display:"block"},preserveAspectRatio:"none"},
+          /* grid lines */
+          yTicks.map(t=>React.createElement("line",{key:"yg"+t.v,x1:pL,y1:t.y,x2:W-pR,y2:t.y,stroke:"var(--border2)",strokeWidth:0.6,strokeDasharray:"3 3"})),
+          /* bands */
+          React.createElement("path",{d:band("p25","p10"),fill:"var(--accent)",fillOpacity:0.13,stroke:"none"}),
+          React.createElement("path",{d:band("p75","p25"),fill:"var(--accent)",fillOpacity:0.35,stroke:"none"}),
+          React.createElement("path",{d:band("p90","p75"),fill:"var(--accent)",fillOpacity:0.13,stroke:"none"}),
+          /* median */
+          React.createElement("path",{d:pts("p50"),fill:"none",stroke:"var(--accent)",strokeWidth:2,strokeLinecap:"round",strokeLinejoin:"round"}),
+          /* reference lines */
+          fiAge>=ageMin&&fiAge<=ageMax&&React.createElement("g",{key:"fiLine"},
+            React.createElement("line",{x1:sx(fiAge),y1:pT,x2:sx(fiAge),y2:H-pB,stroke:"#b45309",strokeWidth:1.5,strokeDasharray:"5 3"}),
+            React.createElement("text",{x:sx(fiAge)+3,y:pT+11,fontSize:9,fill:"#b45309",fontWeight:"bold"},"FI·"+fiAge)
+          ),
+          reAge>=ageMin&&reAge<=ageMax&&React.createElement("g",{key:"reLine"},
+            React.createElement("line",{x1:sx(reAge),y1:pT,x2:sx(reAge),y2:H-pB,stroke:"#ef4444",strokeWidth:1.5,strokeDasharray:"5 3"}),
+            React.createElement("text",{x:sx(reAge)+3,y:pT+22,fontSize:9,fill:"#ef4444",fontWeight:"bold"},"RE·"+reAge)
+          ),
+          /* hover cursor */
+          hovPt?.type==="portfolio"&&React.createElement("line",{x1:sx(cd[hovPt.idx].age),y1:pT,x2:sx(cd[hovPt.idx].age),y2:H-pB,stroke:"var(--accent)",strokeWidth:1,strokeOpacity:0.5}),
+          /* Y labels */
+          yTicks.map(t=>React.createElement("text",{key:"yl"+t.v,x:pL-4,y:t.y+4,textAnchor:"end",fontSize:9,fill:"var(--text5)"},mcFmtL(t.v,0))),
+          /* X labels */
+          xTicks.filter(t=>t.a%10===0).map(t=>React.createElement("text",{key:"xl"+t.a,x:t.x,y:H-pB+13,textAnchor:"middle",fontSize:9,fill:"var(--text5)"},t.a)),
+          /* axes */
+          React.createElement("line",{x1:pL,y1:pT,x2:pL,y2:H-pB,stroke:"var(--border)",strokeWidth:1}),
+          React.createElement("line",{x1:pL,y1:H-pB,x2:W-pR,y2:H-pB,stroke:"var(--border)",strokeWidth:1})
+        ),
+        /* tooltip */
+        hovPt?.type==="portfolio"&&React.createElement("div",{style:{
+          position:"absolute",left:hovPt.relX+8,top:12,
+          background:"var(--modal-bg)",border:"1px solid var(--border)",borderRadius:8,
+          padding:"8px 12px",fontSize:11,pointerEvents:"none",
+          boxShadow:"0 4px 16px rgba(0,0,0,.18)",zIndex:10,minWidth:130
+        }},
+          React.createElement("div",{style:{fontWeight:700,color:"var(--accent)",fontFamily:"'Sora',sans-serif",marginBottom:6}},"Age "+hovPt.d.age),
+          [["P90",hovPt.d.p90,"var(--accent)"],["P75",hovPt.d.p75,"var(--text3)"],["Median",hovPt.d.p50,"var(--text2)"],["P25",hovPt.d.p25,"var(--text3)"],["P10",hovPt.d.p10,"var(--text5)"]].map(([l,v,c])=>
+            React.createElement("div",{key:l,style:{display:"flex",justifyContent:"space-between",gap:16,marginBottom:2}},
+              React.createElement("span",{style:{color:"var(--text5)",fontSize:10}},l),
+              React.createElement("span",{style:{fontFamily:"'Sora',sans-serif",fontWeight:700,color:c,fontSize:11}},mcFmtL(v))
+            )
+          )
+        )
+      ),
+      /* legend */
+      React.createElement("div",{style:{display:"flex",gap:14,marginTop:6,fontSize:10,color:"var(--text5)",flexWrap:"wrap"}},
+        React.createElement("div",{style:{display:"flex",gap:4,alignItems:"center"}},React.createElement("div",{style:{width:16,height:6,background:"var(--accent)",opacity:.35,borderRadius:2}}),"P25–P75 core"),
+        React.createElement("div",{style:{display:"flex",gap:4,alignItems:"center"}},React.createElement("div",{style:{width:16,height:3,background:"var(--accent)",borderRadius:2}}),"Median"),
+        React.createElement("div",{style:{display:"flex",gap:4,alignItems:"center"}},React.createElement("div",{style:{width:16,height:2,background:"#b45309",borderRadius:2}}),"FI age"),
+        React.createElement("div",{style:{display:"flex",gap:4,alignItems:"center"}},React.createElement("div",{style:{width:16,height:2,background:"#ef4444",borderRadius:2}}),"RE age")
+      )
+    );
+  },[res,hovPt,fiAge,reAge,cfg.trials]);
+
+  /* ── SVG Survival Probability Chart ── */
+  const SurvivalChart=React.useMemo(()=>{
+    if(!res)return null;
+    const sd=res.survData;
+    const W=560,H=180,pL=44,pR=36,pT=12,pB=30;
+    const pw=W-pL-pR,ph=H-pT-pB;
+    const ageMin=sd[0].age,ageMax=sd[sd.length-1].age;
+    const sx=a=>pL+(a-ageMin)/(ageMax-ageMin)*pw;
+    const sy=p=>pT+ph-p/100*ph;
+    const linePts=sd.map((d,i)=>(i===0?"M":"L")+sx(d.age).toFixed(1)+","+sy(d.prob).toFixed(1)).join(" ");
+    const areaPath=linePts+" L"+sx(ageMax).toFixed(1)+","+(pT+ph)+" L"+sx(ageMin).toFixed(1)+","+(pT+ph)+" Z";
+    const y80=sy(80),y50=sy(50);
+    const onMove=e=>{
+      const rect=e.currentTarget.getBoundingClientRect();
+      const fracX=(e.clientX-rect.left-pL/W*rect.width)/((pw/W)*rect.width);
+      const idx=Math.max(0,Math.min(sd.length-1,Math.round(fracX*(sd.length-1))));
+      const d=sd[idx];
+      const relX=(sx(d.age)/W)*rect.width;
+      setHovPt({type:"survival",idx,d,relX,relY:20});
+    };
+    return React.createElement("div",{style:{position:"relative",marginBottom:8}},
+      React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"var(--text3)",marginBottom:2}},"Survival Probability by Age"),
+      React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginBottom:10}},
+        "Fraction of "+cfg.trials.toLocaleString()+" scenarios where portfolio still covers expenses"
+      ),
+      React.createElement("div",{style:{position:"relative"},
+        onMouseMove:onMove,onMouseLeave:()=>setHovPt(null)},
+        React.createElement("svg",{viewBox:"0 0 "+W+" "+H,style:{width:"100%",display:"block"},preserveAspectRatio:"none"},
+          React.createElement("defs",null,
+            React.createElement("linearGradient",{id:"mcSurvGrad",x1:"0",y1:"0",x2:"0",y2:"1"},
+              React.createElement("stop",{offset:"0%",stopColor:"#16a34a",stopOpacity:0.28}),
+              React.createElement("stop",{offset:"100%",stopColor:"#16a34a",stopOpacity:0.03})
+            )
+          ),
+          /* reference lines */
+          React.createElement("line",{x1:pL,y1:y80,x2:W-pR,y2:y80,stroke:"#16a34a",strokeWidth:0.8,strokeDasharray:"5 3"}),
+          React.createElement("text",{x:W-pR+3,y:y80+4,fontSize:9,fill:"#16a34a",fontWeight:"bold"},"80%"),
+          React.createElement("line",{x1:pL,y1:y50,x2:W-pR,y2:y50,stroke:"#b45309",strokeWidth:0.8,strokeDasharray:"5 3"}),
+          React.createElement("text",{x:W-pR+3,y:y50+4,fontSize:9,fill:"#b45309",fontWeight:"bold"},"50%"),
+          /* area + line */
+          React.createElement("path",{d:areaPath,fill:"url(#mcSurvGrad)",stroke:"none"}),
+          React.createElement("path",{d:linePts,fill:"none",stroke:"#16a34a",strokeWidth:1.8,strokeLinecap:"round"}),
+          /* hover cursor */
+          hovPt?.type==="survival"&&React.createElement("line",{x1:sx(sd[hovPt.idx].age),y1:pT,x2:sx(sd[hovPt.idx].age),y2:H-pB,stroke:"#16a34a",strokeWidth:1,strokeOpacity:0.5}),
+          /* Y labels */
+          [0,25,50,75,100].map(p=>React.createElement("text",{key:"sy"+p,x:pL-3,y:sy(p)+4,textAnchor:"end",fontSize:9,fill:"var(--text5)"},p+"%")),
+          /* X labels */
+          sd.filter(d=>d.age%10===0).map(d=>React.createElement("text",{key:"sx"+d.age,x:sx(d.age),y:H-pB+13,textAnchor:"middle",fontSize:9,fill:"var(--text5)"},d.age)),
+          /* axes */
+          React.createElement("line",{x1:pL,y1:pT,x2:pL,y2:H-pB,stroke:"var(--border)",strokeWidth:1}),
+          React.createElement("line",{x1:pL,y1:H-pB,x2:W-pR,y2:H-pB,stroke:"var(--border)",strokeWidth:1})
+        ),
+        /* tooltip */
+        hovPt?.type==="survival"&&React.createElement("div",{style:{
+          position:"absolute",left:Math.min(hovPt.relX+8,200),top:10,
+          background:"var(--modal-bg)",border:"1px solid var(--border)",borderRadius:8,
+          padding:"8px 12px",fontSize:11,pointerEvents:"none",
+          boxShadow:"0 4px 16px rgba(0,0,0,.18)",zIndex:10,minWidth:120
+        }},
+          React.createElement("div",{style:{fontWeight:700,color:"var(--accent)",fontFamily:"'Sora',sans-serif",marginBottom:5}},"Age "+hovPt.d.age),
+          React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:12}},
+            React.createElement("span",{style:{color:"var(--text5)"}},"%\ surviving"),
+            React.createElement("span",{style:{fontFamily:"'Sora',sans-serif",fontWeight:700,color:survCol(hovPt.d.prob)}},hovPt.d.prob+"%")
+          )
+        )
+      )
+    );
+  },[res,hovPt,cfg.trials]);
+
+  /* ── Layout ── */
+  return React.createElement("div",{style:{display:"flex",gap:16,flexWrap:"wrap",paddingBottom:20}},
+    /* ── LEFT PANEL: Inputs ── */
+    React.createElement("div",{style:{width:isMobile?"100%":264,flexShrink:0}},
+      React.createElement("div",{style:{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",marginBottom:12}},
+        /* FI/RE age badge */
+        React.createElement("div",{style:{display:"flex",gap:12,marginBottom:14,padding:"10px 12px",background:"var(--bg4)",borderRadius:8,border:"1px solid var(--border2)"  }},
+          React.createElement("div",{style:{flex:1}},
+            React.createElement("div",{style:{fontSize:9,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.6,marginBottom:2}},"FI Age"),
+            React.createElement("div",{style:{fontSize:20,fontFamily:"'Sora',sans-serif",fontWeight:800,color:"#b45309"}},fiAge),
+            React.createElement("div",{style:{fontSize:9,color:"var(--text6)"}},"yr "+cfg.fiYear)
+          ),
+          React.createElement("div",{style:{width:1,background:"var(--border2)"}}),
+          React.createElement("div",{style:{flex:1,paddingLeft:8}},
+            React.createElement("div",{style:{fontSize:9,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.6,marginBottom:2}},"RE Age"),
+            React.createElement("div",{style:{fontSize:20,fontFamily:"'Sora',sans-serif",fontWeight:800,color:"#ef4444"}},reAge),
+            React.createElement("div",{style:{fontSize:9,color:"var(--text6)"}},"yr "+(cfg.fiYear+cfg.fiWorkingYears))
+          )
+        ),
+        React.createElement("div",{style:{fontSize:10,color:"var(--text6)",fontStyle:"italic",marginBottom:2}},
+          "All values in ₹ Lakhs unless noted"
+        ),
+
+        React.createElement(SecHead,{t:"Life Timeline"}),
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+          React.createElement(Inp2,{label:"Current age",value:cfg.currentAge,onChange:v=>set("currentAge",v),min:18,max:80}),
+          React.createElement(Inp2,{label:"FI target year",value:cfg.fiYear,onChange:v=>set("fiYear",v),min:baseYear,step:1})
+        ),
+        React.createElement(Inp2,{label:"FI working years",hint:"0 = direct retire",value:cfg.fiWorkingYears,onChange:v=>set("fiWorkingYears",v),min:0,max:20}),
+
+        React.createElement(SecHead,{t:"Current Portfolio (₹ L)"}),
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+          React.createElement(Inp2,{label:"Equity value",value:cfg.equityPort,onChange:v=>set("equityPort",v)}),
+          React.createElement(Inp2,{label:"Debt value",value:cfg.debtPort,onChange:v=>set("debtPort",v)})
+        ),
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+          React.createElement(Inp2,{label:"Equity SIP/yr",value:cfg.equityIn,onChange:v=>set("equityIn",v)}),
+          React.createElement(Inp2,{label:"Debt SIP/yr",value:cfg.debtIn,onChange:v=>set("debtIn",v)})
+        ),
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+          React.createElement(Inp2,{label:"Income (post-tax)",value:cfg.income,onChange:v=>set("income",v)}),
+          React.createElement(Inp2,{label:"Annual expense",value:cfg.expense,onChange:v=>set("expense",v)})
+        ),
+
+        React.createElement(SecHead,{t:"Pre-FI Annual Growth (%)"}),
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+          React.createElement(Inp2,{label:"Income %",value:cfg.incPreFI,onChange:v=>set("incPreFI",v),step:.5}),
+          React.createElement(Inp2,{label:"Equity SIP %",value:cfg.eqPreFI,onChange:v=>set("eqPreFI",v),step:.5})
+        ),
+        React.createElement(Inp2,{label:"Debt SIP %",value:cfg.dbtPreFI,onChange:v=>set("dbtPreFI",v),step:.5}),
+
+        React.createElement(SecHead,{t:"Semi-Retirement — After FI (%)"}),
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+          React.createElement(Inp2,{label:"Income growth %",value:cfg.incPostFI,onChange:v=>set("incPostFI",v),step:.5}),
+          React.createElement(Inp2,{label:"Pay cut %",value:cfg.payCut,onChange:v=>set("payCut",v)})
+        ),
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+          React.createElement(Inp2,{label:"Equity SIP %",value:cfg.eqPostFI,onChange:v=>set("eqPostFI",v),step:.5}),
+          React.createElement(Inp2,{label:"Debt SIP %",value:cfg.dbtPostFI,onChange:v=>set("dbtPostFI",v),step:.5})
+        ),
+
+        React.createElement(SecHead,{t:"Withdrawal Strategy — After RE (%)"}),
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+          React.createElement(Inp2,{label:"Eq → Debt /yr",value:cfg.eq2Dbt,onChange:v=>set("eq2Dbt",v),step:.5}),
+          React.createElement(Inp2,{label:"Debt covers exp",value:cfg.dbt2Exp,onChange:v=>set("dbt2Exp",v)})
+        ),
+
+        React.createElement(SecHead,{t:"Market Assumptions (μ / σ %)"}),
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+          React.createElement(Inp2,{label:"Inflation μ",value:cfg.inflMu,onChange:v=>set("inflMu",v),step:.5}),
+          React.createElement(Inp2,{label:"Inflation σ",value:cfg.inflSig,onChange:v=>set("inflSig",v),step:.5})
+        ),
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+          React.createElement(Inp2,{label:"Equity return μ",value:cfg.eqMu,onChange:v=>set("eqMu",v),step:.5}),
+          React.createElement(Inp2,{label:"Equity return σ",value:cfg.eqSig,onChange:v=>set("eqSig",v)})
+        ),
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+          React.createElement(Inp2,{label:"Debt return μ",value:cfg.dbtMu,onChange:v=>set("dbtMu",v),step:.5}),
+          React.createElement(Inp2,{label:"Debt return σ",value:cfg.dbtSig,onChange:v=>set("dbtSig",v),step:.1})
+        ),
+
+        React.createElement(SecHead,{t:"Simulation"}),
+        React.createElement(Inp2,{label:"Trials",hint:"100–10,000",value:cfg.trials,onChange:v=>set("trials",Math.min(10000,Math.max(100,+v||3000))),step:500,min:100,max:10000}),
+
+        React.createElement("button",{
+          onClick:run,disabled:busy,
+          style:{
+            width:"100%",padding:"11px 0",marginTop:14,borderRadius:9,border:"none",
+            cursor:busy?"not-allowed":"pointer",fontSize:13,fontWeight:700,
+            fontFamily:"'DM Sans',sans-serif",letterSpacing:"0.04em",
+            background:busy?"var(--bg4)":"linear-gradient(135deg,var(--accent),var(--accent2))",
+            color:busy?"var(--text5)":"#fff",transition:"opacity .15s",
+            display:"flex",alignItems:"center",justifyContent:"center",gap:8
+          }
+        },
+          busy&&React.createElement("span",{className:"spinr",style:{width:13,height:13,border:"2px solid rgba(255,255,255,.3)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block"}}),
+          busy?"Simulating…":"▶ Run "+cfg.trials.toLocaleString()+" Trials"
+        )
+      )
+    ),
+
+    /* ── RIGHT PANEL: Results ── */
+    React.createElement("div",{style:{flex:1,minWidth:0}},
+      !res&&!busy&&React.createElement("div",{style:{
+        display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+        minHeight:340,background:"var(--card)",border:"2px dashed var(--border)",
+        borderRadius:12,gap:14,color:"var(--text5)",textAlign:"center",padding:24
+      }},
+        React.createElement("div",{style:{fontSize:40}},"🎲"),
+        React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"var(--text3)"}},"Configure your FIRE plan"),
+        React.createElement("div",{style:{fontSize:12,color:"var(--text5)",lineHeight:1.7,maxWidth:360}},
+          "Set your inputs on the left, then run ",
+          React.createElement("strong",{style:{color:"var(--accent)"}},cfg.trials.toLocaleString()),
+          " Monte Carlo trials. Each trial independently samples equity returns, debt returns, and inflation — mapping the probabilistic range of your retirement."
+        ),
+        React.createElement("div",{style:{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}},
+          ["Stochastic market returns","Three-phase life model","Survival probability curves"].map(tag=>
+            React.createElement("span",{key:tag,style:{fontSize:10,padding:"3px 10px",borderRadius:20,background:"var(--bg4)",border:"1px solid var(--border2)",color:"var(--text6)"}},tag)
+          )
+        )
+      ),
+      busy&&React.createElement("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:340,background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,gap:16}},
+        React.createElement("span",{className:"spinr",style:{width:36,height:36,border:"3px solid var(--bg4)",borderTopColor:"var(--accent)",borderRadius:"50%",display:"inline-block"}}),
+        React.createElement("div",{style:{fontSize:13,color:"var(--text5)"}},"Running "+cfg.trials.toLocaleString()+" scenarios × "+(100-cfg.currentAge)+" years…")
+      ),
+      res&&!busy&&React.createElement("div",null,
+        /* KPI row */
+        React.createElement("div",{style:{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}},
+          ...[
+            {label:"Median survival age",value:res.medianLasts>100?"100+":String(res.medianLasts),sub:"50% of "+cfg.trials.toLocaleString()+" scenarios",col:"var(--accent)"},
+            {label:"Corpus at retirement",value:res.avgCorpus+"×",sub:"avg expense multiple at age "+res.reAge,col:"var(--accent)"},
+            {label:"Survive to 80",value:res.prob80+"%",sub:"probability",col:survCol(res.prob80)},
+            {label:"Survive to 90",value:res.prob90+"%",sub:"probability",col:survCol(res.prob90)},
+          ].map(k=>React.createElement("div",{key:k.label,style:{
+            flex:"1 1 130px",minWidth:120,background:"var(--card)",border:"1px solid var(--border)",
+            borderLeft:"3px solid "+k.col,borderRadius:10,padding:"12px 14px"
+          }},
+            React.createElement("div",{style:{fontSize:10,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.4,marginBottom:5}},k.label),
+            React.createElement("div",{style:{fontSize:22,fontFamily:"'Sora',sans-serif",fontWeight:800,color:k.col,lineHeight:1}},k.value),
+            React.createElement("div",{style:{fontSize:10,color:"var(--text6)",marginTop:4}},k.sub),
+            React.createElement("div",{style:{height:2,background:k.col,opacity:.15,marginTop:10,borderRadius:1}})
+          ))
+        ),
+        /* charts */
+        React.createElement("div",{style:{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"16px 18px",marginBottom:12}},
+          PortfolioChart
+        ),
+        React.createElement("div",{style:{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"16px 18px",marginBottom:12}},
+          SurvivalChart
+        ),
+        React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textAlign:"center",paddingBottom:4,lineHeight:1.6}},
+          "Returns drawn from NORM.INV(RAND(), μ, σ) each trial year · MAX(0,…) floors prevent negative portfolios · Simulated to age 100"
+        )
+      )
+    )
+  );
+};
+
 const XirrCalc=()=>{
   const[rows,setRows]=useState(()=>{
     const saved=loadCalcState().xirrRows;
@@ -22881,10 +23313,11 @@ const InsightCalculators=({isMobile})=>{
     React.createElement("div",{style:{height:"100%",width:Math.min(pct,100)+"%",background:col||"var(--accent)",borderRadius:4,transition:"width .4s"}})
   );
   const calcTabs=[
-    {id:"swp",   label:"📤 SWP Calculator"},
-    {id:"edu",   label:"🎓 Child Education"},
-    {id:"retire",label:"🏖 Retirement"},
-    {id:"xirr",  label:"📊 XIRR Calculator"},
+    {id:"swp",         label:"📤 SWP Calculator"},
+    {id:"edu",         label:"🎓 Child Education"},
+    {id:"retire",      label:"🏖 Retirement"},
+    {id:"xirr",        label:"📊 XIRR Calculator"},
+    {id:"montecarlo",  label:"🎲 Monte Carlo"},
   ];
   const tabSty=id=>({padding:"8px 16px",borderRadius:8,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:calc===id?700:400,border:"none",background:calc===id?"var(--accentbg)":"transparent",color:calc===id?"var(--accent)":"var(--text5)",transition:"all .15s",whiteSpace:"nowrap"});
 
@@ -23165,6 +23598,7 @@ const InsightCalculators=({isMobile})=>{
   const rs=k=>v=>setRet(p=>({...p,[k]:Number(v)||0}));
 
   /* ── Persist all calculator state to localStorage on every change ── */
+  /* Note: MonteCarloCalc manages its own mm_calc_v1 slice internally */
   React.useEffect(()=>{
     saveCalcState({calc,swp,swpResult,edu,eduResult,ret,retResult});
   },[calc,swp,swpResult,edu,eduResult,ret,retResult]);
@@ -23345,7 +23779,8 @@ const InsightCalculators=({isMobile})=>{
     calc==="swp"&&SwpCalc,
     calc==="edu"&&EduCalc,
     calc==="retire"&&RetCalc,
-    calc==="xirr"&&React.createElement(XirrCalc,null)
+    calc==="xirr"&&React.createElement(XirrCalc,null),
+    calc==="montecarlo"&&React.createElement(MonteCarloCalc,{isMobile})
   );
 };
 

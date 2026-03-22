@@ -2036,10 +2036,13 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.33.3";
+const APP_VERSION="3.33.4";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.33.4",date:"2026-03-22",title:"Fix — Parse SMS button missing on mobile ledger toolbar",changes:[
+    "The mobile TxLedger toolbar only had '+ New', sort, and Filter buttons. The '⬆ Import Excel' and '📲 Parse SMS' buttons were desktop-only (rendered in the desktop column-header toolbar). Added both to the mobile toolbar as compact icon-only buttons (⬆ for import, 📲 for SMS parse) with title tooltips. The modals they open were already wired correctly for mobile — only the trigger buttons were absent.",
+  ]},
   {version:"3.33.3",date:"2026-03-22",title:"Fix — Share button blank screen (React error #310: useState inside IIFE)",changes:[
     "Root cause: the Share Summary modal was implemented as an IIFE (()=>{...})() inside Dashboard's return. The IIFE called useState(false) for the copy-to-clipboard state. React error #310 means 'Hooks can only be called inside the body of a function component' — an IIFE is not a component, so React throws and blanks the screen.",
     "Fix: extracted the entire modal into a proper named component ShareSummaryModal defined at module scope before Dashboard. Data needed for the summary (data, allBankTx, thisMonth) is passed as props. The useState hook is now at the top of a real component body. Dashboard renders it as React.createElement(ShareSummaryModal, {data, allBankTx, thisMonth, onClose}).",
@@ -5777,6 +5780,8 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
       /* Mobile toolbar */
       React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6,padding:"8px 10px",borderBottom:"1px solid var(--border)",background:"var(--bg4)",flexShrink:0,flexWrap:"wrap"}},
         React.createElement("button",{onClick:onNew,style:tbBtn("var(--accent)","var(--accentbg)")},"+ New"),
+        React.createElement("button",{onClick:()=>setImportOpen(true),title:"Import from Excel",style:{...tbBtn("#0e7490","rgba(14,116,144,.12)"),minWidth:"auto"}},"⬆"),
+        React.createElement("button",{onClick:()=>setSmsOpen(true),title:"Parse bank SMS",style:{...tbBtn("#6d28d9","rgba(109,40,217,.10)"),minWidth:"auto"}},"📲"),
         React.createElement("button",{onClick:()=>handleSort(sortKey,sortDir==="asc"?"desc":"asc"),style:{...tbBtn("var(--text4)","var(--bg3)"),minWidth:"auto"}},
           (sortDir==="desc"?"↓ ":"↑ ")+({date:"Date",desc_col:"Desc",payee:"Payee",cat:"Category",out:"Out",in:"In",balance:"Balance"}[sortKey]||"Date")
         ),

@@ -2038,10 +2038,20 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.34.9";
+const APP_VERSION="3.34.10";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.34.10",date:"2026-03-23",title:"Fix — ReferenceError: activeTxTypes not defined in TxEditModal (Edit Transaction blank screen)",changes:[
+    "Root cause: TxEditModal used activeTxTypes in two places — the Type dropdown (.map()) and the account picker onChange (setActiveTxTypes) — but the useState declaration was never added to TxEditModal, only to TxModal.",
+    "Fix: Added const[activeTxTypes,setActiveTxTypes]=useState(txTypes); immediately after the existing useState hooks inside TxEditModal, mirroring the identical pattern already present in TxModal.",
+    "Effect: Opening Edit Transaction no longer throws ReferenceError and renders a blank screen. The Type dropdown populates correctly from the transaction\'s account type, and switching accounts during edit updates the Type options as expected.",
+  ]},
+  {version:"3.34.9",date:"2026-03-23",title:"Fix — getIndianFYDates / getIndianFYLabel string-concatenation bug corrupts FY date range",changes:[
+    "Root cause: Both getIndianFYLabel and getIndianFYDates performed arithmetic on fyStartYear (fyStartYear+1) without coercing it to a number first. Object.keys(periodAgg) in RptCatYearly produces string keys like \"2025\", so fyStartYear+1 evaluated as JS string concatenation: \"20251\" instead of 2026.",
+    "Cascading failures: (1) getIndianFYDates returned to: \"20251-03-31\" instead of \"2026-03-31\". (2) Date-range filters used string comparison — \"2026-01-15\" > \"20251-03-31\" is TRUE (char 3: '6' > '5'), so Jan–Mar transactions were incorrectly excluded from FY 2025 reports. (3) The date-chip displayed '04/01→/03-31' as seen in screenshot.",
+    "Fix: Added fyStartYear=+fyStartYear; as the first line in both getIndianFYLabel and getIndianFYDates. Coerces string → number, making both functions safe whether called with a number (2025) or a string (\"2025\"). All call sites correct without changes.",
+  ]},
   {version:"3.34.8",date:"2026-03-23",title:"Deep Audit Fix Round 4 — Excel FD totals column misalignment; export includes transfers in category breakdown",changes:[
     "Bug 1 FIXED — Excel FD export TOTALS row misaligned: The FD sheet TOTALS row was ['TOTALS','',principal_sum,'','',value_today,...]. Col 1=Principal header received blank, col 2=Rate header received principal_sum. Fixed to ['TOTALS',principal_sum,'','','',value_today,...] so principal total appears under the Principal column.",
     "Bug 2 FIXED — Excel/PDF export Category Breakdown includes transfer transactions: getTx() returns all transactions including those categorised as Transfer. getCatSummary() and getMonthlyCF() included them, inflating category debit/credit counts and adding a Transfer row to the Category Breakdown sheet. Fixed by filtering out Transfer-class transactions in getCatSummary() (getMonthlyCF already correctly buckets them separately as 'transfer' type).",
@@ -7134,6 +7144,7 @@ const ReceiptAttachPanel=({txId,receipts=[],onChange})=>{
 const TxEditModal=({tx,categories,payees,txTypes,onSave,onClose,allAccounts=[]})=>{
   const[f,setF]=useState({...tx,amount:String(tx.amount),_receipts:tx._receipts||[]});
   const[showTax,setShowTax]=useState(!!(tx.gstRate&&+tx.gstRate>0)||!!(tx.tdsRate&&+tx.tdsRate>0));
+  const[activeTxTypes,setActiveTxTypes]=useState(txTypes); // tracks correct type list for selected account
   const isTransfer=f.txType==="Transfer";
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
   const lbl={display:"block",color:"var(--text5)",fontSize:11,textTransform:"uppercase",letterSpacing:.5,marginBottom:5};

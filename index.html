@@ -2036,10 +2036,21 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.34.4";
+const APP_VERSION="3.34.6";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.34.6",date:"2026-03-23",title:"Feature — Edit Mutual Fund entries (units, avg NAV, invested, scheme code, name, start date)",changes:[
+    "Added an ✏ Edit button to every MF card in the Mutual Funds tab. Opens a full Edit Mutual Fund modal with all fields: Fund Name, Scheme Code (AMFI), Units Held, Avg NAV (cost price), Invested Amount (auto-calculated from units×avgNAV when both are filled), Start Date (first purchase date — used for XIRR calculation), Current NAV, Current Value (manual override, cleared when Refresh NAV is run), and Notes.",
+    "Live calc hint: when units and avgNAV are both filled, shows the auto-computed invested amount below the field so users can verify before saving.",
+    "Dispatches EDIT_MF which already existed in the reducer and spreads all fields correctly.",
+    "Edit button placed in the card footer alongside the existing scheme code line, styled consistently with FD and Real Estate edit patterns.",
+  ]},
+  {version:"3.34.5",date:"2026-03-23",title:"Deep Audit Fix Round 2 — CapGainsTab: wrong tax rates, wrong LTCG threshold, wrong per-holding exemption",changes:[
+    "Bug 7 FIXED — CapGainsTab (Insights → Cap Gains) used pre-Budget 2024 rates: STCG 15% (was), LTCG 10% (was), LTCG exemption ₹1,00,000 (was). Correct Budget 2024 / FY 2025-26 rates: STCG 20%, LTCG 12.5%, LTCG annual exemption ₹1,25,000. The InvestDashboard CapitalGainsCard (Investments section) already had the correct rates — CapGainsTab was written separately and missed the update.",
+    "Bug 8 FIXED — CapGainsTab LTCG holding threshold: used ageMonths>=12 (i.e. holding classified as LTCG at exactly 12 months = 365 days). Budget 2024 defines LTCG as held MORE THAN 12 months (>12, not >=12). Changed to ageMonths>12 to match InvestDashboard computeCapitalGains() and the actual tax rule.",
+    "Bug 9 FIXED — CapGainsTab per-holding LTCG tax column applied ₹1L exemption to EACH holding individually: fmt(Math.max(0,h.gain-ltcgExempt)*0.10). The ₹1.25L exemption is an ANNUAL allowance shared across ALL LTCG gains combined — not per holding. Per-holding column now shows raw gain × 12.5% with a note that the exemption is applied at the total level (shown in the KPI strip). Avoids showing misleadingly low per-holding tax.",
+  ]},
   {version:"3.34.4",date:"2026-03-23",title:"Deep Audit Fix — 6 bugs: notification budget filter, Save & New attachments, lastExecuted date, notification panel spam, catch-up warning, billing cycle exact-day",changes:[
     "Bug 1 FIXED — Notification budget alert: checkAndFireNotifications() now filters catClassType before counting debit transactions. Investment (SIP/stocks/PPF) and Transfer debits are excluded from expense budget totals, matching the same logic in Dashboard Widget H. Previously SIPs inflated expense categories and triggered false overrun alerts.",
     "Bug 2 FIXED — Save & New with attachments: TxModal now resets pendingReceipts to [] and the pendingId is refreshed via a useRef+counter trick — after save(true), the modal keeps the form open but clears attachments so the next transaction starts clean. IDB handles from the first transaction are correctly keyed to the first transaction's id.",
@@ -11656,6 +11667,7 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
   const[shF,setShF]=useState({company:"",ticker:"",qty:"",buyPrice:"",currentPrice:"",buyDate:TODAY(),notes:""});
   const[fdF,setFdF]=useState({bank:"",amount:"",rate:"",startDate:TODAY(),maturityDate:"",maturityAmount:"",notes:""});
   const[editFd,setEditFd]=useState(null);
+  const[editMf,setEditMf]=useState(null);   /* MF entry being edited */
   const[reF,setReF]=useState({title:"",acquisitionCost:"",acquisitionDate:TODAY(),currentValue:"",notes:""});
   const[editRe,setEditRe]=useState(null);
   const[noteEdit,setNoteEdit]=useState(null);
@@ -11958,7 +11970,22 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
               /* No startDate — show a subtle hint */
               return null;
             })(),
-            React.createElement("div",{style:{fontSize:11,color:"var(--text6)",marginTop:8}},"Scheme Code: "+m.schemeCode),
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}},
+              React.createElement("div",{style:{fontSize:11,color:"var(--text6)"}},"Scheme Code: "+m.schemeCode),
+              React.createElement("button",{
+                onClick:()=>setEditMf({...m,
+                  units:String(m.units||""),
+                  avgNav:String(m.avgNav||""),
+                  invested:String(m.invested||""),
+                  nav:String(m.nav||""),
+                  currentValue:String(m.currentValue||""),
+                  startDate:m.startDate||"",
+                }),
+                style:{padding:"3px 10px",borderRadius:7,border:"1px solid rgba(109,40,217,.35)",
+                  background:"rgba(109,40,217,.08)",color:"#6d28d9",cursor:"pointer",
+                  fontFamily:"'DM Sans',sans-serif",fontSize:11,fontWeight:600}
+              },"✏ Edit")
+            ),
             /* Note anchor */
             noteEdit&&noteEdit.type==="mf"&&noteEdit.id===m.id
               ? React.createElement("div",{style:{marginTop:8}},
@@ -12428,6 +12455,98 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
       )
     ),
     /* ── Edit FD modal */
+    /* ── Edit Mutual Fund modal ── */
+    editMf&&React.createElement(Modal,{title:"✏ Edit Mutual Fund",onClose:()=>setEditMf(null),w:500},
+      React.createElement(Field,{label:"Fund Name"},
+        React.createElement("input",{className:"inp",value:editMf.name||"",autoFocus:true,
+          onChange:e=>setEditMf(p=>({...p,name:e.target.value})),
+          placeholder:"e.g. Axis Bluechip Fund – Direct – Growth"})
+      ),
+      React.createElement(Field,{label:"Scheme Code (AMFI)"},
+        React.createElement("input",{className:"inp",value:editMf.schemeCode||"",
+          onChange:e=>setEditMf(p=>({...p,schemeCode:e.target.value})),
+          placeholder:"e.g. 120503"})
+      ),
+      React.createElement("div",{className:"grid-2col"},
+        React.createElement(Field,{label:"Units Held"},
+          React.createElement("input",{className:"inp",type:"number",step:"0.001",min:"0",
+            value:editMf.units,
+            onChange:e=>setEditMf(p=>({...p,units:e.target.value})),
+            placeholder:"e.g. 125.432"})
+        ),
+        React.createElement(Field,{label:"Avg NAV / Buy Price (₹)"},
+          React.createElement("input",{className:"inp",type:"number",step:"0.01",min:"0",
+            value:editMf.avgNav,
+            onChange:e=>setEditMf(p=>({...p,avgNav:e.target.value})),
+            placeholder:"e.g. 45.60"})
+        )
+      ),
+      /* Auto-calc hint */
+      (parseFloat(editMf.units)>0&&parseFloat(editMf.avgNav)>0)&&React.createElement("div",{style:{
+        padding:"7px 12px",borderRadius:8,background:"var(--accentbg)",
+        border:"1px solid rgba(180,83,9,.25)",fontSize:12,color:"var(--accent)",marginBottom:10
+      }},"📐 Computed invested: ",React.createElement("strong",null,INR(Math.round(parseFloat(editMf.units)*parseFloat(editMf.avgNav)))),
+        " (units × avg NAV)"),
+      React.createElement("div",{className:"grid-2col"},
+        React.createElement(Field,{label:"Invested Amount (₹)"},
+          React.createElement("input",{className:"inp",type:"number",min:"0",
+            value:editMf.invested,
+            onChange:e=>setEditMf(p=>({...p,invested:e.target.value})),
+            placeholder:"Auto from units × avg NAV, or override"})
+        ),
+        React.createElement(Field,{label:"Start Date (first purchase)"},
+          React.createElement("input",{className:"inp",type:"date",
+            value:editMf.startDate||"",
+            onChange:e=>setEditMf(p=>({...p,startDate:e.target.value}))})
+        ),
+        React.createElement(Field,{label:"Current NAV (₹)"},
+          React.createElement("input",{className:"inp",type:"number",step:"0.01",min:"0",
+            value:editMf.nav,
+            onChange:e=>setEditMf(p=>({...p,nav:e.target.value})),
+            placeholder:"Leave blank — updated by Refresh NAV"})
+        ),
+        React.createElement(Field,{label:"Current Value (₹)"},
+          React.createElement("input",{className:"inp",type:"number",min:"0",
+            value:editMf.currentValue,
+            onChange:e=>setEditMf(p=>({...p,currentValue:e.target.value})),
+            placeholder:"Auto from NAV × units"})
+        )
+      ),
+      React.createElement(Field,{label:"Notes"},
+        React.createElement("textarea",{className:"inp",
+          value:editMf.notes||"",
+          onChange:e=>setEditMf(p=>({...p,notes:e.target.value})),
+          placeholder:"Folio number, SIP date, goal, nominee…",
+          style:{resize:"vertical",minHeight:56,fontSize:13,lineHeight:1.5}})
+      ),
+      React.createElement("div",{style:{display:"flex",gap:8,paddingTop:10,borderTop:"1px solid var(--border)"}},
+        React.createElement(Btn,{
+          onClick:()=>{
+            if(!editMf.name)return;
+            const units=parseFloat(editMf.units)||0;
+            const avgNav=parseFloat(editMf.avgNav)||0;
+            /* If invested is blank but units+avgNav are filled, auto-compute */
+            const invested=parseFloat(editMf.invested)||(units>0&&avgNav>0?Math.round(units*avgNav):0);
+            dispatch({type:"EDIT_MF",p:{
+              id:editMf.id,
+              name:editMf.name,
+              schemeCode:editMf.schemeCode||"",
+              units,
+              avgNav:avgNav||null,
+              invested,
+              nav:parseFloat(editMf.nav)||editMf.nav||null,
+              currentValue:parseFloat(editMf.currentValue)||null,
+              startDate:editMf.startDate||null,
+              notes:editMf.notes||"",
+            }});
+            setEditMf(null);
+          },
+          disabled:!editMf.name,
+          sx:{flex:"1 1 120px",justifyContent:"center"}
+        },"Save Changes"),
+        React.createElement(Btn,{v:"secondary",onClick:()=>setEditMf(null),sx:{justifyContent:"center",minWidth:70}},"Cancel")
+      )
+    ),
     editFd&&React.createElement(Modal,{title:"✏ Edit Fixed Deposit",onClose:()=>setEditFd(null),w:480},
       React.createElement(Field,{label:"Bank / Institution"},
         React.createElement("input",{className:"inp",placeholder:"e.g. HDFC Bank",value:editFd.bank,onChange:e=>setEditFd(p=>({...p,bank:e.target.value})),autoFocus:true})
@@ -24564,8 +24683,9 @@ const XirrCalc=()=>{
    ══════════════════════════════════════════════════════════════════════════ */
 /* ══════════════════════════════════════════════════════════════════════════
    CAPITAL GAINS TAX ESTIMATOR
-   Classifies share/MF holdings as STCG (<12 months) or LTCG (≥12 months).
-   Equity: LTCG 10% above ₹1L exemption · STCG 15%.
+   Budget 2024 / FY 2025-26 rates (same as InvestDashboard CapitalGainsCard):
+   STCG u/s 111A  — held ≤12 months  → 20% flat
+   LTCG u/s 112A  — held >12 months  → 12.5% flat; ₹1,25,000 exemption p.a.
    ══════════════════════════════════════════════════════════════════════════ */
 const CapGainsTab=({shares=[],mf=[],isMobile})=>{
   const today=new Date();
@@ -24581,7 +24701,8 @@ const CapGainsTab=({shares=[],mf=[],isMobile})=>{
       const rawDate=buyDates["sh_"+sh.id]||sh.buyDate||null;
       const buyDate=rawDate?new Date(rawDate):null;
       const ageMonths=buyDate?Math.floor((today-buyDate)/(1000*60*60*24*30.44)):null;
-      const isLTCG=ageMonths!=null&&ageMonths>=12;
+      /* Budget 2024: LTCG requires MORE THAN 12 months (>12, not >=12) */
+      const isLTCG=ageMonths!=null&&ageMonths>12;
       const invested=sh.qty*(sh.avgPrice||sh.buyPrice||0);
       const current=sh.qty*sh.currentPrice;
       const gain=current-invested;
@@ -24591,7 +24712,8 @@ const CapGainsTab=({shares=[],mf=[],isMobile})=>{
       const rawDate=buyDates["mf_"+m.id]||m.buyDate||null;
       const buyDate=rawDate?new Date(rawDate):null;
       const ageMonths=buyDate?Math.floor((today-buyDate)/(1000*60*60*24*30.44)):null;
-      const isLTCG=ageMonths!=null&&ageMonths>=12;
+      /* Budget 2024: LTCG requires MORE THAN 12 months (>12, not >=12) */
+      const isLTCG=ageMonths!=null&&ageMonths>12;
       const current=m.currentValue||m.invested;
       const gain=current-m.invested;
       rows.push({id:"mf_"+m.id,name:m.scheme||m.name||"MF Folio",ticker:"",assetType:"Equity MF",buyDate:rawDate||"",ageMonths,isLTCG,invested:m.invested,current,gain,rawGainType:gain>=0?"gain":"loss"});
@@ -24599,13 +24721,15 @@ const CapGainsTab=({shares=[],mf=[],isMobile})=>{
     return rows.filter(r=>r.gain!==0);
   },[shares,mf,buyDates,today]);
 
-  /* Tax calculation — equity/equity-MF */
+  /* Tax calculation — Budget 2024 rates */
+  const STCG_RATE=0.20;    /* 20% u/s 111A */
+  const LTCG_RATE=0.125;   /* 12.5% u/s 112A */
+  const LTCG_EXEMPT=125000; /* ₹1,25,000 annual exemption */
   const stcgGains=holdings.filter(h=>!h.isLTCG&&h.ageMonths!=null&&h.gain>0).reduce((s,h)=>s+h.gain,0);
   const ltcgGains=holdings.filter(h=>h.isLTCG&&h.gain>0).reduce((s,h)=>s+h.gain,0);
-  const stcgTax=stcgGains*0.15;
-  const ltcgExempt=100000;
-  const ltcgTaxable=Math.max(0,ltcgGains-ltcgExempt);
-  const ltcgTax=ltcgTaxable*0.10;
+  const stcgTax=stcgGains*STCG_RATE;
+  const ltcgTaxable=Math.max(0,ltcgGains-LTCG_EXEMPT);
+  const ltcgTax=ltcgTaxable*LTCG_RATE;
   const totalTax=stcgTax+ltcgTax;
   const missingDates=holdings.filter(h=>!h.buyDate).length;
 
@@ -24614,14 +24738,14 @@ const CapGainsTab=({shares=[],mf=[],isMobile})=>{
   return React.createElement("div",{style:{paddingBottom:20}},
     React.createElement("div",{style:{marginBottom:16}},
       React.createElement("h3",{style:{fontFamily:"'Sora',sans-serif",fontSize:16,fontWeight:700,color:"var(--text)",marginBottom:3}},"📑 Capital Gains Tax Estimator"),
-      React.createElement("p",{style:{fontSize:12,color:"var(--text5)",lineHeight:1.6}},"Estimate STCG (15%) and LTCG (10% above ₹1L exemption) on shares and mutual funds. Add buy dates below for accurate classification. Not tax advice — consult your CA.")
+      React.createElement("p",{style:{fontSize:12,color:"var(--text5)",lineHeight:1.6}},"Budget 2024 rates — STCG (20% u/s 111A, held ≤12 months) and LTCG (12.5% u/s 112A, held >12 months, ₹1.25L annual exemption). Add buy dates below for accurate classification. Not tax advice — consult your CA.")
     ),
     /* KPI strip */
     React.createElement("div",{style:{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}},
       ...[
-        {label:"STCG Gains",val:stcgGains,sub:"Held <12 months · Tax: 15%",col:"#b45309",tax:stcgTax},
-        {label:"LTCG Gains",val:ltcgGains,sub:"Held ≥12 months · ₹1L exempt",col:"#6d28d9",tax:ltcgTax},
-        {label:"Estimated Tax",val:totalTax,sub:"STCG+LTCG combined",col:totalTax>0?"#ef4444":"#16a34a",tax:null},
+        {label:"STCG Gains",val:stcgGains,sub:"Held ≤12 months · Tax @ 20%",col:"#b45309",tax:stcgTax},
+        {label:"LTCG Gains",val:ltcgGains,sub:"Held >12 months · ₹1.25L exempt",col:"#6d28d9",tax:ltcgTax},
+        {label:"Estimated Tax",val:totalTax,sub:"STCG+LTCG · excl. surcharge & cess",col:totalTax>0?"#ef4444":"#16a34a",tax:null},
       ].map(k=>React.createElement("div",{key:k.label,style:{flex:"1 1 150px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 14px"}},
         React.createElement("div",{style:{fontSize:10,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.4,marginBottom:4}},k.label),
         React.createElement("div",{style:{fontSize:20,fontFamily:"'Sora',sans-serif",fontWeight:800,color:k.col}},fmt(k.val)),
@@ -24629,13 +24753,24 @@ const CapGainsTab=({shares=[],mf=[],isMobile})=>{
         React.createElement("div",{style:{fontSize:10,color:"var(--text5)",marginTop:2}},k.sub)
       ))
     ),
+    /* LTCG exemption usage bar */
+    ltcgGains>0&&React.createElement("div",{style:{marginBottom:14,padding:"10px 14px",borderRadius:10,background:"var(--card)",border:"1px solid var(--border)"}},
+      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:6}},
+        React.createElement("span",{style:{color:"var(--text4)",fontWeight:600}},"₹1.25L LTCG Annual Exemption Used"),
+        React.createElement("span",{style:{color:ltcgGains>=LTCG_EXEMPT?"#ef4444":"#16a34a",fontWeight:700}},fmt(Math.min(ltcgGains,LTCG_EXEMPT))+" / "+fmt(LTCG_EXEMPT)+" ("+(Math.min(100,Math.round(ltcgGains/LTCG_EXEMPT*100)))+"%)")
+      ),
+      React.createElement("div",{style:{background:"var(--bg5)",borderRadius:4,height:7,overflow:"hidden"}},
+        React.createElement("div",{style:{width:Math.min(100,ltcgGains/LTCG_EXEMPT*100)+"%",height:"100%",background:ltcgGains>=LTCG_EXEMPT?"#ef4444":"#16a34a",borderRadius:4,transition:"width .5s"}})
+      ),
+      ltcgGains>=LTCG_EXEMPT&&React.createElement("div",{style:{fontSize:10,color:"#ef4444",marginTop:4,fontWeight:600}},"⚠ Exemption fully used — remaining LTCG is taxable at 12.5%.")
+    ),
     missingDates>0&&React.createElement("div",{style:{padding:"9px 12px",borderRadius:9,background:"rgba(180,83,9,.08)",border:"1px solid rgba(180,83,9,.25)",fontSize:12,color:"#b45309",marginBottom:14}},
       "⚠ "+missingDates+" holding"+(missingDates===1?"":"s")+" missing a buy date — add dates below for accurate STCG/LTCG classification."
     ),
     /* Holdings table */
     React.createElement("div",{style:{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}},
       React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 90px 80px 80px 80px 90px",padding:"7px 12px",background:"var(--bg4)",borderBottom:"1px solid var(--border)",fontSize:10,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.4}},
-        "Holding","Buy Date","Held","Gain/Loss","Type","Tax Est."),
+        "Holding","Buy Date","Held","Gain/Loss","Type","Tax Est.†"),
       holdings.length===0&&React.createElement("div",{style:{padding:"30px",textAlign:"center",color:"var(--text5)",fontSize:13}},"No holdings with gains/losses found. Add shares or mutual funds in the Investments section."),
       holdings.map((h,i)=>React.createElement("div",{key:h.id,style:{display:"grid",gridTemplateColumns:"1fr 90px 80px 80px 80px 90px",padding:"9px 12px",borderBottom:i<holdings.length-1?"1px solid var(--border2)":"none",alignItems:"center",background:i%2?"var(--bg5)":"transparent"}},
         React.createElement("div",null,
@@ -24650,15 +24785,22 @@ const CapGainsTab=({shares=[],mf=[],isMobile})=>{
         React.createElement("div",null,
           h.ageMonths==null
             ?React.createElement("span",{style:{fontSize:10,color:"var(--text6)"}},"?")
-            :React.createElement("span",{style:{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:10,background:h.isLTCG?"rgba(109,40,217,.12)":"rgba(180,83,9,.12)",color:h.isLTCG?"#6d28d9":"#b45309"}},h.isLTCG?"LTCG":"STCG")
+            :React.createElement("span",{style:{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:10,
+                background:h.isLTCG?"rgba(109,40,217,.12)":"rgba(180,83,9,.12)",
+                color:h.isLTCG?"#6d28d9":"#b45309"}},h.isLTCG?"LTCG":"STCG")
         ),
+        /* Per-holding tax: STCG = gain×20%, LTCG = gain×12.5% (no per-row exemption —
+           the ₹1.25L is an annual combined exemption shown in the KPI strip above) */
         React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"#ef4444",fontFamily:"'Sora',sans-serif",textAlign:"right"}},
-          h.ageMonths==null?"—":h.gain<=0?"₹0":h.isLTCG?fmt(Math.max(0,h.gain-ltcgExempt)*0.10)+"*":fmt(h.gain*0.15)
+          h.ageMonths==null?"—":
+          h.gain<=0?"₹0":
+          h.isLTCG?fmt(h.gain*LTCG_RATE):
+          fmt(h.gain*STCG_RATE)
         )
       ))
     ),
     React.createElement("div",{style:{fontSize:10,color:"var(--text6)",marginTop:10,lineHeight:1.7}},
-      "* LTCG tax shown per-holding before applying the ₹1L annual exemption. Total LTCG exemption is shared across all holdings. Surcharge and cess not included. This is an estimate only."
+      "† Per-holding tax at applicable rate (STCG 20%, LTCG 12.5%). The ₹1,25,000 annual LTCG exemption is shared across all holdings combined — see KPI strip above for net liability. Surcharge (15%/25% above ₹1Cr/₹2Cr) and 4% health & education cess not included. This is an estimate only — consult a CA for actual tax computation."
     )
   );
 };

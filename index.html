@@ -2036,10 +2036,18 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.34.6";
+const APP_VERSION="3.34.7";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.34.7",date:"2026-03-23",title:"Fix — FAB Quick-Add Type dropdown + EDIT_CAT catRules cascade wrong field",changes:[
+    "Bug 1 FIXED — FAB Quick-Add Type dropdown shows wrong options after account switch: Added activeTxTypes state to TxModal, initialized from the txTypes prop, updated whenever the account picker onChange fires. The Type dropdown now renders activeTxTypes.map(...) instead of txTypes.map(...). Switching to a card now correctly shows Purchase/Payment/Refund, not Debit/Credit/Transfer.",
+    "Bug 2 FIXED — EDIT_CAT and EDIT_SUBCAT catRules cascade used wrong field name: The cascade updated r.category but catRules store the target category as r.cat (set by ADD_CAT_RULE and read by applyCatRule). So renaming a category never actually updated the matching auto-categorise rules, leaving them permanently pointing to the old name. Fixed both EDIT_CAT and EDIT_SUBCAT cascade to update r.cat instead of r.category.",
+  ]},
+  {version:"3.34.6",date:"2026-03-23",title:"Fix — FAB Quick-Add Type dropdown shows wrong options after account switch",changes:[
+    "Root cause: TxModal received txTypes as a prop (e.g. TX_TYPES_BANK from the FAB) and rendered the Type dropdown as txTypes.map(...) — always from the original prop regardless of which account the user later selected. When the account picker switched to a card, f.txType was correctly updated to TX_TYPES_CARD[0] (e.g. Purchase) but the dropdown options were still TX_TYPES_BANK (Debit/Credit/Transfer), so the selected value had no matching option and the dropdown showed blank.",
+    "Fix: Added activeTxTypes state (initialized from the txTypes prop) to TxModal. The account picker onChange handler now also sets activeTxTypes to the correct list for the newly chosen account type. The Type dropdown renders activeTxTypes.map(...) instead of txTypes.map(...). The txTypes prop is now only used for initialization and is correctly updated dynamically on account switch.",
+  ]},
   {version:"3.34.6",date:"2026-03-23",title:"Feature — Edit Mutual Fund entries (units, avg NAV, invested, scheme code, name, start date)",changes:[
     "Added an ✏ Edit button to every MF card in the Mutual Funds tab. Opens a full Edit Mutual Fund modal with all fields: Fund Name, Scheme Code (AMFI), Units Held, Avg NAV (cost price), Invested Amount (auto-calculated from units×avgNAV when both are filled), Start Date (first purchase date — used for XIRR calculation), Current NAV, Current Value (manual override, cleared when Refresh NAV is run), and Notes.",
     "Live calc hint: when units and avgNAV are both filled, shows the auto-computed invested amount below the field so users can verify before saving.",
@@ -4397,9 +4405,9 @@ const reducer=(s,a)=>{
         cards:s.cards.map(c=>({...c,transactions:c.transactions.map(_updTx)})),
         cash:{...s.cash,transactions:s.cash.transactions.map(_updTx)},
         scheduled:(s.scheduled||[]).map(_updSched),
-        /* Bug 6 fix: cascade category rename into catRules (match category field) */
+        /* Bug fix: cascade category rename into catRules — field is r.cat, not r.category */
         catRules:_nameChanged?(s.catRules||[]).map(r=>({...r,
-          category:r.category?_renamecat(r.category):r.category
+          cat:r.cat?_renamecat(r.cat):r.cat
         })):(s.catRules||[]),
       };
     }
@@ -4449,9 +4457,9 @@ const reducer=(s,a)=>{
         cards:s.cards.map(c=>({...c,transactions:c.transactions.map(_updSubTx)})),
         cash:{...s.cash,transactions:s.cash.transactions.map(_updSubTx)},
         scheduled:(s.scheduled||[]).map(_updSubSched),
-        /* Bug 6 fix: cascade sub-category rename into catRules */
+        /* Bug fix: cascade sub-category rename into catRules — field is r.cat, not r.category */
         catRules:_subNameChanged?(s.catRules||[]).map(r=>({...r,
-          category:r.category?_renameSubcat(r.category):r.category
+          cat:r.cat?_renameSubcat(r.cat):r.cat
         })):(s.catRules||[]),
       };
     }
@@ -7144,6 +7152,7 @@ const TxEditModal=({tx,categories,payees,txTypes,onSave,onClose,allAccounts=[]})
       React.createElement("select",{className:"inp",value:f.srcId||"",onChange:e=>{
         const acc=allAccounts.find(a=>a.id===e.target.value);
         const newTypes=acc?(acc.accType==="card"?TX_TYPES_CARD:acc.accType==="cash"?TX_TYPES_CASH:TX_TYPES_BANK):TX_TYPES_BANK;
+        setActiveTxTypes(newTypes);
         setF(p=>({...p,srcId:e.target.value,txType:newTypes[0]}));
       }},
         allAccounts.filter(a=>a.accType!=="loan").map(a=>
@@ -7152,7 +7161,7 @@ const TxEditModal=({tx,categories,payees,txTypes,onSave,onClose,allAccounts=[]})
       )
     ),
     F("Type",React.createElement("select",{className:"inp",value:f.txType||"",onChange:set("txType")},
-      txTypes.map(t=>React.createElement("option",{key:t},t))
+      activeTxTypes.map(t=>React.createElement("option",{key:t},t))
     )),
     F("Amount",React.createElement("div",{style:{position:"relative"}},
       React.createElement("span",{style:{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"var(--text4)",fontSize:15,fontWeight:600,pointerEvents:"none"}},"₹"),
@@ -7485,6 +7494,11 @@ const TxModal=({onAdd,onClose,categories,payees,txTypes,allAccounts,currentAccou
   const EMPTY={date:TODAY(),txType:txTypes[0],amount:"",payee:"",desc:"",cat:flatC[0]||"Income",tags:"",status:"Reconciled",txNum:"",notes:"",srcId:currentAccountId||"",tgtId:"",isScheduled:false,schedFreq:"monthly",schedEnd:"",gstRate:"0",gstType:"inclusive",tdsRate:"",tdsSec:""};
   const[f,setF]=useState(EMPTY);
   const[showTax,setShowTax]=useState(false);
+  /* activeTxTypes tracks the currently-correct type list for whichever account is selected.
+     Initialised from the prop; updated when the user switches account in the picker.
+     Without this, the Type dropdown always showed the FAB's initial account type options
+     (e.g. bank: Debit/Credit) even after switching to a card (should show Purchase/Payment). */
+  const[activeTxTypes,setActiveTxTypes]=useState(txTypes);
   /* Pre-generate a stable id so ReceiptAttachPanel can store handles before save */
   const pendingIdRef=React.useRef(uid());
   const[pendingReceipts,setPendingReceipts]=useState([]);

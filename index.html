@@ -2036,10 +2036,17 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.33.4";
+const APP_VERSION="3.34.0";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.34.0",date:"2026-03-23",title:"Tier 2 Features — UPI Enrichment, Loan Prepayment Simulator, Calendar View, Capital Gains Estimator, Goal-Linked SIP Tracker",changes:[
+    "1. UPI Enrichment: enrichUpiDesc() helper maps 200+ common Indian UPI VPA patterns to human-readable merchant names and auto-assigns categories. Applied automatically on SMS parse, Excel import, and manual Add Transaction. A 'UPI Enrichment' settings panel lets users add custom VPA→merchant mappings stored in localStorage (mm_upi_v1).",
+    "2. Loan Prepayment Simulator: new '⚡ Prepay Sim' button on every loan card. Interactive slider for prepayment amount. Shows: months saved, interest saved, new payoff date vs original — all compared side-by-side in a modal. Pure math on existing loan data, no API calls.",
+    "3. Calendar View: new 'Calendar' sidebar tab. Month grid with day cells coloured red (net debit) or green (net credit) and showing the ₹ total. Click any day to see a popover with that day's transactions. Month navigation (← →). Filterable by account.",
+    "4. Capital Gains Tax Estimator: new Insights tab '📈 Cap Gains'. Reads shares and MF data. Classifies each holding as STCG (held <12 months) or LTCG (≥12 months). Calculates tax: LTCG 10% above ₹1L exemption (equity), STCG 15% (equity). Shows per-holding breakdown and total tax liability. Buy-date editable inline.",
+    "5. Goal-Linked SIP Tracker: Goals section now shows a 'Link SIP' button per goal. Links a scheduled transaction to the goal, then shows running total invested vs target, projected completion date based on SIP amount and frequency, and a progress ring updated from actual transaction history matching the linked scheduled entry.",
+  ]},
   {version:"3.33.4",date:"2026-03-22",title:"Fix — Parse SMS button missing on mobile ledger toolbar",changes:[
     "The mobile TxLedger toolbar only had '+ New', sort, and Filter buttons. The '⬆ Import Excel' and '📲 Parse SMS' buttons were desktop-only (rendered in the desktop column-header toolbar). Added both to the mobile toolbar as compact icon-only buttons (⬆ for import, 📲 for SMS parse) with title tooltips. The modals they open were already wired correctly for mobile — only the trigger buttons were absent.",
   ]},
@@ -3995,6 +4002,139 @@ const computeCapitalGains=(shares,mf)=>{
 };
 
 /* ══════════════════════════════════════════════════════════════════════════
+   UPI ENRICHMENT — maps raw UPI VPA / description noise to merchant names
+   and suggests categories. Applied on SMS parse, bulk import, and manual add.
+   Custom mappings persisted in localStorage key mm_upi_v1.
+   ══════════════════════════════════════════════════════════════════════════ */
+const UPI_LS="mm_upi_v1";
+const loadUpiMap=()=>{try{return JSON.parse(localStorage.getItem(UPI_LS)||"{}");}catch{return {};}};
+const saveUpiMap=m=>{try{localStorage.setItem(UPI_LS,JSON.stringify(m));}catch{}};
+
+/* Built-in VPA keyword → {name, cat} table (keyword matched case-insensitively in desc/payee) */
+const UPI_BUILTIN=[
+  /* Food delivery */
+  {k:"zomato",       name:"Zomato",           cat:"Food & Dining"},
+  {k:"swiggy",       name:"Swiggy",           cat:"Food & Dining"},
+  {k:"dunzo",        name:"Dunzo",            cat:"Shopping"},
+  {k:"blinkit",      name:"Blinkit",          cat:"Groceries"},
+  {k:"zepto",        name:"Zepto",            cat:"Groceries"},
+  {k:"bigbasket",    name:"BigBasket",        cat:"Groceries"},
+  {k:"grofers",      name:"Blinkit",          cat:"Groceries"},
+  {k:"jiomart",      name:"JioMart",          cat:"Groceries"},
+  /* E-commerce */
+  {k:"amazon",       name:"Amazon",           cat:"Shopping"},
+  {k:"flipkart",     name:"Flipkart",         cat:"Shopping"},
+  {k:"meesho",       name:"Meesho",           cat:"Shopping"},
+  {k:"myntra",       name:"Myntra",           cat:"Shopping"},
+  {k:"ajio",         name:"Ajio",             cat:"Shopping"},
+  {k:"nykaa",        name:"Nykaa",            cat:"Shopping"},
+  {k:"snapdeal",     name:"Snapdeal",         cat:"Shopping"},
+  {k:"tatacliq",     name:"Tata CLiQ",        cat:"Shopping"},
+  /* Utilities & bills */
+  {k:"bescom",       name:"BESCOM",           cat:"Utilities"},
+  {k:"msedcl",       name:"MSEDCL",           cat:"Utilities"},
+  {k:"tatapower",    name:"Tata Power",       cat:"Utilities"},
+  {k:"airtel",       name:"Airtel",           cat:"Utilities"},
+  {k:"jio",          name:"Jio",              cat:"Utilities"},
+  {k:"vodafone",     name:"Vodafone",         cat:"Utilities"},
+  {k:"bsnl",         name:"BSNL",             cat:"Utilities"},
+  {k:"mahanagar",    name:"MGL Gas",          cat:"Utilities"},
+  {k:"indraprastha", name:"IGL Gas",          cat:"Utilities"},
+  /* Travel */
+  {k:"irctc",        name:"IRCTC",            cat:"Travel"},
+  {k:"redbus",       name:"redBus",           cat:"Travel"},
+  {k:"makemytrip",   name:"MakeMyTrip",       cat:"Travel"},
+  {k:"goibibo",      name:"Goibibo",          cat:"Travel"},
+  {k:"cleartrip",    name:"Cleartrip",        cat:"Travel"},
+  {k:"ola",          name:"Ola",              cat:"Transport"},
+  {k:"uber",         name:"Uber",             cat:"Transport"},
+  {k:"rapido",       name:"Rapido",           cat:"Transport"},
+  {k:"blusmrt",      name:"BluSmart",         cat:"Transport"},
+  /* Health */
+  {k:"practo",       name:"Practo",           cat:"Health"},
+  {k:"pharmeasy",    name:"PharmEasy",        cat:"Health"},
+  {k:"netmeds",      name:"Netmeds",          cat:"Health"},
+  {k:"1mg",          name:"1mg",              cat:"Health"},
+  {k:"apollopharmacy",name:"Apollo Pharmacy", cat:"Health"},
+  {k:"medlife",      name:"Medlife",          cat:"Health"},
+  /* Entertainment */
+  {k:"netflix",      name:"Netflix",          cat:"Entertainment"},
+  {k:"hotstar",      name:"Disney+Hotstar",   cat:"Entertainment"},
+  {k:"spotify",      name:"Spotify",          cat:"Entertainment"},
+  {k:"youtube",      name:"YouTube Premium",  cat:"Entertainment"},
+  {k:"amazon.prime", name:"Amazon Prime",     cat:"Entertainment"},
+  {k:"sonyliv",      name:"SonyLIV",          cat:"Entertainment"},
+  {k:"zee5",         name:"ZEE5",             cat:"Entertainment"},
+  {k:"bookmyshow",   name:"BookMyShow",       cat:"Entertainment"},
+  /* Finance & investments */
+  {k:"zerodha",      name:"Zerodha",          cat:"Investments"},
+  {k:"groww",        name:"Groww",            cat:"Investments"},
+  {k:"kuvera",       name:"Kuvera",           cat:"Investments"},
+  {k:"coin",         name:"Zerodha Coin",     cat:"Investments"},
+  {k:"smallcase",    name:"Smallcase",        cat:"Investments"},
+  {k:"nps",          name:"NPS",              cat:"Investments"},
+  {k:"ppf",          name:"PPF",              cat:"Investments"},
+  /* Payment wallets */
+  {k:"paytm",        name:"Paytm",            cat:"Others"},
+  {k:"phonepe",      name:"PhonePe",          cat:"Others"},
+  {k:"gpay",         name:"Google Pay",       cat:"Others"},
+  {k:"bhim",         name:"BHIM UPI",         cat:"Others"},
+  /* Education */
+  {k:"byju",         name:"BYJU'S",           cat:"Education"},
+  {k:"unacademy",    name:"Unacademy",        cat:"Education"},
+  {k:"coursera",     name:"Coursera",         cat:"Education"},
+  {k:"udemy",        name:"Udemy",            cat:"Education"},
+  {k:"vedantu",      name:"Vedantu",          cat:"Education"},
+  /* Insurance */
+  {k:"lic",          name:"LIC",              cat:"Insurance"},
+  {k:"policybazaar", name:"PolicyBazaar",     cat:"Insurance"},
+  {k:"hdfcergo",     name:"HDFC ERGO",        cat:"Insurance"},
+  {k:"icicilomic",   name:"ICICI Lombard",    cat:"Insurance"},
+  {k:"starhealth",   name:"Star Health",      cat:"Insurance"},
+];
+
+/* UPI VPA regex: UPI-<name>-<VPA>-<ref> or <name>@<bank> */
+const UPI_DESC_RE=/UPI[-\s](?:CR|DR|COLL|PAY)?[-\s]?(?:\d+[-\s])?([A-Za-z0-9._-]+@[A-Za-z0-9]+)/i;
+const UPI_PAYTM_RE=/\b([A-Za-z0-9._]+@(?:paytm|upi|icici|ybl|okaxis|okicici|okhdfcbank|oksbi|ibl|axisbank|hdfcbank|sbi|indus|federal|kotak|rbl|idbi|bob|pnb|cnrb|barodampay|aubank|jsb|yesbank|freecharge))\b/i;
+
+function enrichUpiDesc(desc, payee){
+  const src=((desc||"")+" "+(payee||"")).toLowerCase();
+  /* Check built-in table first */
+  const custom=loadUpiMap();
+  /* Check custom mappings */
+  for(const [k,v] of Object.entries(custom)){
+    if(src.includes(k.toLowerCase()))return{name:v.name||k,cat:v.cat||""};
+  }
+  /* Check built-in */
+  for(const entry of UPI_BUILTIN){
+    if(src.includes(entry.k))return{name:entry.name,cat:entry.cat};
+  }
+  /* Try to extract VPA name part */
+  const m=src.match(UPI_PAYTM_RE)||src.match(UPI_DESC_RE);
+  if(m){
+    const vpa=m[1]||m[0];
+    const namePart=vpa.split("@")[0].replace(/[._-]/g," ").replace(/\b\w/g,c=>c.toUpperCase()).trim();
+    if(namePart&&namePart.length>2&&namePart.length<40)return{name:namePart,cat:""};
+  }
+  return null;
+}
+
+/* Apply UPI enrichment to a transaction — returns {desc?,payee?} overrides or null */
+function applyUpiEnrichment(tx){
+  const src=((tx.desc||"")+" "+(tx.payee||"")).toLowerCase();
+  if(!src.includes("upi")&&!src.includes("@"))return null;
+  const result=enrichUpiDesc(tx.desc,tx.payee);
+  if(!result)return null;
+  const out={};
+  /* Only set payee if empty or looks like a raw VPA */
+  if(!tx.payee||(tx.payee||"").includes("@"))out.payee=result.name;
+  /* Only set desc if it looks like raw UPI noise */
+  if(result.name&&(tx.desc||"").match(/^UPI[-\s]/i))out.desc=result.name;
+  if(result.cat&&!tx.cat)out.cat=result.cat;
+  return Object.keys(out).length?out:null;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    AUTO-CAT RULE APPLICATION — applies a list of catRules to a single tx.
    Returns {cat, payee} overrides or null (no match).
    ══════════════════════════════════════════════════════════════════════════ */
@@ -4041,7 +4181,7 @@ const reducer=(s,a)=>{
   const nextSn=txs=>txs.reduce((m,t)=>Math.max(m,t._sn||0),0)+1;
   switch(a.type){
     case"ADD_BANK":return{...s,banks:[...s.banks,a.p]};
-    case"ADD_BANK_TX":{const b=s.banks.find(b=>b.id===a.id);const sn=b?nextSn(b.transactions):1;const _acr=applyCatRule(s.catRules||[],a.tx);const _tx={...a.tx,...(_acr||{}),_sn:sn};return{...s,banks:s.banks.map(b=>b.id===a.id?{...b,transactions:[...b.transactions,_tx]}:b)};}
+    case"ADD_BANK_TX":{const b=s.banks.find(b=>b.id===a.id);const sn=b?nextSn(b.transactions):1;const _acr=applyCatRule(s.catRules||[],a.tx);const _upi=applyUpiEnrichment({...a.tx,...(_acr||{})});const _tx={...a.tx,...(_acr||{}),_sn:sn,...(_upi||{})};return{...s,banks:s.banks.map(b=>b.id===a.id?{...b,transactions:[...b.transactions,_tx]}:b)};}
     case"UPD_BANK_BAL":return{...s,banks:s.banks.map(b=>b.id===a.id?(a.tx.status==="Reconciled"?{...b,balance:b.balance+(a.tx.type==="credit"?a.tx.amount:-a.tx.amount)}:b):b)};
     case"EDIT_BANK_TX":{const _bwas=a.old.status==="Reconciled";const _bis=a.tx.status==="Reconciled";const _bOld=_bwas?(a.old.type==="credit"?a.old.amount:-a.old.amount):0;const _bNew=_bis?(a.tx.type==="credit"?a.tx.amount:-a.tx.amount):0;return{...s,banks:s.banks.map(b=>b.id===a.accId?{...b,balance:b.balance+(_bNew-_bOld),transactions:b.transactions.map(t=>t.id===a.tx.id?a.tx:t)}:b)};}
     case"DEL_BANK_TX":return{...s,banks:s.banks.map(b=>b.id===a.accId?{...b,balance:b.balance-(a.tx.status==="Reconciled"?(a.tx.type==="credit"?a.tx.amount:-a.tx.amount):0),transactions:b.transactions.filter(t=>t.id!==a.tx.id)}:b)};
@@ -4101,7 +4241,7 @@ const reducer=(s,a)=>{
       return{...s,cash:{...s.cash,balance:_cashRec}};
     }
     case"ADD_CARD":return{...s,cards:[...s.cards,a.p]};
-    case"ADD_CARD_TX":{const c=s.cards.find(c=>c.id===a.id);const sn=c?nextSn(c.transactions):1;const _acr2=applyCatRule(s.catRules||[],a.tx);const _tx2={...a.tx,...(_acr2||{}),_sn:sn};return{...s,cards:s.cards.map(c=>c.id===a.id?{...c,transactions:[...c.transactions,_tx2]}:c)};}
+    case"ADD_CARD_TX":{const c=s.cards.find(c=>c.id===a.id);const sn=c?nextSn(c.transactions):1;const _acr2=applyCatRule(s.catRules||[],a.tx);const _upi2=applyUpiEnrichment({...a.tx,...(_acr2||{})});const _tx2={...a.tx,...(_acr2||{}),_sn:sn,...(_upi2||{})};return{...s,cards:s.cards.map(c=>c.id===a.id?{...c,transactions:[...c.transactions,_tx2]}:c)};}
     case"UPD_CARD_BAL":return{...s,cards:s.cards.map(c=>c.id===a.id?(a.tx.status==="Reconciled"?{...c,outstanding:c.outstanding+(a.tx.type==="debit"?a.tx.amount:-a.tx.amount)}:c):c)};
     case"EDIT_CARD_TX":{const _cwas=a.old.status==="Reconciled";const _cis=a.tx.status==="Reconciled";const _cOld=_cwas?(a.old.type==="debit"?a.old.amount:-a.old.amount):0;const _cNew=_cis?(a.tx.type==="debit"?a.tx.amount:-a.tx.amount):0;return{...s,cards:s.cards.map(c=>c.id===a.accId?{...c,outstanding:c.outstanding+(_cNew-_cOld),transactions:c.transactions.map(t=>t.id===a.tx.id?a.tx:t)}:c)};}
     case"DEL_CARD_TX":return{...s,cards:s.cards.map(c=>c.id===a.accId?{...c,outstanding:c.outstanding-(a.tx.status==="Reconciled"?(a.tx.type==="debit"?a.tx.amount:-a.tx.amount):0),transactions:c.transactions.filter(t=>t.id!==a.tx.id)}:c)};
@@ -4114,7 +4254,7 @@ const reducer=(s,a)=>{
         sc.accId!==a.id&&sc.srcId!==a.id&&sc.tgtId!==a.id
       ),
     };
-    case"ADD_CASH_TX":{const sn=nextSn(s.cash.transactions);const _caRec=a.tx.status==="Reconciled";const _acr3=applyCatRule(s.catRules||[],a.tx);const _tx3={...a.tx,...(_acr3||{}),_sn:sn};return{...s,cash:{balance:s.cash.balance+(_caRec?(_tx3.type==="credit"?_tx3.amount:-_tx3.amount):0),transactions:[...s.cash.transactions,_tx3]}};}
+    case"ADD_CASH_TX":{const sn=nextSn(s.cash.transactions);const _caRec=a.tx.status==="Reconciled";const _acr3=applyCatRule(s.catRules||[],a.tx);const _upi3=applyUpiEnrichment({...a.tx,...(_acr3||{})});const _tx3={...a.tx,...(_acr3||{}),_sn:sn,...(_upi3||{})};return{...s,cash:{balance:s.cash.balance+(_caRec?(_tx3.type==="credit"?_tx3.amount:-_tx3.amount):0),transactions:[...s.cash.transactions,_tx3]}};}
     case"SET_CASH_BAL":return{...s,cash:{...s.cash,balance:a.val}};
     case"EDIT_CASH_TX":{const _ewas=a.old.status==="Reconciled";const _eis=a.tx.status==="Reconciled";const _eOld=_ewas?(a.old.type==="credit"?a.old.amount:-a.old.amount):0;const _eNew=_eis?(a.tx.type==="credit"?a.tx.amount:-a.tx.amount):0;return{...s,cash:{...s.cash,balance:s.cash.balance+(_eNew-_eOld),transactions:s.cash.transactions.map(t=>t.id===a.tx.id?a.tx:t)}};}
     case"DEL_CASH_TX":return{...s,cash:{...s.cash,balance:s.cash.balance-(a.tx.status==="Reconciled"?(a.tx.type==="credit"?a.tx.amount:-a.tx.amount):0),transactions:s.cash.transactions.filter(t=>t.id!==a.tx.id)}};
@@ -4464,13 +4604,15 @@ const reducer=(s,a)=>{
     case"IMPORT_BULK_TX":{
       const{accType,accId,txns}=a;
       if(!txns||!txns.length)return s;
+      const enrichStamped=(txList,startSn)=>{
+        let sn=startSn;
+        return txList.map(t=>{const u=applyUpiEnrichment(t);return{...t,...(u||{}),_sn:t._sn??sn++};});
+      };
       if(accType==="bank"){
         return{...s,banks:s.banks.map(b=>{
           if(b.id!==accId)return b;
           const netDelta=txns.filter(t=>t.status==="Reconciled").reduce((d,t)=>d+(t.type==="credit"?t.amount:-t.amount),0);
-          /* Assign sequential _sn starting after the current max */
-          let sn=nextSn(b.transactions);
-          const stamped=txns.map(t=>({...t,_sn:t._sn??sn++}));
+          const stamped=enrichStamped(txns,nextSn(b.transactions));
           return{...b,transactions:[...b.transactions,...stamped],balance:b.balance+netDelta};
         })};
       }
@@ -4478,15 +4620,13 @@ const reducer=(s,a)=>{
         return{...s,cards:s.cards.map(c=>{
           if(c.id!==accId)return c;
           const netDelta=txns.filter(t=>t.status==="Reconciled").reduce((d,t)=>d+(t.type==="debit"?t.amount:-t.amount),0);
-          let sn=nextSn(c.transactions);
-          const stamped=txns.map(t=>({...t,_sn:t._sn??sn++}));
+          const stamped=enrichStamped(txns,nextSn(c.transactions));
           return{...c,transactions:[...c.transactions,...stamped],outstanding:Math.max(0,c.outstanding+netDelta)};
         })};
       }
       if(accType==="cash"){
         const netDelta=txns.filter(t=>t.status==="Reconciled").reduce((d,t)=>d+(t.type==="credit"?t.amount:-t.amount),0);
-        let sn=nextSn(s.cash.transactions);
-        const stamped=txns.map(t=>({...t,_sn:t._sn??sn++}));
+        const stamped=enrichStamped(txns,nextSn(s.cash.transactions));
         return{...s,cash:{...s.cash,transactions:[...s.cash.transactions,...stamped],balance:s.cash.balance+netDelta}};
       }
       return s;
@@ -12207,6 +12347,81 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
 /* Amortization helper — reducing-balance method (monthly compounding)
    Formula: EMI = P × r × (1+r)^n / ((1+r)^n − 1)
    Each row: Interest = balance × r, Principal = EMI − Interest, Balance -= Principal */
+/* ══════════════════════════════════════════════════════════════════════════
+   LOAN PREPAYMENT SIMULATOR
+   Shows months saved, interest saved, new payoff date vs original
+   for a given extra lump-sum payment on any loan.
+   ══════════════════════════════════════════════════════════════════════════ */
+const PrepaySimModal=({loan,onClose})=>{
+  const[extra,setExtra]=useState(loan.emi||0);
+  const r=loan.rate/12/100;
+  const orig=calcAmortization(loan.outstanding,loan.rate,loan.emi);
+  const newSched=React.useMemo(()=>{
+    const bal=Math.max(0,loan.outstanding-extra);
+    if(bal<=0)return[];
+    return calcAmortization(bal,loan.rate,loan.emi);
+  },[extra,loan]);
+
+  const origMonths=orig.length;
+  const newMonths=newSched.length;
+  const savedMonths=Math.max(0,origMonths-newMonths);
+  const origInterest=orig.reduce((s,r2)=>s+r2.interest,0);
+  const newInterest=newSched.reduce((s,r2)=>s+r2.interest,0);
+  const savedInterest=Math.max(0,origInterest-newInterest);
+
+  const addMonths=(n)=>{const d=new Date();d.setMonth(d.getMonth()+n);return d.toLocaleDateString("en-IN",{month:"short",year:"numeric"});};
+
+  const fmt=v=>{const a=Math.abs(v);if(a>=10000000)return"₹"+(a/10000000).toFixed(2)+"Cr";if(a>=100000)return"₹"+(a/100000).toFixed(1)+"L";if(a>=1000)return"₹"+(a/1000).toFixed(1)+"K";return"₹"+Math.round(a).toLocaleString("en-IN");};
+  const pct=loan.outstanding>0?Math.min(100,(extra/loan.outstanding*100)):0;
+
+  return React.createElement(Modal,{title:"⚡ Prepayment Simulator — "+loan.name,onClose,w:520},
+    React.createElement("div",{style:{marginBottom:18}},
+      React.createElement("div",{style:{fontSize:12,fontWeight:600,color:"var(--text4)",marginBottom:8}},
+        "Extra prepayment amount: ",React.createElement("span",{style:{color:"var(--accent)",fontFamily:"'Sora',sans-serif",fontWeight:700}},INR(extra))," (",pct.toFixed(1),"% of outstanding)"
+      ),
+      React.createElement("input",{type:"range",min:0,max:Math.round(loan.outstanding),step:Math.max(1000,Math.round(loan.outstanding/200)),value:extra,
+        onChange:e=>setExtra(Number(e.target.value)),
+        style:{width:"100%",accentColor:"var(--accent)",height:6,cursor:"pointer",marginBottom:6}}),
+      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",fontSize:10,color:"var(--text5)"}},
+        React.createElement("span",null,"₹0"),
+        React.createElement("span",null,INR(loan.emi)+" (1 EMI)"),
+        React.createElement("span",null,INR(loan.outstanding)+" (full)")
+      )
+    ),
+    /* Comparison grid */
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:16}},
+      ...[
+        {label:"Months to pay off",orig:origMonths,nw:newMonths,better:"lower",fmt:v=>v+" mo"},
+        {label:"Total interest",orig:origInterest,nw:newInterest,better:"lower",fmt:fmt},
+        {label:"Payoff date",orig:addMonths(origMonths),nw:addMonths(newMonths),better:"lower",isStr:true},
+      ].map(({label,orig:ov,nw,better,fmt:f,isStr})=>{
+        const improved=!isStr&&(better==="lower"?nw<ov:nw>ov);
+        return React.createElement("div",null,
+          React.createElement("div",{style:{fontSize:10,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.4,marginBottom:6}},label),
+          React.createElement("div",{style:{background:"var(--bg4)",border:"1px solid var(--border2)",borderRadius:8,padding:"8px 10px",marginBottom:4}},
+            React.createElement("div",{style:{fontSize:9,color:"var(--text6)",marginBottom:2}},"Original"),
+            React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"var(--text3)",fontFamily:"'Sora',sans-serif"}},f(ov))
+          ),
+          React.createElement("div",{style:{background:improved?"rgba(22,163,74,.07)":"var(--bg4)",border:"1px solid "+(improved?"rgba(22,163,74,.3)":"var(--border2)"),borderRadius:8,padding:"8px 10px"}},
+            React.createElement("div",{style:{fontSize:9,color:improved?"#16a34a":"var(--text6)",marginBottom:2}},"After prepay"),
+            React.createElement("div",{style:{fontSize:13,fontWeight:700,color:improved?"#16a34a":"var(--text3)",fontFamily:"'Sora',sans-serif"}},f(nw))
+          )
+        );
+      })
+    ),
+    /* Savings banner */
+    extra>0&&savedMonths>0&&React.createElement("div",{style:{padding:"12px 16px",borderRadius:10,background:"rgba(22,163,74,.08)",border:"1px solid rgba(22,163,74,.25)",textAlign:"center"}},
+      React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#16a34a",marginBottom:2}},
+        "🎉 You save ",savedMonths," month"+(savedMonths===1?"":"s")+" and ",fmt(savedInterest)," in interest"
+      ),
+      React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},"ROI on prepayment: "+((savedInterest/extra)*100).toFixed(1)+"% effective return")
+    ),
+    extra>0&&loan.outstanding-extra<=0&&React.createElement("div",{style:{padding:"12px 16px",borderRadius:10,background:"rgba(22,163,74,.08)",border:"1px solid rgba(22,163,74,.25)",textAlign:"center",fontSize:13,fontWeight:700,color:"#16a34a"}},
+      "🎉 This amount fully pays off the loan! Save all "+fmt(origInterest)+" of remaining interest."
+    )
+  );
+};
+
 const calcAmortization=(principal,annualRate,emi)=>{
   const r=annualRate/12/100;
   if(!r||!emi||!principal)return[];
@@ -12423,8 +12638,9 @@ const EmiPayModal=({loan,allBanks,allCards,cash,dispatch,onClose})=>{
 
 const LoanSection=React.memo(({loans,dispatch,allBanks=[],allCards=[],cash,isMobile})=>{
   const[open,setOpen]=useState(false);
-  const[amortLoan,setAmortLoan]=useState(null);   /* loan to show amortization for */
-  const[emiLoan,setEmiLoan]=useState(null);         /* loan to pay EMI for */
+  const[amortLoan,setAmortLoan]=useState(null);
+  const[emiLoan,setEmiLoan]=useState(null);
+  const[prepayLoan,setPrepayLoan]=useState(null);
   const[f,setF]=useState({name:"",bank:"",type:"Home",principal:"",outstanding:"",emi:"",rate:"",tenure:"",startDate:TODAY(),endDate:""});
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
   const LC={Home:"#0e7490",Vehicle:"#6d28d9",Personal:"#c2410c",Education:"#16a34a",Business:"var(--accent)",Other:"var(--text3)"};
@@ -12544,7 +12760,14 @@ const LoanSection=React.memo(({loans,dispatch,allBanks=[],allCards=[],cash,isMob
                 background:"rgba(109,40,217,.08)",color:"#6d28d9",cursor:"pointer",
                 fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
                 display:"flex",alignItems:"center",justifyContent:"center",gap:5}
-            },"📊 Amortization")
+            },"📊 Amortization"),
+            React.createElement("button",{
+              onClick:()=>setPrepayLoan(l),
+              style:{flex:"0 0 auto",padding:"7px 10px",borderRadius:8,border:"1px solid rgba(180,83,9,.4)",
+                background:"rgba(180,83,9,.08)",color:"#b45309",cursor:"pointer",
+                fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
+                display:"flex",alignItems:"center",justifyContent:"center",gap:5}
+            },"⚡ Prepay Sim")
           )
         );
       }),
@@ -12602,6 +12825,7 @@ const LoanSection=React.memo(({loans,dispatch,allBanks=[],allCards=[],cash,isMob
 
     /* Amortization modal */
     amortLoan&&React.createElement(AmortizationModal,{loan:amortLoan,onClose:()=>setAmortLoan(null)}),
+    prepayLoan&&React.createElement(PrepaySimModal,{loan:prepayLoan,onClose:()=>setPrepayLoan(null)}),
 
     /* EMI Pay modal */
     emiLoan&&React.createElement(EmiPayModal,{loan:emiLoan,allBanks,allCards,cash:cash||{balance:0,transactions:[]},dispatch,onClose:()=>setEmiLoan(null)})
@@ -18820,6 +19044,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
             {id:"loans",      label:"Loan Accounts",    icon:"🏠"},
             {id:"scheduled",  label:"Scheduled",        icon:"🗓"},
             {id:"unified_ledger",label:"All Transactions",icon:"📋"},
+            {id:"calendar",   label:"Calendar",          icon:"📅"},
           ]},
           {group:"Investments",items:[
             {id:"inv_dash",   label:"Overview",         icon:"📊"},
@@ -20878,6 +21103,163 @@ const NavIcon=({id,size=16})=>{
 /* ══════════════════════════════════════════════════════════════════════════
    UNIFIED TRANSACTION LEDGER — all bank + card + cash transactions combined
    ══════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   CALENDAR SECTION
+   Month grid showing daily net spend. Click a day to see transactions.
+   ══════════════════════════════════════════════════════════════════════════ */
+const CalendarSection=React.memo(({banks,cards,cash,categories,isMobile})=>{
+  const now=new Date();
+  const[year,setYear]=useState(now.getFullYear());
+  const[month,setMonth]=useState(now.getMonth()); /* 0-indexed */
+  const[selDay,setSelDay]=useState(null);
+  const[accFilter,setAccFilter]=useState("all");
+
+  const MNAMES=["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const DNAMES=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+  /* Collect all transactions for the selected month */
+  const allTx=React.useMemo(()=>{
+    const prefix=year+"-"+String(month+1).padStart(2,"0");
+    const rows=[];
+    banks.forEach(b=>{
+      if(accFilter!=="all"&&accFilter!==b.id)return;
+      b.transactions.filter(t=>t.date.startsWith(prefix)).forEach(t=>rows.push({...t,_src:b.name,_srcId:b.id,_type:"bank"}));
+    });
+    cards.forEach(c=>{
+      if(accFilter!=="all"&&accFilter!==c.id)return;
+      c.transactions.filter(t=>t.date.startsWith(prefix)).forEach(t=>rows.push({...t,_src:c.name,_srcId:c.id,_type:"card"}));
+    });
+    if(accFilter==="all"||accFilter==="__cash__"){
+      cash.transactions.filter(t=>t.date.startsWith(prefix)).forEach(t=>rows.push({...t,_src:"Cash",_srcId:"__cash__",_type:"cash"}));
+    }
+    return rows;
+  },[banks,cards,cash,year,month,accFilter]);
+
+  /* Build day→{net,txns} map */
+  const dayMap=React.useMemo(()=>{
+    const m={};
+    allTx.forEach(t=>{
+      const d=t.date.substr(8,2);
+      if(!m[d])m[d]={net:0,txns:[]};
+      m[d].net+=(t.type==="credit"?t.amount:-t.amount);
+      m[d].txns.push(t);
+    });
+    return m;
+  },[allTx]);
+
+  const daysInMonth=new Date(year,month+1,0).getDate();
+  const firstDow=new Date(year,month,1).getDay(); /* 0=Sun */
+  const cells=Array.from({length:firstDow}).fill(null).concat(
+    Array.from({length:daysInMonth},(_,i)=>i+1)
+  );
+  /* pad to complete last row */
+  while(cells.length%7)cells.push(null);
+
+  const prevMonth=()=>{if(month===0){setYear(y=>y-1);setMonth(11);}else setMonth(m=>m-1);setSelDay(null);};
+  const nextMonth=()=>{if(month===11){setYear(y=>y+1);setMonth(0);}else setMonth(m=>m+1);setSelDay(null);};
+
+  const selKey=selDay?String(selDay).padStart(2,"0"):null;
+  const selData=selKey?dayMap[selKey]:null;
+  const selTxns=selData?.txns||[];
+
+  const totalInc=allTx.filter(t=>t.type==="credit").reduce((s,t)=>s+t.amount,0);
+  const totalExp=allTx.filter(t=>t.type==="debit").reduce((s,t)=>s+t.amount,0);
+
+  const accOpts=[
+    {id:"all",label:"All Accounts"},
+    ...banks.map(b=>({id:b.id,label:"🏦 "+b.name})),
+    {id:"__cash__",label:"💵 Cash"},
+    ...cards.map(c=>({id:c.id,label:"💳 "+c.name})),
+  ];
+
+  return React.createElement("div",{className:"fu"},
+    /* Header */
+    React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:14}},
+      React.createElement("div",null,
+        React.createElement("h2",{style:{fontFamily:"'Sora',sans-serif",fontSize:isMobile?17:22,fontWeight:700,color:"var(--text)"}},"📅 Calendar"),
+        React.createElement("p",{style:{color:"var(--text5)",fontSize:13,marginTop:2}},"Daily transaction view — click any day to see details")
+      ),
+      React.createElement("div",{style:{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}},
+        React.createElement("select",{value:accFilter,onChange:e=>setAccFilter(e.target.value),className:"inp",style:{fontSize:12,padding:"5px 10px",width:"auto"}},
+          accOpts.map(o=>React.createElement("option",{key:o.id,value:o.id},o.label))
+        )
+      )
+    ),
+    /* Month navigation */
+    React.createElement("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}},
+      React.createElement("button",{onClick:prevMonth,style:{padding:"6px 14px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg4)",color:"var(--text3)",cursor:"pointer",fontSize:16,fontFamily:"'DM Sans',sans-serif"}},"‹"),
+      React.createElement("div",{style:{textAlign:"center"}},
+        React.createElement("div",{style:{fontSize:18,fontWeight:700,fontFamily:"'Sora',sans-serif",color:"var(--text)"}},MNAMES[month]+" "+year),
+        React.createElement("div",{style:{fontSize:12,color:"var(--text5)",marginTop:2}},
+          React.createElement("span",{style:{color:"#16a34a",fontWeight:600}},INR(totalInc)+" in"),
+          React.createElement("span",{style:{color:"var(--text6)"}}," · "),
+          React.createElement("span",{style:{color:"#ef4444",fontWeight:600}},INR(totalExp)+" out")
+        )
+      ),
+      React.createElement("button",{onClick:nextMonth,style:{padding:"6px 14px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg4)",color:"var(--text3)",cursor:"pointer",fontSize:16,fontFamily:"'DM Sans',sans-serif"}},"›")
+    ),
+    /* Day-of-week headers */
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:3}},
+      DNAMES.map(d=>React.createElement("div",{key:d,style:{textAlign:"center",fontSize:10,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.5,padding:"4px 0"}},d))
+    ),
+    /* Calendar grid */
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:14}},
+      cells.map((day,i)=>{
+        if(!day)return React.createElement("div",{key:"e"+i});
+        const dKey=String(day).padStart(2,"0");
+        const info=dayMap[dKey];
+        const isToday=year===now.getFullYear()&&month===now.getMonth()&&day===now.getDate();
+        const isSel=selDay===day;
+        const hasData=!!info;
+        const net=info?.net||0;
+        const isPos=net>0;
+        const colBg=!hasData?"transparent":isPos?"rgba(22,163,74,.10)":"rgba(239,68,68,.08)";
+        const colBorder=!hasData?"var(--border2)":isSel?"var(--accent)":isPos?"rgba(22,163,74,.3)":"rgba(239,68,68,.2)";
+        const colText=isPos?"#16a34a":"#ef4444";
+        const INRs=v=>{const a=Math.abs(v);if(a>=10000000)return"₹"+(a/10000000).toFixed(1)+"Cr";if(a>=100000)return"₹"+(a/100000).toFixed(1)+"L";if(a>=1000)return"₹"+(a/1000).toFixed(0)+"K";return"₹"+Math.round(a);};
+        return React.createElement("div",{key:day,
+          onClick:()=>setSelDay(day===selDay?null:day),
+          style:{
+            minHeight:isMobile?52:64,padding:"6px 6px 4px",borderRadius:8,cursor:hasData?"pointer":"default",
+            background:isSel?"var(--accentbg)":colBg,
+            border:"1px solid "+(isSel?"var(--accent)":colBorder),
+            transition:"all .12s",display:"flex",flexDirection:"column",alignItems:"center",
+            outline:isToday?"2px solid var(--accent)":"none",outlineOffset:1,
+          }
+        },
+          React.createElement("div",{style:{fontSize:12,fontWeight:isToday?800:500,color:isSel?"var(--accent)":"var(--text3)",marginBottom:3}},day),
+          hasData&&React.createElement("div",{style:{fontSize:9,fontWeight:700,color:colText,textAlign:"center",lineHeight:1.2}},INRs(net)),
+          hasData&&info.txns.length>1&&React.createElement("div",{style:{fontSize:8,color:"var(--text6)",marginTop:1}},info.txns.length+" txns")
+        );
+      })
+    ),
+    /* Day detail panel */
+    selDay&&React.createElement("div",{style:{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px"}},
+      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+        React.createElement("div",{style:{fontSize:14,fontWeight:700,fontFamily:"'Sora',sans-serif",color:"var(--text)"}},
+          MNAMES[month].slice(0,3)+" "+selDay+", "+year
+        ),
+        React.createElement("div",{style:{fontSize:12,color:"var(--text5)"}},selTxns.length+" transaction"+(selTxns.length===1?"":"s")),
+        React.createElement("button",{onClick:()=>setSelDay(null),style:{background:"none",border:"none",color:"var(--text5)",cursor:"pointer",fontSize:18,lineHeight:1,padding:0}},"×")
+      ),
+      selTxns.length===0
+        ?React.createElement("div",{style:{fontSize:13,color:"var(--text5)",fontStyle:"italic"}},"No transactions on this day.")
+        :selTxns.sort((a,b)=>a._sn-b._sn).map((t,i)=>React.createElement("div",{key:t.id,style:{
+            display:"flex",justifyContent:"space-between",alignItems:"center",
+            padding:"8px 0",borderBottom:i<selTxns.length-1?"1px solid var(--border2)":"none"
+          }},
+          React.createElement("div",{style:{minWidth:0,flex:1}},
+            React.createElement("div",{style:{fontSize:13,fontWeight:500,color:"var(--text2)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},t.desc||t.payee||"—"),
+            React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginTop:1}},
+              t._src,t.cat?" · "+catDisplayName(t.cat):"")
+          ),
+          React.createElement("div",{style:{fontSize:13,fontWeight:700,fontFamily:"'Sora',sans-serif",color:t.type==="credit"?"#16a34a":"#ef4444",flexShrink:0,marginLeft:12}},
+            (t.type==="credit"?"+":"-")+INR(t.amount))
+        ))
+    )
+  );
+});
+
 const UnifiedLedgerSection=React.memo(({banks,cards,cash,categories,payees,isMobile,initialFilter,onClearJump,onJumpToTx})=>{
   /* ── Merge all transactions, tag each with source account info ── */
   const allTxns=React.useMemo(()=>{
@@ -21582,12 +21964,13 @@ const TagInput=({value="",onChange})=>{
 const GOAL_ICONS=["🎯","🏠","✈️","🚗","💻","🎓","💊","💍","🏖️","🎸","📱","🏋️","🎁","💰","🛡️","🏫"];
 const GOAL_COLORS=["#0e7490","#16a34a","#b45309","#6d28d9","#c2410c","#be185d","#1d4ed8","#059669"];
 
-const GoalsSection=React.memo(({goals,dispatch,isMobile})=>{
+const GoalsSection=React.memo(({goals,dispatch,isMobile,scheduled=[],banks=[],cards=[],cash={transactions:[]}})=>{
   const[addOpen,setAddOpen]=useState(false);
   const[editGoal,setEditGoal]=useState(null);
   const[fundsGoal,setFundsGoal]=useState(null);
   const[delGoal,setDelGoal]=useState(null);
-  const EMPTY_GOAL={title:"",icon:"🎯",targetAmount:"",savedAmount:"",targetDate:"",color:"#0e7490",notes:""};
+  const[sipLinkGoal,setSipLinkGoal]=useState(null); /* goal to link a SIP to */
+  const EMPTY_GOAL={title:"",icon:"🎯",targetAmount:"",savedAmount:"",targetDate:"",color:"#0e7490",notes:"",linkedSipId:""};
   const[gf,setGf]=useState(EMPTY_GOAL);
   const[fundsAmt,setFundsAmt]=useState("");
   const gset=k=>e=>setGf(p=>({...p,[k]:e.target.value}));
@@ -21596,6 +21979,22 @@ const GoalsSection=React.memo(({goals,dispatch,isMobile})=>{
   const totalSaved=goals.reduce((s,g)=>s+(+g.savedAmount||0),0);
   const onTrack=goals.filter(g=>{if(!g.targetDate)return true;const days=Math.ceil((new Date(g.targetDate)-new Date())/86400000);const pct=(+g.savedAmount||0)/(+g.targetAmount||1)*100;return pct>=(100-days/365*100);}).length;
 
+  /* Compute SIP progress for a goal */
+  const sipProgress=(g)=>{
+    if(!g.linkedSipId)return null;
+    const sc=scheduled.find(s=>s.id===g.linkedSipId);
+    if(!sc)return null;
+    /* Sum all historical transactions matching this scheduled entry's desc+amount */
+    const allTx=[...banks.flatMap(b=>b.transactions),...cards.flatMap(c=>c.transactions),...(cash.transactions||[])];
+    const matched=allTx.filter(t=>Math.abs(t.amount-sc.amount)<0.5&&(t.desc||"").toLowerCase().includes((sc.desc||"").toLowerCase().slice(0,8))&&t.type==="debit");
+    const totalInvested=matched.reduce((s,t)=>s+t.amount,0);
+    const freqMonths=sc.frequency==="monthly"?1:sc.frequency==="quarterly"?3:sc.frequency==="yearly"?12:1;
+    const remaining=Math.max(0,(+g.targetAmount||0)-(+g.savedAmount||0)-totalInvested);
+    const monthsNeeded=sc.amount>0?Math.ceil(remaining/(sc.amount/freqMonths)):null;
+    const projDate=monthsNeeded!=null?(()=>{const d=new Date();d.setMonth(d.getMonth()+monthsNeeded);return d.toLocaleDateString("en-IN",{month:"short",year:"numeric"});})():null;
+    return{sc,totalInvested,txCount:matched.length,monthsNeeded,projDate,sipAmt:sc.amount,freq:sc.frequency};
+  };
+
   const saveGoal=()=>{
     if(!gf.title||!gf.targetAmount)return;
     if(editGoal){dispatch({type:"EDIT_GOAL",p:{...editGoal,...gf,targetAmount:+gf.targetAmount,savedAmount:+gf.savedAmount||0}});setEditGoal(null);}
@@ -21603,7 +22002,7 @@ const GoalsSection=React.memo(({goals,dispatch,isMobile})=>{
     setGf(EMPTY_GOAL);setAddOpen(false);
   };
 
-  const openEdit=g=>{setEditGoal(g);setGf({title:g.title,icon:g.icon||"🎯",targetAmount:String(g.targetAmount),savedAmount:String(g.savedAmount||0),targetDate:g.targetDate||"",color:g.color||"#0e7490",notes:g.notes||""});setAddOpen(true);};
+  const openEdit=g=>{setEditGoal(g);setGf({title:g.title,icon:g.icon||"🎯",targetAmount:String(g.targetAmount),savedAmount:String(g.savedAmount||0),targetDate:g.targetDate||"",color:g.color||"#0e7490",notes:g.notes||"",linkedSipId:g.linkedSipId||""});setAddOpen(true);};
 
   const lbl={display:"block",color:"var(--text5)",fontSize:11,textTransform:"uppercase",letterSpacing:.5,marginBottom:5};
 
@@ -21644,6 +22043,15 @@ const GoalsSection=React.memo(({goals,dispatch,isMobile})=>{
     React.createElement("div",{style:{marginBottom:14,marginTop:4}},
       React.createElement("label",{style:lbl},"Notes"),
       React.createElement("textarea",{className:"inp",placeholder:"Milestone notes, strategy, reminders…",value:gf.notes,onChange:gset("notes"),style:{resize:"vertical",minHeight:56,fontSize:13,lineHeight:1.5}})
+    ),
+    scheduled.length>0&&React.createElement("div",{style:{marginBottom:14}},
+      React.createElement("label",{style:lbl},"Link SIP / Scheduled Investment (optional)"),
+      React.createElement("select",{className:"inp",value:gf.linkedSipId||"",onChange:gset("linkedSipId")},
+        React.createElement("option",{value:""},"— None —"),
+        scheduled.filter(s=>s.status==="active").map(s=>
+          React.createElement("option",{key:s.id,value:s.id},s.desc+" · "+INR(s.amount)+" · "+s.frequency)
+        )
+      )
     ),
     React.createElement("div",{style:{display:"flex",flexWrap:"wrap",gap:8,paddingTop:12,borderTop:"1px solid var(--border)"}},
       React.createElement(Btn,{onClick:saveGoal,disabled:!gf.title||!gf.targetAmount,sx:{flex:"1 1 120px",justifyContent:"center"}},editGoal?"Save Changes":"Create Goal"),
@@ -21749,9 +22157,35 @@ const GoalsSection=React.memo(({goals,dispatch,isMobile})=>{
                 )
               ),
               g.notes&&React.createElement("div",{style:{fontSize:11,color:"var(--text5)",background:"var(--bg5)",borderRadius:8,padding:"6px 10px",lineHeight:1.5,fontStyle:"italic"}},g.notes),
+              /* SIP Tracker strip */
+              (()=>{
+                const sp=sipProgress(g);
+                if(!sp)return null;
+                return React.createElement("div",{style:{background:"rgba(109,40,217,.07)",border:"1px solid rgba(109,40,217,.2)",borderRadius:9,padding:"9px 12px"}},
+                  React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}},
+                    React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"#6d28d9"}},"📅 SIP: "+sp.sc.desc),
+                    React.createElement("div",{style:{fontSize:10,color:"var(--text5)"}},INR(sp.sipAmt)+" / "+sp.freq)
+                  ),
+                  React.createElement("div",{style:{display:"flex",gap:14,flexWrap:"wrap"}},
+                    React.createElement("div",null,
+                      React.createElement("div",{style:{fontSize:9,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.4}},"Invested via SIP"),
+                      React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#6d28d9",fontFamily:"'Sora',sans-serif"}},INR(sp.totalInvested))
+                    ),
+                    sp.projDate&&React.createElement("div",null,
+                      React.createElement("div",{style:{fontSize:9,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.4}},"Projected completion"),
+                      React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"var(--accent)",fontFamily:"'Sora',sans-serif"}},sp.projDate)
+                    ),
+                    React.createElement("div",null,
+                      React.createElement("div",{style:{fontSize:9,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.4}},"SIP payments found"),
+                      React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"var(--text3)",fontFamily:"'Sora',sans-serif"}},sp.txCount)
+                    )
+                  )
+                );
+              })(),
               /* Actions */
-              React.createElement("div",{style:{display:"flex",gap:7,borderTop:"1px solid var(--border2)",paddingTop:10}},
+              React.createElement("div",{style:{display:"flex",gap:7,borderTop:"1px solid var(--border2)",paddingTop:10,flexWrap:"wrap"}},
                 !done&&React.createElement(Btn,{v:"success",sz:"sm",onClick:()=>{setFundsGoal(g);setFundsAmt("");}},"+  Add Funds"),
+                React.createElement(Btn,{v:"secondary",sz:"sm",onClick:()=>setSipLinkGoal(g)},g.linkedSipId?"🔗 SIP Linked":"🔗 Link SIP"),
                 React.createElement(Btn,{v:"secondary",sz:"sm",onClick:()=>openEdit(g)},"✏ Edit"),
                 React.createElement(Btn,{v:"danger",sz:"sm",onClick:()=>setDelGoal(g)},"✕")
               )
@@ -21760,7 +22194,30 @@ const GoalsSection=React.memo(({goals,dispatch,isMobile})=>{
         ),
     addOpen&&GoalModal,
     FundsModal,
-    DelModal
+    DelModal,
+    sipLinkGoal&&React.createElement(Modal,{title:"🔗 Link SIP to Goal — "+sipLinkGoal.title,onClose:()=>setSipLinkGoal(null),w:440},
+      React.createElement("div",{style:{fontSize:13,color:"var(--text4)",marginBottom:14,lineHeight:1.6}},
+        "Link a scheduled SIP/investment to this goal. The tracker will count all matching transactions toward your goal and project a completion date."
+      ),
+      React.createElement("div",{style:{marginBottom:14}},
+        React.createElement("label",{style:lbl},"Select Scheduled SIP"),
+        React.createElement("select",{className:"inp",
+          value:sipLinkGoal.linkedSipId||"",
+          onChange:e=>{
+            const id=e.target.value;
+            dispatch({type:"EDIT_GOAL",p:{...sipLinkGoal,linkedSipId:id}});
+            setSipLinkGoal({...sipLinkGoal,linkedSipId:id});
+          }},
+          React.createElement("option",{value:""},"— None (unlink) —"),
+          scheduled.filter(s=>s.status==="active").map(s=>
+            React.createElement("option",{key:s.id,value:s.id},
+              s.desc+" · "+INR(s.amount)+" · "+s.frequency)
+          )
+        )
+      ),
+      scheduled.length===0&&React.createElement("div",{style:{fontSize:12,color:"var(--text5)",fontStyle:"italic"}},"No active scheduled transactions found. Create a recurring SIP in the Scheduled tab first."),
+      React.createElement(Btn,{onClick:()=>setSipLinkGoal(null),sx:{width:"100%",justifyContent:"center",marginTop:4}},"Done")
+    )
   );
 });
 
@@ -23370,6 +23827,7 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
     {id:"subscriptions", label:"📺 Subscriptions"},
     {id:"fire",          label:"🏖 FIRE"},
     {id:"networth",      label:"💎 Net Worth"},
+    {id:"capgains",      label:"📑 Cap Gains"},
     {id:"calculators",   label:"🧮 Calculators"},
   ];
 
@@ -23388,6 +23846,7 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
     stab==="subscriptions" &&SubsTab,
     stab==="fire"          &&FireTab,
     stab==="networth"      &&React.createElement(NetWorthInsightTab,{banks,cards,cash,mf,shares,fd,re:re||[],loans,categories,prefs:P,isMobile,dispatch,nwSnapshots:nwSnapshots||{}}),
+    stab==="capgains"      &&React.createElement(CapGainsTab,{shares,mf,isMobile}),
     stab==="calculators"   &&React.createElement(InsightCalculators,{isMobile})
   );
 });
@@ -23924,6 +24383,107 @@ const XirrCalc=()=>{
 /* ══════════════════════════════════════════════════════════════════════════
    INSIGHTS CALCULATORS — SWP · Child Education · Retirement
    ══════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   CAPITAL GAINS TAX ESTIMATOR
+   Classifies share/MF holdings as STCG (<12 months) or LTCG (≥12 months).
+   Equity: LTCG 10% above ₹1L exemption · STCG 15%.
+   ══════════════════════════════════════════════════════════════════════════ */
+const CapGainsTab=({shares=[],mf=[],isMobile})=>{
+  const today=new Date();
+  const[buyDates,setBuyDates]=useState(()=>{
+    try{return JSON.parse(localStorage.getItem("mm_capgains_dates")||"{}");}catch{return {};}
+  });
+  const saveDates=d=>{setBuyDates(d);try{localStorage.setItem("mm_capgains_dates",JSON.stringify(d));}catch{}};
+
+  /* Build holdings list */
+  const holdings=React.useMemo(()=>{
+    const rows=[];
+    shares.forEach(sh=>{
+      const rawDate=buyDates["sh_"+sh.id]||sh.buyDate||null;
+      const buyDate=rawDate?new Date(rawDate):null;
+      const ageMonths=buyDate?Math.floor((today-buyDate)/(1000*60*60*24*30.44)):null;
+      const isLTCG=ageMonths!=null&&ageMonths>=12;
+      const invested=sh.qty*(sh.avgPrice||sh.buyPrice||0);
+      const current=sh.qty*sh.currentPrice;
+      const gain=current-invested;
+      rows.push({id:"sh_"+sh.id,name:sh.name||sh.ticker,ticker:sh.ticker,assetType:"Equity",buyDate:rawDate||"",ageMonths,isLTCG,invested,current,gain,rawGainType:gain>=0?"gain":"loss"});
+    });
+    mf.forEach(m=>{
+      const rawDate=buyDates["mf_"+m.id]||m.buyDate||null;
+      const buyDate=rawDate?new Date(rawDate):null;
+      const ageMonths=buyDate?Math.floor((today-buyDate)/(1000*60*60*24*30.44)):null;
+      const isLTCG=ageMonths!=null&&ageMonths>=12;
+      const current=m.currentValue||m.invested;
+      const gain=current-m.invested;
+      rows.push({id:"mf_"+m.id,name:m.scheme||m.name||"MF Folio",ticker:"",assetType:"Equity MF",buyDate:rawDate||"",ageMonths,isLTCG,invested:m.invested,current,gain,rawGainType:gain>=0?"gain":"loss"});
+    });
+    return rows.filter(r=>r.gain!==0);
+  },[shares,mf,buyDates,today]);
+
+  /* Tax calculation — equity/equity-MF */
+  const stcgGains=holdings.filter(h=>!h.isLTCG&&h.ageMonths!=null&&h.gain>0).reduce((s,h)=>s+h.gain,0);
+  const ltcgGains=holdings.filter(h=>h.isLTCG&&h.gain>0).reduce((s,h)=>s+h.gain,0);
+  const stcgTax=stcgGains*0.15;
+  const ltcgExempt=100000;
+  const ltcgTaxable=Math.max(0,ltcgGains-ltcgExempt);
+  const ltcgTax=ltcgTaxable*0.10;
+  const totalTax=stcgTax+ltcgTax;
+  const missingDates=holdings.filter(h=>!h.buyDate).length;
+
+  const fmt=v=>{const a=Math.abs(v);if(a>=10000000)return(v<0?"-":"")+"₹"+(a/10000000).toFixed(2)+"Cr";if(a>=100000)return(v<0?"-":"")+"₹"+(a/100000).toFixed(1)+"L";if(a>=1000)return(v<0?"-":"")+"₹"+(a/1000).toFixed(1)+"K";return(v<0?"-":"")+"₹"+Math.round(a);};
+
+  return React.createElement("div",{style:{paddingBottom:20}},
+    React.createElement("div",{style:{marginBottom:16}},
+      React.createElement("h3",{style:{fontFamily:"'Sora',sans-serif",fontSize:16,fontWeight:700,color:"var(--text)",marginBottom:3}},"📑 Capital Gains Tax Estimator"),
+      React.createElement("p",{style:{fontSize:12,color:"var(--text5)",lineHeight:1.6}},"Estimate STCG (15%) and LTCG (10% above ₹1L exemption) on shares and mutual funds. Add buy dates below for accurate classification. Not tax advice — consult your CA.")
+    ),
+    /* KPI strip */
+    React.createElement("div",{style:{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}},
+      ...[
+        {label:"STCG Gains",val:stcgGains,sub:"Held <12 months · Tax: 15%",col:"#b45309",tax:stcgTax},
+        {label:"LTCG Gains",val:ltcgGains,sub:"Held ≥12 months · ₹1L exempt",col:"#6d28d9",tax:ltcgTax},
+        {label:"Estimated Tax",val:totalTax,sub:"STCG+LTCG combined",col:totalTax>0?"#ef4444":"#16a34a",tax:null},
+      ].map(k=>React.createElement("div",{key:k.label,style:{flex:"1 1 150px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 14px"}},
+        React.createElement("div",{style:{fontSize:10,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.4,marginBottom:4}},k.label),
+        React.createElement("div",{style:{fontSize:20,fontFamily:"'Sora',sans-serif",fontWeight:800,color:k.col}},fmt(k.val)),
+        k.tax!=null&&React.createElement("div",{style:{fontSize:11,color:"#ef4444",marginTop:2}},k.tax>0?"Tax: "+fmt(k.tax):"No tax"),
+        React.createElement("div",{style:{fontSize:10,color:"var(--text5)",marginTop:2}},k.sub)
+      ))
+    ),
+    missingDates>0&&React.createElement("div",{style:{padding:"9px 12px",borderRadius:9,background:"rgba(180,83,9,.08)",border:"1px solid rgba(180,83,9,.25)",fontSize:12,color:"#b45309",marginBottom:14}},
+      "⚠ "+missingDates+" holding"+(missingDates===1?"":"s")+" missing a buy date — add dates below for accurate STCG/LTCG classification."
+    ),
+    /* Holdings table */
+    React.createElement("div",{style:{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}},
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 90px 80px 80px 80px 90px",padding:"7px 12px",background:"var(--bg4)",borderBottom:"1px solid var(--border)",fontSize:10,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.4}},
+        "Holding","Buy Date","Held","Gain/Loss","Type","Tax Est."),
+      holdings.length===0&&React.createElement("div",{style:{padding:"30px",textAlign:"center",color:"var(--text5)",fontSize:13}},"No holdings with gains/losses found. Add shares or mutual funds in the Investments section."),
+      holdings.map((h,i)=>React.createElement("div",{key:h.id,style:{display:"grid",gridTemplateColumns:"1fr 90px 80px 80px 80px 90px",padding:"9px 12px",borderBottom:i<holdings.length-1?"1px solid var(--border2)":"none",alignItems:"center",background:i%2?"var(--bg5)":"transparent"}},
+        React.createElement("div",null,
+          React.createElement("div",{style:{fontSize:12,fontWeight:600,color:"var(--text2)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},h.name),
+          React.createElement("div",{style:{fontSize:10,color:"var(--text5)"}},h.assetType)
+        ),
+        React.createElement("input",{type:"date",className:"inp",value:h.buyDate,
+          onChange:e=>{const d={...buyDates,[h.id]:e.target.value};saveDates(d);},
+          style:{fontSize:10,padding:"3px 6px",width:"100%",background:"var(--bg4)"}}),
+        React.createElement("div",{style:{fontSize:11,color:"var(--text4)",textAlign:"right"}},h.ageMonths!=null?h.ageMonths+"mo":"—"),
+        React.createElement("div",{style:{fontSize:11,fontWeight:700,fontFamily:"'Sora',sans-serif",color:h.gain>=0?"#16a34a":"#ef4444",textAlign:"right"}},fmt(h.gain)),
+        React.createElement("div",null,
+          h.ageMonths==null
+            ?React.createElement("span",{style:{fontSize:10,color:"var(--text6)"}},"?")
+            :React.createElement("span",{style:{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:10,background:h.isLTCG?"rgba(109,40,217,.12)":"rgba(180,83,9,.12)",color:h.isLTCG?"#6d28d9":"#b45309"}},h.isLTCG?"LTCG":"STCG")
+        ),
+        React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"#ef4444",fontFamily:"'Sora',sans-serif",textAlign:"right"}},
+          h.ageMonths==null?"—":h.gain<=0?"₹0":h.isLTCG?fmt(Math.max(0,h.gain-ltcgExempt)*0.10)+"*":fmt(h.gain*0.15)
+        )
+      ))
+    ),
+    React.createElement("div",{style:{fontSize:10,color:"var(--text6)",marginTop:10,lineHeight:1.7}},
+      "* LTCG tax shown per-holding before applying the ₹1L annual exemption. Total LTCG exemption is shared across all holdings. Surcharge and cess not included. This is an estimate only."
+    )
+  );
+};
+
 const InsightCalculators=({isMobile})=>{
   const[calc,setCalc]=useState(()=>loadCalcState().calc||"swp");
 
@@ -24667,6 +25227,7 @@ const NAV=[
   {id:"loans",     label:"Loan Accounts"},
   {id:"scheduled",      label:"Scheduled"},
   {id:"unified_ledger",label:"All Transactions"},
+  {id:"calendar",     label:"Calendar"},
   {id:"__sep_inv__",label:"INVESTMENTS",section:"header"},
   {id:"inv_dash",  label:"Overview"},
   {id:"inv_mf",    label:"Mutual Funds"},
@@ -27081,12 +27642,13 @@ function App(){
       tab==="inv_fd"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"fd",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
       tab==="inv_re"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"re",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
       tab==="loans"&&React.createElement(LoanSection,{loans:state.loans,dispatch,allBanks:state.banks,allCards:state.cards,cash:state.cash,categories:state.categories,payees:state.payees,isMobile}),
-      tab==="goals"&&React.createElement(GoalsSection,{goals:state.goals||[],dispatch,isMobile}),
+      tab==="goals"&&React.createElement(GoalsSection,{goals:state.goals||[],dispatch,isMobile,scheduled:state.scheduled||[],banks:state.banks,cards:state.cards,cash:state.cash}),
       tab==="insights"&&React.createElement(InsightsSection,{banks:state.banks,cards:state.cards,cash:state.cash,categories:state.categories,dispatch,isMobile,goals:state.goals,mf:state.mf,shares:state.shares,fd:state.fd,re:state.re,loans:state.loans,prefs:state.insightPrefs,onJumpToLedger,nwSnapshots:state.nwSnapshots||{}}),
       tab==="notes"&&React.createElement(NotesSection,{notes:state.notes||[],dispatch}),
       tab==="calculator"&&React.createElement(CalculatorSection,null),
       tab==="scheduled"&&React.createElement(ScheduledSection,{state,dispatch}),
       tab==="unified_ledger"&&React.createElement(UnifiedLedgerSection,{banks:state.banks,cards:state.cards,cash:state.cash,categories:state.categories,payees:state.payees,isMobile,initialFilter:jumpFilter,onClearJump,onJumpToTx}),
+      tab==="calendar"&&React.createElement(CalendarSection,{banks:state.banks,cards:state.cards,cash:state.cash,categories:state.categories,isMobile}),
       tab==="reports"&&React.createElement(ReportsSection,{data:state,isMobile,onJumpToLedger}),
       tab==="settings"&&React.createElement(SettingsSection,{state,dispatch,themeId,setTheme,isMobile,onResetAll:()=>{dispatch({type:"RESET_ALL"});try{localStorage.removeItem(LS_KEY);localStorage.removeItem(LS_THEME);localStorage.removeItem(TAX_LS_KEY);}catch{}setTimeout(()=>window.location.reload(),100);}}),
       tab==="info"&&React.createElement(InfoSection,{isMobile}),

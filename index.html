@@ -2036,10 +2036,16 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.34.1";
+const APP_VERSION="3.34.2";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.34.2",date:"2026-03-23",title:"Fix — Receipt attachment missing from New Transaction modal (TxModal)",changes:[
+    "Root cause: ReceiptAttachPanel was only wired into TxEditModal (edit existing). TxModal (new transaction) had no attachment UI.",
+    "Fix: TxModal now pre-generates a stable transaction id via uid() on mount (stored in useState so it never changes). This id is passed to ReceiptAttachPanel as txId so file handles can be stored in IDB before Save is clicked. On save, the pre-generated id is used instead of a fresh uid() call, and _receipts:pendingReceipts is included in the dispatched payload if any files were attached.",
+    "Attachment panel hidden when 'Schedule this transaction' is checked — scheduled entries don't have a fixed id and can't hold file references.",
+    "Gated behind !f.isScheduled && fsaSupported() — invisible on mobile and when creating scheduled recurring entries.",
+  ]},
   {version:"3.34.1",date:"2026-03-23",title:"Feature — Receipt / Document Attachment on transactions (desktop only)",changes:[
     "Attach photos (JPEG/PNG/WEBP) or PDFs to any transaction via the Edit Transaction modal. Desktop-only — gated behind fsaSupported() so mobile users never see the UI.",
     "Architecture: attachment metadata ({name, type, size, attachedAt}) stored in transaction._receipts[] array — serializes to JSON, survives backup/restore/FSA file sync. File handles stored in a new IDB store 'receipts' (same mm_fsa_db IndexedDB, version bumped to 2) keyed by txId+':'+filename — survive page reloads without re-picking files.",
@@ -7451,6 +7457,9 @@ const TxModal=({onAdd,onClose,categories,payees,txTypes,allAccounts,currentAccou
   const EMPTY={date:TODAY(),txType:txTypes[0],amount:"",payee:"",desc:"",cat:flatC[0]||"Income",tags:"",status:"Reconciled",txNum:"",notes:"",srcId:currentAccountId||"",tgtId:"",isScheduled:false,schedFreq:"monthly",schedEnd:"",gstRate:"0",gstType:"inclusive",tdsRate:"",tdsSec:""};
   const[f,setF]=useState(EMPTY);
   const[showTax,setShowTax]=useState(false);
+  /* Pre-generate a stable id so ReceiptAttachPanel can store handles before save */
+  const[pendingId]=useState(()=>uid());
+  const[pendingReceipts,setPendingReceipts]=useState([]);
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
   const isTransfer=f.txType==="Transfer";
 
@@ -7476,14 +7485,15 @@ const TxModal=({onAdd,onClose,categories,payees,txTypes,allAccounts,currentAccou
       else onClose();
       return;
     }
+    const _addedAt=new Date().toISOString();
+    const _rcpts=pendingReceipts.length>0?pendingReceipts:undefined;
     if(isTransfer){
       if(!f.srcId||!f.tgtId||f.srcId===f.tgtId)return;
       const srcAcc=allAccounts.find(a=>a.id===f.srcId);
       const tgtAcc=allAccounts.find(a=>a.id===f.tgtId);
-      const _addedAt=new Date().toISOString();
-      onAdd({isTransfer:true,srcType:srcAcc.accType,srcId:f.srcId,tgtType:tgtAcc.accType,tgtId:f.tgtId,tx:{...f,amount:+f.amount,cat:"Transfer",type:"debit",id:uid(),_addedAt}});
+      onAdd({isTransfer:true,srcType:srcAcc.accType,srcId:f.srcId,tgtType:tgtAcc.accType,tgtId:f.tgtId,tx:{...f,amount:+f.amount,cat:"Transfer",type:"debit",id:pendingId,_addedAt,...(_rcpts?{_receipts:_rcpts}:{})}});
     } else {
-      onAdd({...f,amount:+f.amount,type:typeToLedger(f.txType),id:uid(),_addedAt:new Date().toISOString()});
+      onAdd({...f,amount:+f.amount,type:typeToLedger(f.txType),id:pendingId,_addedAt,...(_rcpts?{_receipts:_rcpts}:{})});
     }
     if(andNew)setF({...EMPTY,date:f.date,txType:f.txType});
     else onClose();
@@ -7648,6 +7658,11 @@ const TxModal=({onAdd,onClose,categories,payees,txTypes,allAccounts,currentAccou
       React.createElement("textarea",{className:"inp",placeholder:"Merchant details, receipt no., invoice ref., GST no., warranty info, purpose…",value:f.notes,onChange:set("notes"),
         style:{resize:"vertical",minHeight:68,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",fontSize:13}})
     ),
+    !f.isScheduled&&fsaSupported()&&React.createElement(ReceiptAttachPanel,{
+      txId:pendingId,
+      receipts:pendingReceipts,
+      onChange:setPendingReceipts
+    }),
     React.createElement("div",{style:{display:"flex",flexWrap:"wrap",gap:8,paddingTop:12,borderTop:"1px solid var(--border)"}},
       React.createElement(Btn,{onClick:()=>save(false),sx:{flex:"1 1 120px",justifyContent:"center"},disabled:isTransfer&&(!f.srcId||!f.tgtId||f.srcId===f.tgtId||!f.amount)},f.isScheduled?"Schedule":"Save"),
       React.createElement(Btn,{onClick:()=>save(true),v:"secondary",sx:{flex:"1 1 120px",justifyContent:"center"},disabled:isTransfer&&(!f.srcId||!f.tgtId||f.srcId===f.tgtId||!f.amount)},f.isScheduled?"Schedule & New":"Save & New"),

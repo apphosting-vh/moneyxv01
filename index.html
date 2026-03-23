@@ -2036,10 +2036,20 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.34.0";
+const APP_VERSION="3.34.1";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.34.1",date:"2026-03-23",title:"Feature — Receipt / Document Attachment on transactions (desktop only)",changes:[
+    "Attach photos (JPEG/PNG/WEBP) or PDFs to any transaction via the Edit Transaction modal. Desktop-only — gated behind fsaSupported() so mobile users never see the UI.",
+    "Architecture: attachment metadata ({name, type, size, attachedAt}) stored in transaction._receipts[] array — serializes to JSON, survives backup/restore/FSA file sync. File handles stored in a new IDB store 'receipts' (same mm_fsa_db IndexedDB, version bumped to 2) keyed by txId+':'+filename — survive page reloads without re-picking files.",
+    "New IDB helpers: rcptIdbOpen() (opens mm_fsa_db v2 with 'receipts' object store), rcptSaveHandle(txId, name, handle), rcptGetHandle(txId, name), rcptDelHandle(txId, name), rcptDelAllForTx(txId) — all async, all silent-fail on error.",
+    "New ReceiptAttachPanel component: shown inside TxEditModal when fsaSupported() is true. Shows existing attachments as chips with file-type icon, file size, 📎 open/preview button (creates Blob URL from file handle), and ✕ remove button. A '+ Attach File' button calls showOpenFilePicker() with image/* and application/pdf accepted types.",
+    "Preview: clicking 📎 reads the file from disk (if handle still accessible) and opens it in a new tab via URL.createObjectURL. Handles permission-lapsed gracefully with an amber warning.",
+    "EDIT_TX reducer cases (EDIT_BANK_TX, EDIT_CARD_TX, EDIT_CASH_TX) already spread the full tx — _receipts field is preserved automatically without any reducer changes.",
+    "DEL_TX cleanup: rcptDelAllForTx() called on transaction delete to clean up orphaned IDB handles.",
+    "Ledger row indicator: a small 📎 badge appears on any transaction row that has _receipts.length > 0, visible in both desktop and mobile card views.",
+  ]},
   {version:"3.34.0",date:"2026-03-23",title:"Tier 2 Features — UPI Enrichment, Loan Prepayment Simulator, Calendar View, Capital Gains Estimator, Goal-Linked SIP Tracker",changes:[
     "1. UPI Enrichment: enrichUpiDesc() helper maps 200+ common Indian UPI VPA patterns to human-readable merchant names and auto-assigns categories. Applied automatically on SMS parse, Excel import, and manual Add Transaction. A 'UPI Enrichment' settings panel lets users add custom VPA→merchant mappings stored in localStorage (mm_upi_v1).",
     "2. Loan Prepayment Simulator: new '⚡ Prepay Sim' button on every loan card. Interactive slider for prepayment amount. Shows: months saved, interest saved, new payoff date vs original — all compared side-by-side in a modal. Pure math on existing loan data, no API calls.",
@@ -5997,6 +6007,7 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
               React.createElement("span",{style:{fontSize:11,color:"var(--text5)"}},dmyFmt(tx.date)),
               tx.cat&&React.createElement("span",{style:{fontSize:10,color:catCol,background:catCol+"18",borderRadius:10,padding:"1px 7px",fontWeight:500}},catDisplayName(tx.cat)),
               tx.status&&tx.status!=="Unreconciled"&&React.createElement("span",{style:{fontSize:10,color:STATUS_C[tx.status],background:STATUS_C[tx.status]+"22",borderRadius:10,padding:"1px 7px"}},(STATUS_ICON[tx.status]||"")+" "+tx.status),
+              tx._receipts&&tx._receipts.length>0&&React.createElement("span",{title:tx._receipts.length+" attachment"+(tx._receipts.length===1?"":"s"),style:{fontSize:10,color:"#b45309",background:"rgba(180,83,9,.12)",borderRadius:10,padding:"1px 7px",fontWeight:600}},"📎 "+tx._receipts.length),
               tx.tags&&tx.tags.split(",").filter(Boolean).map((tag,i)=>React.createElement("span",{key:i,style:{fontSize:10,color:"#6d28d9",background:"rgba(109,40,217,.12)",borderRadius:10,padding:"1px 6px"}},tag.trim()))
             ),
             /* Inline category combobox + filter button when selected (mobile) */
@@ -6439,10 +6450,11 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
                 transition:"all .15s"
               }
             },"🔍 Filter Transactions Like This"),
-            (tx.tags||tx.gstRate>0||tx.tdsRate>0)&&React.createElement("div",{style:{display:"flex",gap:3,marginTop:1,flexWrap:"wrap"}},
+            (tx.tags||tx.gstRate>0||tx.tdsRate>0||tx._receipts?.length>0)&&React.createElement("div",{style:{display:"flex",gap:3,marginTop:1,flexWrap:"wrap"}},
               ...(tx.tags||"").split(",").filter(Boolean).map((tag,i)=>React.createElement("span",{key:"tg"+i,style:{fontSize:9,color:"#6d28d9",background:"rgba(109,40,217,.12)",borderRadius:8,padding:"1px 5px"}},"#"+tag.trim())),
               tx.gstRate>0&&React.createElement("span",{key:"gst",style:{fontSize:9,color:"#0e7490",background:"rgba(14,116,144,.12)",borderRadius:8,padding:"1px 5px",fontWeight:600}},"GST "+tx.gstRate+"%"),
-              tx.tdsRate>0&&React.createElement("span",{key:"tds",style:{fontSize:9,color:"#b45309",background:"rgba(180,83,9,.12)",borderRadius:8,padding:"1px 5px",fontWeight:600}},"TDS "+tx.tdsRate+"%")
+              tx.tdsRate>0&&React.createElement("span",{key:"tds",style:{fontSize:9,color:"#b45309",background:"rgba(180,83,9,.12)",borderRadius:8,padding:"1px 5px",fontWeight:600}},"TDS "+tx.tdsRate+"%"),
+              tx._receipts&&tx._receipts.length>0&&React.createElement("span",{key:"rcpt",title:tx._receipts.length+" attachment"+(tx._receipts.length===1?"":"s"),style:{fontSize:9,color:"#b45309",background:"rgba(180,83,9,.12)",borderRadius:8,padding:"1px 5px",fontWeight:600}},"📎 "+tx._receipts.length)
             )
           ),
           /* ── Payee inline combobox ── */
@@ -6994,8 +7006,85 @@ const CatCombobox=({value,onChange,categories,placeholder="Search categories…"
 };
 
 /* ── TX EDIT MODAL ─────────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════
+   RECEIPT ATTACHMENT PANEL — desktop-only (gated by fsaSupported())
+   Shows inside TxEditModal. Lets users attach photos/PDFs to a transaction.
+   Metadata stored in tx._receipts[]. File handles stored in IDB receipts store.
+   ══════════════════════════════════════════════════════════════════════════ */
+const ReceiptAttachPanel=({txId,receipts=[],onChange})=>{
+  const[busy,setBusy]=useState(false);
+  const[msg,setMsg]=useState("");
+  const showMsg=(m,err=false)=>{setMsg({text:m,err});setTimeout(()=>setMsg(""),3500);};
+
+  const fmtSize=b=>{if(b>1048576)return(b/1048576).toFixed(1)+" MB";if(b>1024)return(b/1024).toFixed(0)+" KB";return b+" B";};
+  const fileIcon=type=>type&&type.includes("pdf")?"📄":type&&type.includes("image")?"🖼":"📎";
+
+  const attach=async()=>{
+    if(!("showOpenFilePicker" in window)){showMsg("File picker not supported in this browser.",true);return;}
+    try{
+      setBusy(true);
+      const[handle]=await window.showOpenFilePicker({
+        types:[
+          {description:"Images & PDFs",accept:{"image/*":[".jpg",".jpeg",".png",".webp",".gif"],"application/pdf":[".pdf"]}},
+        ],
+        multiple:false,
+      });
+      const file=await handle.getFile();
+      /* Check for duplicate */
+      if(receipts.some(r=>r.name===file.name)){showMsg("A file with this name is already attached.",true);setBusy(false);return;}
+      await rcptSaveHandle(txId,file.name,handle);
+      const newRcpt={name:file.name,type:file.type,size:file.size,attachedAt:new Date().toISOString()};
+      onChange([...receipts,newRcpt]);
+      showMsg("📎 "+file.name+" attached.");
+    }catch(e){if(e.name!=="AbortError")showMsg("Could not attach file: "+e.message,true);}
+    setBusy(false);
+  };
+
+  const preview=async(r)=>{
+    const handle=await rcptGetHandle(txId,r.name);
+    if(!handle){showMsg("File handle lost — please re-attach the file.",true);return;}
+    try{
+      const perm=await handle.queryPermission({mode:"read"});
+      if(perm!=="granted"){
+        const req=await handle.requestPermission({mode:"read"});
+        if(req!=="granted"){showMsg("Permission denied to read file.",true);return;}
+      }
+      const file=await handle.getFile();
+      const url=URL.createObjectURL(file);
+      window.open(url,"_blank");
+      setTimeout(()=>URL.revokeObjectURL(url),60000);
+    }catch(e){showMsg("Cannot open file: "+e.message,true);}
+  };
+
+  const remove=async(r)=>{
+    await rcptDelHandle(txId,r.name);
+    onChange(receipts.filter(x=>x.name!==r.name));
+    showMsg("Removed "+r.name+".");
+  };
+
+  return React.createElement("div",{style:{marginBottom:12,padding:"10px 13px",borderRadius:10,border:"1px solid var(--border2)",background:"var(--bg4)"}},
+    React.createElement("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:receipts.length?8:0}},
+      React.createElement("label",{style:{display:"block",color:"var(--text5)",fontSize:11,textTransform:"uppercase",letterSpacing:.5,fontWeight:600}},"📎 Attachments"),
+      React.createElement("button",{onClick:attach,disabled:busy,style:{fontSize:11,padding:"4px 10px",borderRadius:7,border:"1px solid var(--accent)66",background:"var(--accentbg)",color:"var(--accent)",cursor:busy?"not-allowed":"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600}},busy?"Picking…":"+ Attach File")
+    ),
+    receipts.length>0&&React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:5}},
+      receipts.map(r=>React.createElement("div",{key:r.name,style:{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",borderRadius:7,background:"var(--bg3)",border:"1px solid var(--border2)"}},
+        React.createElement("span",{style:{fontSize:16,flexShrink:0}},fileIcon(r.type)),
+        React.createElement("div",{style:{flex:1,minWidth:0}},
+          React.createElement("div",{style:{fontSize:12,fontWeight:500,color:"var(--text2)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},r.name),
+          React.createElement("div",{style:{fontSize:10,color:"var(--text5)"}},fmtSize(r.size)+" · "+new Date(r.attachedAt).toLocaleDateString("en-IN"))
+        ),
+        React.createElement("button",{onClick:()=>preview(r),title:"Open / Preview",style:{background:"none",border:"none",cursor:"pointer",fontSize:15,padding:"2px 4px",color:"var(--accent)"}},r.type&&r.type.includes("image")?"🔍":"📂"),
+        React.createElement("button",{onClick:()=>remove(r),title:"Remove attachment",style:{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:"2px 4px",color:"#ef4444"}},"✕")
+      ))
+    ),
+    receipts.length===0&&React.createElement("div",{style:{fontSize:12,color:"var(--text6)",fontStyle:"italic",marginTop:4}},"No attachments. Click '+ Attach File' to add a photo or PDF."),
+    msg&&React.createElement("div",{style:{marginTop:6,fontSize:11,fontWeight:600,color:msg.err?"#ef4444":"#16a34a",padding:"4px 8px",borderRadius:6,background:msg.err?"rgba(239,68,68,.08)":"rgba(22,163,74,.08)"}},msg.text)
+  );
+};
+
 const TxEditModal=({tx,categories,payees,txTypes,onSave,onClose,allAccounts=[]})=>{
-  const[f,setF]=useState({...tx,amount:String(tx.amount)});
+  const[f,setF]=useState({...tx,amount:String(tx.amount),_receipts:tx._receipts||[]});
   const[showTax,setShowTax]=useState(!!(tx.gstRate&&+tx.gstRate>0)||!!(tx.tdsRate&&+tx.tdsRate>0));
   const isTransfer=f.txType==="Transfer";
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
@@ -7095,6 +7184,11 @@ const TxEditModal=({tx,categories,payees,txTypes,onSave,onClose,allAccounts=[]})
       React.createElement("label",{style:lbl},"Notes / Receipt Description"),
       React.createElement("textarea",{className:"inp",value:f.notes||"",onChange:set("notes"),style:{resize:"vertical",minHeight:68,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",fontSize:13},placeholder:"Merchant details, receipt no., invoice ref., GST no., warranty info, purpose…"})
     ),
+    fsaSupported()&&React.createElement(ReceiptAttachPanel,{
+      txId:tx.id,
+      receipts:f._receipts||[],
+      onChange:rcpts=>setF(p=>({...p,_receipts:rcpts}))
+    }),
     React.createElement("div",{style:{display:"flex",flexWrap:"wrap",gap:8,paddingTop:12,borderTop:"1px solid var(--border)"}},
       React.createElement(Btn,{onClick:()=>{if(!f.amount)return;onSave({...f,amount:+f.amount});},sx:{flex:"1 1 120px",justifyContent:"center"}},"Save Changes"),
       React.createElement(Btn,{v:"secondary",onClick:onClose,sx:{justifyContent:"center",minWidth:70}},"Cancel")
@@ -9577,7 +9671,7 @@ const BankSection=React.memo(({banks,dispatch,categories,payees,allBanks,allCard
         onMassCatTx:(ids,cat,payee)=>{if(selD)dispatch({type:"MASS_UPDATE_CAT",accType:"bank",accId:selD.id,ids,cat,payee});},
         onMassDeleteTx:(ids)=>{if(selD)dispatch({type:"MASS_DEL_BANK_TX",accId:selD.id,ids});},
         onEditTx:(updated,old)=>{if(selD)dispatch({type:"EDIT_BANK_TX",accId:selD.id,tx:updated,old});},
-        onDeleteTx:tx=>{if(selD)dispatch({type:"DEL_BANK_TX",accId:selD.id,tx});},
+        onDeleteTx:tx=>{if(selD){dispatch({type:"DEL_BANK_TX",accId:selD.id,tx});rcptDelAllForTx(tx.id);}},
         onDupTx:tx=>{if(selD)dispatch({type:"DUP_BANK_TX",accId:selD.id,tx});},
         onSplitTx:(origTx,splits)=>{if(selD)dispatch({type:"SPLIT_TX",accType:"bank",accId:selD.id,originalTx:origTx,splits});},
       })
@@ -9781,7 +9875,7 @@ const CardSection=React.memo(({cards,dispatch,categories,payees,allBanks,allCard
         onMassCatTx:(ids,cat,payee)=>{if(selD)dispatch({type:"MASS_UPDATE_CAT",accType:"card",accId:selD.id,ids,cat,payee});},
         onMassDeleteTx:(ids)=>{if(selD)dispatch({type:"MASS_DEL_CARD_TX",accId:selD.id,ids});},
         onEditTx:(updated,old)=>{if(selD)dispatch({type:"EDIT_CARD_TX",accId:selD.id,tx:updated,old});},
-        onDeleteTx:tx=>{if(selD)dispatch({type:"DEL_CARD_TX",accId:selD.id,tx});},
+        onDeleteTx:tx=>{if(selD){dispatch({type:"DEL_CARD_TX",accId:selD.id,tx});rcptDelAllForTx(tx.id);}},
         onDupTx:tx=>{if(selD)dispatch({type:"DUP_CARD_TX",accId:selD.id,tx});},
         onSplitTx:(origTx,splits)=>{if(selD)dispatch({type:"SPLIT_TX",accType:"card",accId:selD.id,originalTx:origTx,splits});},      })
     ),
@@ -9847,7 +9941,7 @@ const CashSection=React.memo(({cash,dispatch,categories,payees,allBanks,allCards
           currentAccountId:"__cash__",
           onNew:()=>setAddCashOpen(true),
           onEdit:(updated,old)=>dispatch({type:"EDIT_CASH_TX",tx:updated,old}),
-          onDelete:tx=>dispatch({type:"DEL_CASH_TX",tx}),
+          onDelete:tx=>{dispatch({type:"DEL_CASH_TX",tx});rcptDelAllForTx(tx.id);},
           onDuplicate:tx=>dispatch({type:"DUP_CASH_TX",tx}),
           onSplit:(origTx,splits)=>dispatch({type:"SPLIT_TX",accType:"cash",accId:"__cash__",originalTx:origTx,splits}),
           onImport:txns=>dispatch({type:"IMPORT_BULK_TX",accType:"cash",accId:"__cash__",txns}),
@@ -20753,6 +20847,7 @@ const clearSessionUnlock=()=>{try{sessionStorage.removeItem(SS_UNLOCK);}catch{}}
 const FSA_IDB_NAME ="mm_fsa_db";
 const FSA_IDB_STORE="handles";
 const FSA_IDB_KEY  ="saveFileHandle";
+const RCPT_IDB_STORE="receipts"; /* keyed by "txId:filename" */
 
 /* Is the API available AND usable in this browser?
    showSaveFilePicker exists on Android Chrome 120+ but createWritable() for
@@ -20772,13 +20867,38 @@ const fsaSupported=()=>{
   return !/Android|iPhone|iPad|iPod|IEMobile|Opera Mini/i.test(navigator.userAgent);
 };
 
-/* ── IndexedDB wrappers — file handles survive page reloads when stored here ── */
+/* ── IndexedDB open — version 2 adds the receipts object store ── */
 const _fsaDbOpen=()=>new Promise((res,rej)=>{
-  const req=indexedDB.open(FSA_IDB_NAME,1);
-  req.onupgradeneeded=e=>e.target.result.createObjectStore(FSA_IDB_STORE);
+  const req=indexedDB.open(FSA_IDB_NAME,2); /* v2: adds receipts store */
+  req.onupgradeneeded=e=>{
+    const db=e.target.result;
+    if(!db.objectStoreNames.contains(FSA_IDB_STORE))db.createObjectStore(FSA_IDB_STORE);
+    if(!db.objectStoreNames.contains(RCPT_IDB_STORE))db.createObjectStore(RCPT_IDB_STORE);
+  };
   req.onsuccess=e=>res(e.target.result);
   req.onerror=e=>rej(e.target.error);
 });
+
+/* ── Receipt file handle helpers ── */
+const rcptKey=(txId,name)=>txId+":"+name;
+const rcptSaveHandle=async(txId,name,handle)=>{
+  try{const db=await _fsaDbOpen();await new Promise((res,rej)=>{const tx=db.transaction(RCPT_IDB_STORE,"readwrite");const r=tx.objectStore(RCPT_IDB_STORE).put(handle,rcptKey(txId,name));r.onsuccess=()=>res();r.onerror=e=>rej(e.target.error);});}catch{}
+};
+const rcptGetHandle=async(txId,name)=>{
+  try{const db=await _fsaDbOpen();return await new Promise((res,rej)=>{const tx=db.transaction(RCPT_IDB_STORE,"readonly");const r=tx.objectStore(RCPT_IDB_STORE).get(rcptKey(txId,name));r.onsuccess=e=>res(e.target.result||null);r.onerror=e=>rej(e.target.error);});}catch{return null;}
+};
+const rcptDelHandle=async(txId,name)=>{
+  try{const db=await _fsaDbOpen();await new Promise((res,rej)=>{const tx=db.transaction(RCPT_IDB_STORE,"readwrite");const r=tx.objectStore(RCPT_IDB_STORE).delete(rcptKey(txId,name));r.onsuccess=()=>res();r.onerror=e=>rej(e.target.error);});}catch{}
+};
+const rcptDelAllForTx=async(txId)=>{
+  try{
+    const db=await _fsaDbOpen();
+    const keys=await new Promise((res,rej)=>{const tx=db.transaction(RCPT_IDB_STORE,"readonly");const r=tx.objectStore(RCPT_IDB_STORE).getAllKeys();r.onsuccess=e=>res(e.target.result);r.onerror=e=>rej(e.target.error);});
+    const toDelete=keys.filter(k=>k.startsWith(txId+":"));
+    if(!toDelete.length)return;
+    await new Promise((res,rej)=>{const tx=db.transaction(RCPT_IDB_STORE,"readwrite");const store=tx.objectStore(RCPT_IDB_STORE);toDelete.forEach(k=>store.delete(k));tx.oncomplete=()=>res();tx.onerror=e=>rej(e.target.error);});
+  }catch{}
+};
 const fsaGetHandle=async()=>{
   try{
     const db=await _fsaDbOpen();

@@ -1583,6 +1583,7 @@ const getCurrentIndianFY=()=>{
 
 /** Returns Indian FY label string like "FY 2024-25" */
 const getIndianFYLabel=(fyStartYear)=>{
+  fyStartYear=+fyStartYear; // coerce string → number (e.g. "2025" → 2025)
   const startYr=String(fyStartYear);
   const endYr=String(fyStartYear+1).slice(2); // Last 2 digits
   return `FY ${startYr}-${endYr}`;
@@ -1591,6 +1592,7 @@ const getIndianFYLabel=(fyStartYear)=>{
 /** Returns {from: "YYYY-MM-DD", to: "YYYY-MM-DD"} for the given Indian FY start year.
     Example: getIndianFYDates(2024) returns {from: "2024-04-01", to: "2025-03-31"} */
 const getIndianFYDates=(fyStartYear)=>{
+  fyStartYear=+fyStartYear; // coerce string → number (e.g. "2025" → 2025)
   return{
     from:`${fyStartYear}-04-01`,
     to:`${fyStartYear+1}-03-31`,
@@ -2036,7 +2038,7 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.34.8";
+const APP_VERSION="3.34.9";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[

@@ -2036,10 +2036,18 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.34.3";
+const APP_VERSION="3.34.4";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.34.4",date:"2026-03-23",title:"Deep Audit Fix — 6 bugs: notification budget filter, Save & New attachments, lastExecuted date, notification panel spam, catch-up warning, billing cycle exact-day",changes:[
+    "Bug 1 FIXED — Notification budget alert: checkAndFireNotifications() now filters catClassType before counting debit transactions. Investment (SIP/stocks/PPF) and Transfer debits are excluded from expense budget totals, matching the same logic in Dashboard Widget H. Previously SIPs inflated expense categories and triggered false overrun alerts.",
+    "Bug 2 FIXED — Save & New with attachments: TxModal now resets pendingReceipts to [] and the pendingId is refreshed via a useRef+counter trick — after save(true), the modal keeps the form open but clears attachments so the next transaction starts clean. IDB handles from the first transaction are correctly keyed to the first transaction's id.",
+    "Bug 3 FIXED — EXECUTE_SCHEDULED lastExecuted: now set to TODAY() (actual execution date) instead of sc.nextDate (scheduled date). The lastExecuted !== today guard now works correctly because both sides use the same reference date. Completed cards show when the transaction actually ran, not when it was scheduled.",
+    "Bug 4 FIXED — NotificationsPanel fires on every open: removed the useEffect that fired raw Notification() calls on panel mount. Upcoming reminders are still shown in the preview list (computed via useMemo) but browser notifications are no longer re-fired every time the user opens the Settings panel. The checkAndFireNotifications() function with its sessionStorage deduplication handles the actual firing.",
+    "Bug 5 NOTED — Scheduled catch-up (one period per load): This is by design — each app open executes one due period and advances to the next. On the next open, if still due, it executes again. No fix applied as bulk catch-up could post many unintended transactions. A warning banner is now shown when more than 1 period has been missed.",
+    "Bug 6 FIXED — Card billing cycle exact-day: Dashboard card due date calc used now.getDate()<bd which skipped the billing day itself (treated today=billingDay as already-past). Changed to now.getDate()<=bd for consistent behavior with the other two implementations that use bd>=today.",
+  ]},
   {version:"3.34.3",date:"2026-03-23",title:"Fix — Scheduled: duplicate completed cards + wrong Executed date",changes:[
     "Bug 1 — Duplicate completed cards: The App-level auto-execute useEffect (runs on every app load) was missing the lastExecuted !== today guard that the Execute Now and Execute All Due buttons already had. When a user previously Copied a completed one-time entry, the copy inherited nextDate:null and defaulted to TODAY() — making it immediately due. On next load, the app auto-executed it, creating another completed entry. Repeating the copy cycle produced the three LIC Maturity cards seen. Fix: added sc.lastExecuted !== today guard to the App-level useEffect, matching the existing button guards.",
     "Bug 2 — Copy defaulting to today: the Copy confirm handler used nextDate:copySc.nextDate||TODAY(). For completed entries nextDate is null, so it fell back to TODAY() — meaning the copy auto-executed immediately on the next load. Fix: copies now default to tomorrow instead of today for completed/past entries (baseDate = copySc.nextDate if in the future, else tomorrow). This ensures copies are always at least one day away and gives the user time to edit the date.",
@@ -4534,7 +4542,11 @@ const reducer=(s,a)=>{
       const isOnce=sc.frequency==="once";
       const newNext=isOnce?null:advance(sc.nextDate,sc.frequency);
       const expired=isOnce||(sc.endDate&&newNext>sc.endDate);
-      ns={...ns,scheduled:(ns.scheduled||[]).map(x=>x.id===sc.id?{...x,lastExecuted:sc.nextDate,nextDate:expired?null:newNext,status:expired?"completed":"active"}:x)};
+      /* lastExecuted = TODAY (actual run date), not sc.nextDate (scheduled date).
+         This ensures the lastExecuted !== today guard works correctly on the same day,
+         and completed cards show when the transaction actually ran. */
+      const _runDate=new Date().toISOString().split("T")[0];
+      ns={...ns,scheduled:(ns.scheduled||[]).map(x=>x.id===sc.id?{...x,lastExecuted:_runDate,nextDate:expired?null:newNext,status:expired?"completed":"active"}:x)};
       return ns;
     }
     /* Transfer: debit source, credit target -- supports bank/cash/card */
@@ -7463,8 +7475,9 @@ const TxModal=({onAdd,onClose,categories,payees,txTypes,allAccounts,currentAccou
   const[f,setF]=useState(EMPTY);
   const[showTax,setShowTax]=useState(false);
   /* Pre-generate a stable id so ReceiptAttachPanel can store handles before save */
-  const[pendingId]=useState(()=>uid());
+  const pendingIdRef=React.useRef(uid());
   const[pendingReceipts,setPendingReceipts]=useState([]);
+
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
   const isTransfer=f.txType==="Transfer";
 
@@ -7491,16 +7504,22 @@ const TxModal=({onAdd,onClose,categories,payees,txTypes,allAccounts,currentAccou
       return;
     }
     const _addedAt=new Date().toISOString();
+    const usedId=pendingIdRef.current;
     const _rcpts=pendingReceipts.length>0?pendingReceipts:undefined;
     if(isTransfer){
       if(!f.srcId||!f.tgtId||f.srcId===f.tgtId)return;
       const srcAcc=allAccounts.find(a=>a.id===f.srcId);
       const tgtAcc=allAccounts.find(a=>a.id===f.tgtId);
-      onAdd({isTransfer:true,srcType:srcAcc.accType,srcId:f.srcId,tgtType:tgtAcc.accType,tgtId:f.tgtId,tx:{...f,amount:+f.amount,cat:"Transfer",type:"debit",id:pendingId,_addedAt,...(_rcpts?{_receipts:_rcpts}:{})}});
+      onAdd({isTransfer:true,srcType:srcAcc.accType,srcId:f.srcId,tgtType:tgtAcc.accType,tgtId:f.tgtId,tx:{...f,amount:+f.amount,cat:"Transfer",type:"debit",id:usedId,_addedAt,...(_rcpts?{_receipts:_rcpts}:{})}});
     } else {
-      onAdd({...f,amount:+f.amount,type:typeToLedger(f.txType),id:pendingId,_addedAt,...(_rcpts?{_receipts:_rcpts}:{})});
+      onAdd({...f,amount:+f.amount,type:typeToLedger(f.txType),id:usedId,_addedAt,...(_rcpts?{_receipts:_rcpts}:{})});
     }
-    if(andNew)setF({...EMPTY,date:f.date,txType:f.txType});
+    if(andNew){
+      /* Generate a fresh id for the next transaction and clear attachments */
+      pendingIdRef.current=uid();
+      setPendingReceipts([]);
+      setF({...EMPTY,date:f.date,txType:f.txType});
+    }
     else onClose();
   };
 
@@ -7664,7 +7683,7 @@ const TxModal=({onAdd,onClose,categories,payees,txTypes,allAccounts,currentAccou
         style:{resize:"vertical",minHeight:68,lineHeight:1.6,fontFamily:"'DM Sans',sans-serif",fontSize:13}})
     ),
     !f.isScheduled&&fsaSupported()&&React.createElement(ReceiptAttachPanel,{
-      txId:pendingId,
+      txId:pendingIdRef.current,
       receipts:pendingReceipts,
       onChange:setPendingReceipts
     }),
@@ -8718,7 +8737,7 @@ const Dashboard=React.memo(({data,isMobile})=>{
              dueDay > billingDay  -> due same month as next statement
              dueDay <= billingDay -> due month AFTER next statement */
           const cycleStart=new Date(now.getFullYear(),now.getMonth(),bd);
-          if(now.getDate()<bd)cycleStart.setMonth(cycleStart.getMonth()-1);
+          if(now.getDate()<=bd)cycleStart.setMonth(cycleStart.getMonth()-1);
           const nextStatement=new Date(cycleStart);
           nextStatement.setMonth(nextStatement.getMonth()+1);
           const dueDate=dd>bd
@@ -18316,7 +18335,12 @@ function checkAndFireNotifications(state){
     const mE=fmtD(new Date(now2.getFullYear(),now2.getMonth()+1,0));
     const actual={};
     [...(state.banks||[]).flatMap(b=>b.transactions),...(state.cards||[]).flatMap(c=>c.transactions),...((state.cash||{}).transactions||[])]
-      .filter(t=>t.type==="debit"&&t.date>=mS&&t.date<=mE)
+      .filter(t=>{
+        if(t.type!=="debit"||t.date<mS||t.date>mE)return false;
+        /* Exclude Investment and Transfer — same logic as Dashboard budget widget */
+        const ct=catClassType((state.categories||[]),t.cat||"Others");
+        return ct!=="Investment"&&ct!=="Transfer"&&ct!=="Income";
+      })
       .forEach(t=>{const m=catMainName(t.cat||"Others");actual[m]=(actual[m]||0)+t.amount;});
     Object.entries(plans).forEach(([cat,limit])=>{
       if(!limit)return;
@@ -18639,13 +18663,10 @@ const NotificationsPanel=({state})=>{
     return out;
   },[state,prefs.daysBefore]);
 
-  /* Fire notifications for upcoming reminders (runs once on panel open) */
-  React.useEffect(()=>{
-    if(perm!=="granted"||!prefs.enabled)return;
-    reminders.forEach(r=>{
-      new Notification("₹ Money Manager — "+r.title,{body:r.sub,icon:"icons/icon-192.png"});
-    });
-  },[]);/* eslint-disable-line */
+  /* NOTE: Browser notifications are intentionally NOT fired here.
+     checkAndFireNotifications() (called on app load + tab focus) handles firing
+     with proper sessionStorage deduplication. Firing here caused spam every time
+     the user opened the Settings → Notifications panel. */
 
   const TogRow=({label,sub,field,defaultVal=true})=>{
     const on=prefs[field]!==undefined?prefs[field]:defaultVal;
@@ -20496,6 +20517,20 @@ const ScheduledSection=React.memo(({state,dispatch})=>{
       React.createElement("div",{style:{fontSize:12,color:"#ef4444",fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:10}},
         "⏰ Due Now ("+due.length+")"
       ),
+      /* Catch-up warning: show when any entry's nextDate is more than one period old */
+      (()=>{
+        const stale=due.filter(sc=>{
+          if(!sc.nextDate||sc.frequency==="once")return false;
+          const periodDays={daily:1,weekly:7,monthly:31,quarterly:92,yearly:366}[sc.frequency]||31;
+          const daysBehind=Math.round((new Date()-new Date(sc.nextDate+"T12:00:00"))/(86400000));
+          return daysBehind>periodDays;
+        });
+        if(!stale.length)return null;
+        return React.createElement("div",{style:{marginBottom:12,padding:"9px 14px",borderRadius:9,background:"rgba(180,83,9,.08)",border:"1px solid rgba(180,83,9,.3)",fontSize:12,color:"#b45309",lineHeight:1.6}},
+          "⚠ ",React.createElement("strong",null,stale.length+" transaction"+(stale.length===1?"":"s")+" missed multiple periods."),
+          " Each execute catches up one period at a time. Execute repeatedly (or use 'Execute All Due' on each visit) until the next date is in the future."
+        );
+      })(),
       React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:12}},
         due.map(renderCard)
       )

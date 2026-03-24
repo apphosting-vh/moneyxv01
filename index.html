@@ -164,8 +164,11 @@
     throw new Error('Embedding blocked');
   }
 
-  /* ── 2. RIGHT-CLICK DISABLED ─────────────────────────────────────── */
+  /* ── 2. RIGHT-CLICK DISABLED (except in-app context menus) ─────── */
   document.addEventListener('contextmenu', function(e) {
+    /* Allow right-click on ledger rows that opt-in via data-ctx attribute
+       so the bulk-categorisation context menu can still fire. */
+    if (e.target && e.target.closest && e.target.closest('[data-ctx="ledger"]')) return;
     e.preventDefault(); e.stopPropagation(); return false;
   }, true);
 
@@ -2064,10 +2067,22 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.35.0";
+const APP_VERSION="3.36.1";
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.36.1",date:"2026-03-24",title:"Bug Fixes — SPLIT_TX attachment/tax inheritance, Net Worth investment exclusion, FIRE divide-by-zero, right-click context menu",changes:[
+    "Bug 1 Fix (SPLIT_TX orphans file attachments and drops tax data) — The SPLIT_TX reducer was spreading only user-supplied split fields onto each new fragment, silently dropping _receipts, gstRate, tdsRate, and tags from the original transaction. Fixed: each split fragment is now seeded with the original transaction's _receipts, gstRate, tdsRate, and tags before the user-supplied spread is applied, so custom per-split overrides still win but inherited fields are never lost.",
+    "Bug 2 Fix (Historical Net Worth reconstruction treats investments as expenses) — The backward-walk net-flow formula in both RptNetWorth and NetWorthInsightTab used the guard ct !== 'Transfer' to exclude non-expense flows. However, catClassType returns 'Investment' (not 'Transfer') for SIP / stocks / PPF debits, so every investment purchase was subtracted as an expense, making historical net worth appear artificially lower. Fixed: guard updated to ct !== 'Transfer' && ct !== 'Investment' in both components.",
+    "Bug 3 Fix (Divide-by-zero NaN crash in FIRE & Monte Carlo calculators) — In the fireData useMemo, the annuity future-value formula pmt * (Math.pow(1+r,n) - 1) / r evaluates to 0/0 = NaN when the user sets Expected Annual Return to 0%. NaN then cascades through the entire FIRE simulation, blanking the Monte Carlo charts and FIRE progress dashboard. Fixed: extracted a local annuityFV(pmt, rate, n) helper that returns pmt * n when rate === 0 (mathematically correct degenerate form) and the full compound formula otherwise. Applied to both the normal-pace and accelerated-pace FIRE loops.",
+    "Bug 4 Fix (Right-click context menu for bulk categorisation not opening) — The app-level anti-devtools guard registered a contextmenu listener in capture phase (true) that called e.preventDefault() + e.stopPropagation() unconditionally, intercepting every right-click before React's onContextMenu handlers on ledger rows could fire. Fixed: the global guard now checks e.target.closest('[data-ctx=\"ledger\"]') before suppressing; ledger rows (desktop grid rows and mobile card rows) are tagged with data-ctx='ledger' so right-click correctly opens the bulk-categorisation context menu. Anti-devtools protection is preserved everywhere else.",
+  ]},
+  {version:"3.36.0",date:"2026-03-24",title:"Features — Bulk Re-categorise Context Menu, Financial Calendar Dashboard Widget, GST ITC Tracker",changes:[
+    "Feature 1 — Right-click / long-press context menu for bulk re-categorisation from ledger rows: Right-clicking any desktop row (or long-pressing on mobile after 500ms) opens a floating context menu with two options: (1) 'Categorise all by payee' — selects all transactions in the ledger sharing the same payee name and immediately opens BulkCatModal; (2) 'Categorise all matching description pattern' — extracts the first 4 meaningful words from the transaction description as keywords and selects all transactions whose description contains any of them. Both paths auto-populate selectedIds and open the existing BulkCatModal so the user only needs to pick the target category once. An invisible backdrop div dismisses the menu on outside click. Context menus are rendered at the cursor position with window-edge clamping so they never overflow the viewport.",
+    "Feature 1 implementation: ctxMenu state {tx,x,y} added to TxLedger. openCtxMenu/closeCtxMenu, ctxSelectByPayee, ctxSelectByDesc handlers. Long-press wired via touchstart/touchend/touchmove using a 500ms setTimeout (lpRef). onContextMenu added to both the desktop grid row and the mobile card row divs.",
+    "Feature 2 — Financial Calendar dashboard widget (60-day forward obligation timeline): New FinancialCalendar component builds a flat events[] from five data sources: (1) data.scheduled active entries with nextDate in the next 60 days; (2) card due dates computed with the full billing-cycle-aware formula (same logic as Dashboard section G); (3) FD maturities from data.fd where maturityDate falls in the window; (4) loan end dates from data.loans; (5) goal target dates from data.goals. Events are grouped by date and rendered as a vertical timeline — each date gets a coloured chip (urgency-coded: red ≤0d, dark-red ≤3d, amber ≤7d, teal ≤14d, muted >14d) showing day number, month, and countdown label. Each event row shows icon, label, subtitle and amount. Added to Dashboard as widget M (id: fincalendar) — toggleable via the existing widget manager (⚙ Customize Dashboard).",
+    "Feature 3 — GST Input Credit Tracker: New 'ITC Tracker' tab inside the existing GST & TDS report (third tab alongside Snapshot and Detailed). Aggregates all transactions tagged with gstRate > 0 using the already-computed _gst/_base/_cgst/_sgst enrichment from calcGst(). Groups by payee/vendor name, displaying per-vendor: transaction count, base amount, CGST, SGST, and total ITC claimable — with a proportional bar chart showing each vendor's share. Summary stat cards show: Total ITC Claimable, CGST Component, SGST Component, Taxable Base Value. Sortable by GST amount / base amount / transaction count. Totals footer row. Disclaimer note reminding users ITC eligibility requires GSTR-2B reconciliation and CA sign-off. itcSort state added to RptGstTds; ViewToggle replaced with an inline 3-tab pill renderer (Snapshot / Detailed / ITC Tracker).",
+  ]},
   {version:"3.35.0",date:"2026-03-23",title:"Feature — PDF Export of Current Report View (all 17 reports × all views)",changes:[
     "New 'Export this View' button (📄) added to every report's RptCtrlBar toolbar — visible in Snapshot, Detailed and Heatmap views of all 17 reports (Cash Flow, Classification, Categories Monthly/Quarterly/Yearly/Summary, Where Money Goes, Where Money Comes From, Income vs Expenses, Forecast, My Usage, Payees, Summary of Accounts, Investment Portfolio, Reconciliation, Net Worth, GST & TDS).",
     "Clicking 'Export this View' generates a PDF of exactly what is currently visible on screen — the active view (Snapshot/Detailed/Heatmap), current date range, current account filter — ready for A4 print.",
@@ -4819,7 +4834,7 @@ const reducer=(s,a)=>{
       const{accType:_sat,accId:_said,originalTx:_otx,splits:_sps}=a;
       if(!_sps||!_sps.length)return s;
       const _splitGroupId=uid();
-      const _applyS=(txs)=>{const wo=txs.filter(t=>t.id!==_otx.id);let sn=nextSn(wo);return[...wo,..._sps.map(sp=>({...sp,_isSplit:true,_splitGroupId,_sn:sn++}))];};
+      const _applyS=(txs)=>{const wo=txs.filter(t=>t.id!==_otx.id);let sn=nextSn(wo);return[...wo,..._sps.map(sp=>({_receipts:_otx._receipts,gstRate:_otx.gstRate,tdsRate:_otx.tdsRate,tags:_otx.tags,...sp,_isSplit:true,_splitGroupId,_sn:sn++}))];};
       if(_sat==="bank")return{...s,banks:s.banks.map(b=>b.id===_said?{...b,transactions:_applyS(b.transactions)}:b)};
       if(_sat==="card")return{...s,cards:s.cards.map(c=>c.id===_said?{...c,transactions:_applyS(c.transactions)}:c)};
       if(_sat==="cash")return{...s,cash:{...s.cash,transactions:_applyS(s.cash.transactions)}};
@@ -5800,6 +5815,7 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
   const[smsOpen,setSmsOpen]=useState(false);
   const[bulkCatOpen,setBulkCatOpen]=useState(false);
   const[bulkDelOpen,setBulkDelOpen]=useState(false);
+  const[ctxMenu,setCtxMenu]=useState(null);
   /* ── Filter state ── */
   const[filterCats,setFilterCats]=useState(new Set());
   const[dateFrom,setDateFrom]=useState("");
@@ -6014,6 +6030,24 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
   const toggleCheckbox=(id,e)=>{e.stopPropagation();setSelectedIds(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});};
   const toggleAll=()=>{setSelectedIds(prev=>{const n=new Set(prev);if(allFilteredSelected){allFilteredIds.forEach(id=>n.delete(id));}else{allFilteredIds.forEach(id=>n.add(id));}return n;});};
   const clearSelection=()=>setSelectedIds(new Set());
+  const openCtxMenu=(tx,e)=>{e.preventDefault();setCtxMenu({tx,x:e.clientX,y:e.clientY});};
+  const closeCtxMenu=()=>setCtxMenu(null);
+  const ctxSelectByPayee=(tx)=>{
+    if(!tx.payee)return;
+    const p=(tx.payee||"").trim().toLowerCase();
+    const ids=new Set(transactions.filter(t=>(t.payee||"").trim().toLowerCase()===p).map(t=>t.id));
+    setSelectedIds(ids);setBulkCatOpen(true);setCtxMenu(null);
+  };
+  const ctxSelectByDesc=(tx)=>{
+    if(!tx.desc)return;
+    const kws=tx.desc.replace(/[^a-zA-Z0-9 ]/g," ").split(/\s+/).filter(w=>w.length>2).slice(0,4).map(w=>w.toLowerCase());
+    if(!kws.length)return;
+    const ids=new Set(transactions.filter(t=>kws.some(k=>(t.desc||"").toLowerCase().includes(k))).map(t=>t.id));
+    setSelectedIds(ids);setBulkCatOpen(true);setCtxMenu(null);
+  };
+  const lpRef=React.useRef(null);
+  const startLP=(tx,e)=>{const t=e.touches[0];lpRef.current=setTimeout(()=>setCtxMenu({tx,x:t.clientX,y:t.clientY}),500);};
+  const cancelLP=()=>{if(lpRef.current)clearTimeout(lpRef.current);};
   const toggleOne=(id)=>{setSelectedIds(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});};
   const massUpdate=(status)=>{if(onMassUpdateStatus&&selectedIds.size>0){onMassUpdateStatus(new Set(selectedIds),status);clearSelection();}};
   const COL_STATUS={Reconciled:"R",Unreconciled:"U",Void:"V",Duplicate:"D","Follow Up":"F"};
@@ -6079,6 +6113,11 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
             key:tx.id,
             ref:jumpTxId===tx.id?(el)=>{jumpRowRef.current=el;}:null,
             onClick:()=>setSelId(isSel?null:tx.id),
+            onContextMenu:e=>openCtxMenu(tx,e),
+            onTouchStart:e=>startLP(tx,e),
+            onTouchEnd:cancelLP,
+            onTouchMove:cancelLP,
+            "data-ctx":"ledger",
             style:{
               padding:"11px 14px",
               borderBottom:"1px solid var(--border2)",
@@ -6477,7 +6516,9 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
           key:tx.id,
           ref:jumpTxId===tx.id?(el)=>{jumpRowRef.current=el;}:null,
           onClick:()=>setSelId(isSel?null:tx.id),
+          onContextMenu:e=>openCtxMenu(tx,e),
           className:"ldg-row"+(isSel?" ldg-sel":""),
+          "data-ctx":"ledger",
           style:{
             display:"grid",
             gridTemplateColumns:"32px 28px 38px 92px 78px 58px 1fr 140px 140px 100px 100px 108px",
@@ -6700,6 +6741,33 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
       onClose:()=>setSmsOpen(false)
     }),
     /* ── Bulk categorize modal */
+    ctxMenu&&React.createElement(React.Fragment,null,
+      React.createElement("div",{onClick:closeCtxMenu,style:{position:"fixed",inset:0,zIndex:9998}}),
+      React.createElement("div",{style:{
+        position:"fixed",
+        left:Math.min(ctxMenu.x,window.innerWidth-224),
+        top:Math.min(ctxMenu.y,window.innerHeight-150),
+        zIndex:9999,background:"var(--modal-bg,var(--bg2))",
+        border:"1px solid var(--border)",borderRadius:10,
+        boxShadow:"0 8px 32px rgba(0,0,0,.28)",padding:"6px 0",minWidth:222,
+        fontFamily:"'DM Sans',sans-serif"
+      }},
+        React.createElement("div",{style:{padding:"7px 14px 8px",borderBottom:"1px solid var(--border2)",fontSize:10,color:"var(--text5)",fontWeight:700,textTransform:"uppercase",letterSpacing:.5}},"\uD83C\uDFF7 Quick Bulk Categorise"),
+        ctxMenu.tx.payee&&React.createElement("button",{
+          onClick:()=>ctxSelectByPayee(ctxMenu.tx),
+          style:{display:"block",width:"100%",textAlign:"left",padding:"9px 14px",background:"transparent",border:"none",cursor:"pointer",color:"var(--text2)",fontSize:12,fontWeight:500,fontFamily:"'DM Sans',sans-serif"},
+          onMouseEnter:e=>{e.currentTarget.style.background="var(--accentbg)";},
+          onMouseLeave:e=>{e.currentTarget.style.background="transparent";}
+        },"\uD83C\uDFF7 All by payee \u201c"+(ctxMenu.tx.payee.length>20?ctxMenu.tx.payee.slice(0,20)+"\u2026":ctxMenu.tx.payee)+"\u201d"),
+        ctxMenu.tx.desc&&React.createElement("button",{
+          onClick:()=>ctxSelectByDesc(ctxMenu.tx),
+          style:{display:"block",width:"100%",textAlign:"left",padding:"9px 14px",background:"transparent",border:"none",cursor:"pointer",color:"var(--text2)",fontSize:12,fontWeight:500,fontFamily:"'DM Sans',sans-serif"},
+          onMouseEnter:e=>{e.currentTarget.style.background="var(--accentbg)";},
+          onMouseLeave:e=>{e.currentTarget.style.background="transparent";}
+        },"\uD83D\uDD0D All matching description pattern"),
+        React.createElement("div",{style:{padding:"5px 14px 3px",fontSize:10,color:"var(--text6)",borderTop:"1px solid var(--border2)",marginTop:2}},"Selects matches \u2192 opens Bulk Categorise")
+      )
+    ),
     bulkCatOpen&&React.createElement(BulkCatModal,{
       selectedIds,
       transactions,
@@ -8126,6 +8194,90 @@ const ShareSummaryModal=({data,allBankTx,thisMonth,onClose})=>{
   );
 };
 
+
+/* ══════════════════════════════════════════════════════════════
+   FINANCIAL CALENDAR  — 60-day forward obligation timeline
+   Sources: scheduled transactions, card due dates, FD maturities,
+            loan end dates, goal deadlines.
+   ══════════════════════════════════════════════════════════════ */
+const FinancialCalendar=({data,isMobile})=>{
+  const today=new Date();
+  const todayStr=today.toISOString().slice(0,10);
+  const horizon=new Date(today);horizon.setDate(horizon.getDate()+60);
+  const horizonStr=horizon.toISOString().slice(0,10);
+  const diffDays=(ds)=>Math.ceil((new Date(ds+"T12:00:00")-today)/86400000);
+  const MN=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const INRc=v=>new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",minimumFractionDigits:0,maximumFractionDigits:0}).format(v||0);
+  const events=[];
+  (data.scheduled||[]).filter(sc=>sc.status==="active"&&sc.nextDate&&sc.nextDate>=todayStr&&sc.nextDate<=horizonStr).forEach(sc=>{
+    events.push({date:sc.nextDate,icon:"🗓",label:sc.desc||"Scheduled",
+      sub:(sc.frequency||"once").charAt(0).toUpperCase()+(sc.frequency||"once").slice(1),
+      amount:sc.amount,aCol:sc.ledgerType==="credit"?"#16a34a":"#ef4444",aSign:sc.ledgerType==="credit"?"+":"−",col:"#0e7490"});
+  });
+  data.cards.filter(card=>card.dueDay&&card.billingDay).forEach(card=>{
+    const now=new Date(),bd=card.billingDay,dd=card.dueDay;
+    const cs=new Date(now.getFullYear(),now.getMonth(),bd);
+    if(now.getDate()<=bd)cs.setMonth(cs.getMonth()-1);
+    const ns=new Date(cs);ns.setMonth(ns.getMonth()+1);
+    const due=dd>bd?new Date(ns.getFullYear(),ns.getMonth(),dd):new Date(ns.getFullYear(),ns.getMonth()+1,dd);
+    const ds=due.toISOString().slice(0,10);
+    if(ds>=todayStr&&ds<=horizonStr)
+      events.push({date:ds,icon:"💳",label:card.name+" payment due",
+        sub:"Outstanding: "+INRc(card.outstanding||0),
+        amount:card.outstanding||0,aCol:"#ef4444",aSign:"−",col:"#c2410c"});
+  });
+  (data.fd||[]).filter(f=>f.maturityDate&&f.maturityDate>=todayStr&&f.maturityDate<=horizonStr).forEach(f=>{
+    const m=f.maturityAmount&&f.maturityAmount>f.amount?f.maturityAmount:f.amount;
+    events.push({date:f.maturityDate,icon:"🏛",label:(f.bank||"FD")+" matures",
+      sub:"Principal: "+INRc(f.amount),amount:m,aCol:"#16a34a",aSign:"+",col:"#06b6d4"});
+  });
+  (data.loans||[]).filter(l=>l.endDate&&l.endDate>=todayStr&&l.endDate<=horizonStr).forEach(l=>{
+    events.push({date:l.endDate,icon:"🏦",label:l.name+" final EMI",
+      sub:l.bank||"Loan",amount:l.emi||0,aCol:"#ef4444",aSign:"−",col:"#7c3aed"});
+  });
+  (data.goals||[]).filter(g=>g.targetDate&&g.targetDate>=todayStr&&g.targetDate<=horizonStr).forEach(g=>{
+    const pct=Math.min(100,((+g.savedAmount||0)/(+g.targetAmount||1))*100);
+    events.push({date:g.targetDate,icon:g.icon||"🎯",label:(g.title||"Goal")+" deadline",
+      sub:Math.round(pct)+"% saved of "+INRc(+g.targetAmount||0),
+      amount:+g.targetAmount||0,aCol:"#b45309",aSign:"",col:"#b45309"});
+  });
+  if(!events.length)return React.createElement("div",{style:{textAlign:"center",padding:"20px 0",color:"var(--text6)",fontSize:12,display:"flex",flexDirection:"column",gap:5,alignItems:"center"}},
+    React.createElement("span",{style:{fontSize:22}},"📅"),
+    "No obligations in the next 60 days.",
+    React.createElement("span",{style:{fontSize:11}},"Add scheduled transactions, card due dates, FD maturities or goals to populate this view.")
+  );
+  const byDate={};
+  events.sort((a,b)=>a.date.localeCompare(b.date)).forEach(ev=>{if(!byDate[ev.date])byDate[ev.date]=[];byDate[ev.date].push(ev);});
+  const urgC=(ds)=>{const d=diffDays(ds);return d<0?"#ef4444":d<=3?"#c2410c":d<=7?"#b45309":d<=14?"#0e7490":"var(--text4)";};
+  const urgL=(ds)=>{const d=diffDays(ds);if(d<0)return"Overdue";if(d===0)return"Today";if(d===1)return"Tomorrow";if(d<=6)return"In "+d+"d";return"~"+Math.ceil(d/7)+"wks";};
+  return React.createElement("div",null,
+    Object.entries(byDate).map(([ds,evs])=>{
+      const uc=urgC(ds);const dd=new Date(ds+"T12:00:00");
+      return React.createElement("div",{key:ds,style:{display:"flex",gap:isMobile?9:13,marginBottom:9,alignItems:"flex-start"}},
+        React.createElement("div",{style:{flexShrink:0,width:isMobile?46:58,background:"var(--bg4)",border:"1px solid var(--border2)",borderRadius:9,padding:"5px 3px",textAlign:"center",borderTop:"3px solid "+uc}},
+          React.createElement("div",{style:{fontSize:isMobile?15:17,fontWeight:800,fontFamily:"'Sora',sans-serif",color:"var(--text)",lineHeight:1}},dd.getDate()),
+          React.createElement("div",{style:{fontSize:9,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.4,marginTop:1}},MN[dd.getMonth()]),
+          React.createElement("div",{style:{fontSize:9,fontWeight:700,color:uc,marginTop:2,lineHeight:1.1}},urgL(ds))
+        ),
+        React.createElement("div",{style:{flex:1,display:"flex",flexDirection:"column",gap:5}},
+          evs.map((ev,i)=>React.createElement("div",{key:i,style:{
+            background:"var(--bg4)",border:"1px solid var(--border2)",
+            borderLeft:"3px solid "+ev.col,borderRadius:8,padding:"7px 10px",
+            display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"
+          }},
+            React.createElement("span",{style:{fontSize:14,flexShrink:0}},ev.icon),
+            React.createElement("div",{style:{flex:1,minWidth:0}},
+              React.createElement("div",{style:{fontSize:12,fontWeight:600,color:"var(--text2)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},ev.label),
+              React.createElement("div",{style:{fontSize:10,color:"var(--text5)",marginTop:1}},ev.sub)
+            ),
+            ev.amount>0&&React.createElement("div",{style:{fontSize:12,fontWeight:700,color:ev.aCol,fontFamily:"'Sora',sans-serif",flexShrink:0}},ev.aSign+INRc(ev.amount))
+          ))
+        )
+      );
+    })
+  );
+};
+
 const Dashboard=React.memo(({data,isMobile})=>{
   const[ready,setReady]=useState(false);
   const[txTab,setTxTab]=useState("all"); /* account id or "all" */
@@ -8340,6 +8492,7 @@ const Dashboard=React.memo(({data,isMobile})=>{
           {id:"moneysummary",label:"📋 Monthly Summary (Where did my money go?)"},
           {id:"nwdonut",    label:"🍩 Net Worth Donut Chart"},
           {id:"budgetalerts",label:"🚨 Budget Alerts"},
+          {id:"fincalendar",label:"📅 Financial Calendar (60-day obligations)"},
         ].map(w=>React.createElement("label",{key:w.id,style:{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:8,cursor:"pointer",userSelect:"none",background:W(w.id)?"transparent":"rgba(239,68,68,.04)",border:"1px solid "+(W(w.id)?"var(--border2)":"rgba(239,68,68,.15)"),transition:"all .15s"}},
           React.createElement("input",{type:"checkbox",checked:W(w.id),onChange:()=>toggleWidget(w.id),style:{width:15,height:15,accentColor:"var(--accent)",cursor:"pointer",flexShrink:0}}),
           React.createElement("span",{style:{fontSize:13,color:W(w.id)?"var(--text2)":"var(--text5)",fontWeight:W(w.id)?500:400}},w.label)
@@ -9369,6 +9522,17 @@ const Dashboard=React.memo(({data,isMobile})=>{
         )
       );
     })()
+
+    ,
+    /* ══ M: FINANCIAL CALENDAR ══ */
+    W("fincalendar")&&React.createElement("div",{className:"db-card"},
+      React.createElement("div",{style:{marginBottom:12}},
+        React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"var(--text)",fontFamily:"'Sora',sans-serif",marginBottom:2}},"📅 Financial Calendar"),
+        React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},"• Scheduled • Card dues • FD maturities • Goal deadlines — next 60 days")
+      ),
+      React.createElement(FinancialCalendar,{data,isMobile})
+    )
+
   );
 });
 /* ══════════════════════════════════════════════════════════════════════════
@@ -16110,7 +16274,7 @@ const RptNetWorth=({data,onExportPDF})=>{
     const ct=catClassType(data.categories,t.cat||"Others");
     if(!byMonth[m])byMonth[m]=0;
     if(ct==="Income")byMonth[m]+=t.amount;
-    else if(ct!=="Transfer")byMonth[m]-=t.amount;
+    else if(ct!=="Transfer"&&ct!=="Investment")byMonth[m]-=t.amount;
   });
   const sortedMonths=Object.keys(byMonth).sort().slice(-12);
   let running=curNW;
@@ -16824,6 +16988,7 @@ ${table(
    ══════════════════════════════════════════════════════════════════════════ */
 const RptGstTds=({data,from,to,onExportPDF})=>{
   const[view,setView]=useState("snapshot");
+  const[itcSort,setItcSort]=useState("gst");
   const[gstTypeFilter,setGstTypeFilter]=useState("all"); /* all | inclusive | exclusive */
   const[tdsOnly,setTdsOnly]=useState(false);
 
@@ -16953,7 +17118,16 @@ const RptGstTds=({data,from,to,onExportPDF})=>{
         },"TDS Only"),
         React.createElement("span",{style:{fontSize:11,color:"var(--text5)",marginLeft:6}},"· "+visRows.length+" transactions")
       ),
-      React.createElement("div",{style:{marginLeft:"auto"}},React.createElement(ViewToggle,{views:VIEWS_2,value:view,onChange:setView}))
+      React.createElement("div",{style:{display:"flex",gap:5,flexWrap:"wrap"}},
+        [{id:"snapshot",label:"Snapshot",icon:"📊"},{id:"detailed",label:"Detailed",icon:"📋"},{id:"itc",label:"ITC Tracker",icon:"🧾"}].map(v=>
+          React.createElement("button",{key:v.id,onClick:()=>setView(v.id),style:{
+            padding:"6px 14px",borderRadius:20,border:"1px solid "+(view===v.id?"var(--accent)":"var(--border)"),
+            background:view===v.id?"var(--accentbg)":"transparent",color:view===v.id?"var(--accent)":"var(--text4)",
+            cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:view===v.id?700:400,
+            display:"flex",alignItems:"center",gap:5,transition:"all .15s"
+          }},v.icon," ",v.label)
+        )
+      )
     ),
 
     /* ── Stat cards ── */
@@ -17152,6 +17326,82 @@ const RptGstTds=({data,from,to,onExportPDF})=>{
         )
       )
     )
+
+    ,/* ── ITC TRACKER VIEW ── */
+    view==="itc"&&React.createElement("div",null,
+      React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
+        React.createElement(StatCard,{label:"Total ITC Claimable",val:INR(totGst),col:"var(--accent)",icon:"🧾",sub:gstCount+" tagged transactions"}),
+        React.createElement(StatCard,{label:"CGST Component",val:INR(totCgst),col:"#0e7490",icon:"↗",sub:"Central GST (50% share)"}),
+        React.createElement(StatCard,{label:"SGST Component",val:INR(totGst-totCgst),col:"#6d28d9",icon:"↗",sub:"State GST (50% share)"}),
+        React.createElement(StatCard,{label:"Taxable Base Value",val:INR(totBase),col:"var(--text3)",icon:"₹",sub:"Pre-GST amount"})
+      ),
+      React.createElement("div",{style:{padding:"10px 14px",marginBottom:16,borderRadius:9,background:"rgba(180,83,9,.07)",border:"1px solid rgba(180,83,9,.25)",fontSize:11,color:"#92400e",lineHeight:1.6}},
+        "⚠️  ITC eligibility depends on your GST registration, business use % and vendor GSTR-2B filing. This aggregates ",
+        React.createElement("strong",null,"potential"),
+        " ITC from tagged transactions — consult a CA before claiming."
+      ),
+      React.createElement("div",{style:{display:"flex",gap:6,alignItems:"center",marginBottom:12,flexWrap:"wrap"}},
+        React.createElement("span",{style:{fontSize:11,color:"var(--text5)",fontWeight:600,textTransform:"uppercase",letterSpacing:.4}},"Sort by:"),
+        ["gst","base","count"].map(sk=>React.createElement("button",{key:sk,onClick:()=>setItcSort(sk),
+          style:{padding:"4px 12px",borderRadius:16,border:"1px solid "+(itcSort===sk?"var(--accent)":"var(--border)"),
+            background:itcSort===sk?"var(--accentbg)":"transparent",color:itcSort===sk?"var(--accent)":"var(--text4)",
+            cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif",fontWeight:itcSort===sk?700:400}
+        },sk==="gst"?"GST Amount":sk==="base"?"Base Amount":"Txn Count"))
+      ),
+      (()=>{
+        const gstTx=rows.filter(r=>+r.gstRate>0);
+        const byVendor={};
+        gstTx.forEach(r=>{
+          const vk=(r.payee||r._src||"Unknown Vendor").trim()||"Unknown Vendor";
+          if(!byVendor[vk])byVendor[vk]={vendor:vk,count:0,base:0,gst:0,cgst:0,sgst:0,rates:new Set()};
+          byVendor[vk].count++;byVendor[vk].base+=r._base;byVendor[vk].gst+=r._gst;
+          byVendor[vk].cgst+=r._cgst;byVendor[vk].sgst+=r._sgst;byVendor[vk].rates.add(r.gstRate+"%");
+        });
+        const vRows=Object.values(byVendor)
+          .map(v=>({...v,rates:[...v.rates].join(", ")}))
+          .sort((a,b)=>itcSort==="count"?b.count-a.count:itcSort==="base"?b.base-a.base:b.gst-a.gst);
+        if(!vRows.length)return React.createElement(Empty,{icon:"🧾",text:"No GST-tagged transactions in selected period"});
+        const maxG=Math.max(...vRows.map(v=>v.gst),1);
+        const thS={padding:"9px 12px",fontSize:10,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.5,background:"var(--bg4)",borderBottom:"1px solid var(--border)"};
+        const tdS=(col,al)=>({padding:"9px 12px",fontSize:12,color:col||"var(--text2)",borderBottom:"1px solid var(--border2)",textAlign:al||"left",verticalAlign:"middle"});
+        const gc="1fr 70px 110px 90px 90px 110px";
+        return React.createElement(Card,{sx:{padding:0,overflow:"hidden",overflowX:"auto"}},
+          React.createElement("div",{style:{display:"grid",gridTemplateColumns:gc,minWidth:560,background:"var(--bg4)",borderBottom:"2px solid var(--border)"}},
+            React.createElement("div",{style:thS},"Vendor / Payee"),
+            React.createElement("div",{style:{...thS,textAlign:"center"}},"Txns"),
+            React.createElement("div",{style:{...thS,textAlign:"right"}},"Base Amt"),
+            React.createElement("div",{style:{...thS,textAlign:"right"}},"CGST"),
+            React.createElement("div",{style:{...thS,textAlign:"right"}},"SGST"),
+            React.createElement("div",{style:{...thS,textAlign:"right",color:"var(--accent)"}},"ITC Claimable")
+          ),
+          vRows.map((v,i)=>React.createElement("div",{key:v.vendor+i,style:{display:"grid",gridTemplateColumns:gc,minWidth:560,background:i%2===0?"transparent":"rgba(255,255,255,.015)"}},
+            React.createElement("div",{style:{padding:"8px 12px"}},
+              React.createElement("div",{style:{fontSize:12,fontWeight:600,color:"var(--text2)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:240,title:v.vendor}},v.vendor),
+              React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6,marginTop:3}},
+                React.createElement("div",{style:{height:4,borderRadius:2,background:"var(--border)",flex:1,overflow:"hidden"}},
+                  React.createElement("div",{style:{height:"100%",width:Math.round((v.gst/maxG)*100)+"%",background:"var(--accent)",borderRadius:2,transition:"width .8s ease"}})
+                ),
+                React.createElement("span",{style:{fontSize:9,color:"var(--text6)",flexShrink:0}},v.rates)
+              )
+            ),
+            React.createElement("div",{style:{...tdS("var(--text4)","center")}},v.count),
+            React.createElement("div",{style:{...tdS("var(--text3)","right"),fontFamily:"'Sora',sans-serif"}},INR(v.base)),
+            React.createElement("div",{style:{...tdS("#0e7490","right"),fontFamily:"'Sora',sans-serif"}},INR(v.cgst)),
+            React.createElement("div",{style:{...tdS("#6d28d9","right"),fontFamily:"'Sora',sans-serif"}},INR(v.sgst)),
+            React.createElement("div",{style:{...tdS("var(--accent)","right"),fontWeight:700,fontFamily:"'Sora',sans-serif",fontSize:13}},INR(v.gst))
+          )),
+          React.createElement("div",{style:{display:"grid",gridTemplateColumns:gc,minWidth:560,background:"var(--bg4)",borderTop:"2px solid var(--border)"}},
+            React.createElement("div",{style:{padding:"10px 12px",fontSize:12,fontWeight:700,color:"var(--text3)"}},"Totals ("+vRows.length+" vendors · "+gstTx.length+" txns)"),
+            React.createElement("div",{style:{padding:"10px 12px",textAlign:"center",fontSize:12,fontWeight:700,color:"var(--text3)"}},gstTx.length),
+            React.createElement("div",{style:{padding:"10px 12px",textAlign:"right",fontSize:13,fontWeight:800,color:"var(--text3)",fontFamily:"'Sora',sans-serif"}},INR(totBase)),
+            React.createElement("div",{style:{padding:"10px 12px",textAlign:"right",fontSize:13,fontWeight:800,color:"#0e7490",fontFamily:"'Sora',sans-serif"}},INR(totCgst)),
+            React.createElement("div",{style:{padding:"10px 12px",textAlign:"right",fontSize:13,fontWeight:800,color:"#6d28d9",fontFamily:"'Sora',sans-serif"}},INR(totGst-totCgst)),
+            React.createElement("div",{style:{padding:"10px 12px",textAlign:"right",fontSize:14,fontWeight:800,color:"var(--accent)",fontFamily:"'Sora',sans-serif"}},INR(totGst))
+          )
+        );
+      })()
+    )
+
   );
 };
 
@@ -22675,7 +22925,7 @@ const NetWorthInsightTab=({banks,cards,cash,mf,shares,fd,re,loans,categories,pre
       const ct=catClassType(categories,t.cat||"Others");
       if(!m[key])m[key]={net:0,income:0,expense:0};
       if(ct==="Income"){m[key].net+=t.amount;m[key].income+=t.amount;}
-      else if(ct!=="Transfer"){m[key].net-=t.amount;m[key].expense+=t.amount;}
+      else if(ct!=="Transfer"&&ct!=="Investment"){m[key].net-=t.amount;m[key].expense+=t.amount;}
     });
     return m;
   },[allTx,categories]);
@@ -24024,12 +24274,14 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
 
     // Years to FIRE — numerical solve
     const r=((P.annualReturnPct||10)/100)/12;
+    /* Safe future-value-of-annuity: when r=0 the formula degenerates to pmt*n */
+    const annuityFV=(pmt,rate,n)=>rate===0?pmt*n:pmt*(Math.pow(1+rate,n)-1)/rate;
     const pv=Math.max(investableCorpus,0);
     const pmt=Math.max(avgMonthlySavings,0);
     let yearsToFire=null;
     if(pmt>0||pv>0){
       for(let n=1;n<=600;n++){
-        const fv=pv*Math.pow(1+r,n)+(pmt>0?pmt*(Math.pow(1+r,n)-1)/r:0);
+        const fv=pv*Math.pow(1+r,n)+(pmt>0?annuityFV(pmt,r,n):0);
         if(fv>=fireNumber){yearsToFire=n/12;break;}
       }
     }
@@ -24037,7 +24289,7 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
     const pmt20=avgMonthlySavings*1.2;
     if(pmt20>0||pv>0){
       for(let n=1;n<=600;n++){
-        const fv=pv*Math.pow(1+r,n)+(pmt20>0?pmt20*(Math.pow(1+r,n)-1)/r:0);
+        const fv=pv*Math.pow(1+r,n)+(pmt20>0?annuityFV(pmt20,r,n):0);
         if(fv>=fireNumber){yearsToFireAccelerated=n/12;break;}
       }
     }

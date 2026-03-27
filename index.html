@@ -4206,7 +4206,7 @@ const txCatDelta=(t,ct)=>
 const isAnyTransfer=(tx,cats)=>isTransferTx(tx,cats);
 const CLASS_TYPES=["Income","Expense","Investment","Transfer","Others"];
 const CLASS_C={Income:"#16a34a",Expense:"#dc2626",Investment:"#6d28d9",Transfer:"#1d4ed8",Others:"#475569"};
-const CLASS_ICON={Income:React.createElement(Icon,{n:"money",size:18}),Expense:React.createElement(Icon,{n:"expense",size:18}),Investment:React.createElement(Icon,{n:"invest",size:18}),Transfer:React.createElement(Icon,{n:"refresh",size:16}),Others:React.createElement(Icon,{n:"tabs",size:18})};
+const CLASS_ICON={Income:React.createElement(Icon,{n:"money",size:15}),Expense:React.createElement(Icon,{n:"expense",size:18}),Investment:React.createElement(Icon,{n:"invest",size:18}),Transfer:React.createElement(Icon,{n:"refresh",size:16}),Others:React.createElement(Icon,{n:"tabs",size:18})};
 
 /* ── Returns the configured default payee name for a category value.
    Sub-category defaultPayee takes priority; falls back to main category.
@@ -9769,7 +9769,7 @@ const Dashboard=React.memo(({data,isMobile})=>{
         ),
         /* Stats row */
         React.createElement("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},
-          React.createElement(Stat,{icon:React.createElement(Icon,{n:"money",size:18}),label:"Income",val:INR(curMD.inc),col:"#16a34a",sub:incChg!==null?React.createElement(Arrow,{chg:incChg,invert:false}):null}),
+          React.createElement(Stat,{icon:React.createElement(Icon,{n:"money",size:15}),label:"Income",val:INR(curMD.inc),col:"#16a34a",sub:incChg!==null?React.createElement(Arrow,{chg:incChg,invert:false}):null}),
           React.createElement(Stat,{icon:React.createElement(Icon,{n:"expense",size:18}),label:"Expenses",val:INR(curMD.exp),col:"#ef4444",sub:expChg!==null?React.createElement(Arrow,{chg:expChg,invert:true}):null}),
           React.createElement(Stat,{icon:React.createElement(Icon,{n:"bank",size:18}),label:"Net Saved",val:INR(net),col:net>=0?"#16a34a":"#ef4444",sub:netChg!==null?React.createElement(Arrow,{chg:netChg,invert:false}):null}),
           topCatEntry&&React.createElement(Stat,{icon:React.createElement(Icon,{n:"pie",size:20}),label:"Top Category",val:topCatEntry[0],col:CAT_C[topCatEntry[0]]||"var(--accent)",sub:INR(topCatEntry[1])+" · "+((topCatEntry[1]/catTotal)*100).toFixed(0)+"% of spend"}),
@@ -12538,7 +12538,7 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
     ),
     tab==="shares"&&React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
       React.createElement(StatCard,{label:"Market Value",val:INR(shVal),sub:shares.length+" holdings",col:"#16a34a",icon:React.createElement(Icon,{n:"invest",size:18})}),
-      React.createElement(StatCard,{label:"Cost Basis",val:INR(shCost),sub:"Total invested",col:"#0e7490",icon:React.createElement(Icon,{n:"money",size:18})}),
+      React.createElement(StatCard,{label:"Cost Basis",val:INR(shCost),sub:"Total invested",col:"#0e7490",icon:React.createElement(Icon,{n:"money",size:15})}),
       React.createElement(StatCard,{label:"Total P&L",val:(shVal-shCost>=0?"+":"")+INR(shVal-shCost),sub:pct(shVal,shCost)+"% return",col:shVal>=shCost?"#16a34a":"#ef4444",icon:shVal>=shCost?"▲":"▼"}),
       (()=>{const cg=computeCapitalGains(shares,[]);return(cg.stcgGain>0||cg.ltcgGain>0)?React.createElement(StatCard,{label:"Est. Capital Gains Tax",val:INR(Math.round(cg.totalTax)),sub:"STCG "+INR(Math.round(cg.stcgGain))+" · LTCG "+INR(Math.round(cg.ltcgGain)),col:"#4f46e5",icon:React.createElement(Icon,{n:"report",size:22})}):null;})()
     ),
@@ -12555,7 +12555,7 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
       const reGain=reTotal-reCost;
       return React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
         React.createElement(StatCard,{label:"Portfolio Value",val:INR(reTotal),sub:re.length+" propert"+(re.length===1?"y":"ies"),col:"#c2410c",icon:React.createElement(Icon,{n:"home",size:18})}),
-        React.createElement(StatCard,{label:"Total Invested",val:INR(reCost),sub:"Cost of acquisition",col:"#0e7490",icon:React.createElement(Icon,{n:"money",size:18})}),
+        React.createElement(StatCard,{label:"Total Invested",val:INR(reCost),sub:"Cost of acquisition",col:"#0e7490",icon:React.createElement(Icon,{n:"money",size:15})}),
         React.createElement(StatCard,{label:"Unrealised Gain",val:(reGain>=0?"+":"")+INR(reGain),sub:reCost>0?((reGain/reCost*100).toFixed(1)+"% return"):"--",col:reGain>=0?"#16a34a":"#ef4444",icon:reGain>=0?"▲":"▼"})
       );
     })(),
@@ -14691,14 +14691,14 @@ const RptCashFlow=({data,from,to,onExportPDF})=>{
   const hmRows=CLASS_TYPES.filter(ct=>clsData[ct]&&Object.keys(clsData[ct].data).length>0)
     .map(ct=>({label:[CLASS_ICON[ct]," ",ct],col:clsData[ct].col,data:clsData[ct].data}));
   return React.createElement("div",{className:"fu"},
-    React.createElement(RptHeader,{title:"Cash Flow",desc:"Monthly classification breakdown — Income, Expenses, Investments (Transfers excluded)",icon:React.createElement(Icon,{n:"money",size:18})}),
+    React.createElement(RptHeader,{title:"Cash Flow",desc:"Monthly classification breakdown — Income, Expenses, Investments (Transfers excluded)",icon:React.createElement(Icon,{n:"money",size:15})}),
     React.createElement(RptCtrlBar,{onExportPDF},
       React.createElement("span",{style:{fontSize:11,color:"var(--text5)",fontWeight:600,textTransform:"uppercase",letterSpacing:.4}},"Account:"),
       React.createElement(AccFilter,{data,value:accFilter,onChange:setAccFilter}),
       React.createElement("div",{style:{marginLeft:"auto"}},React.createElement(ViewToggle,{value:view,onChange:setView}))
     ),
     React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
-      React.createElement(StatCard,{label:"Total Income",val:INR(totInc),col:"#16a34a",icon:React.createElement(Icon,{n:"money",size:18})}),
+      React.createElement(StatCard,{label:"Total Income",val:INR(totInc),col:"#16a34a",icon:React.createElement(Icon,{n:"money",size:15})}),
       React.createElement(StatCard,{label:"Total Expenses",val:INR(totExp),col:"#ef4444",icon:React.createElement(Icon,{n:"expense",size:18})}),
       React.createElement(StatCard,{label:"Investments",val:INR(totInv),col:"#6d28d9",icon:React.createElement(Icon,{n:"invest",size:18})}),
       React.createElement(StatCard,{label:"Net Cash Flow",val:INR(totInc-totExp-totInv),col:(totInc-totExp-totInv)>=0?"#16a34a":"#ef4444",icon:"≈"})
@@ -15002,7 +15002,7 @@ const RptCatMonthly=({data,from,to,onJumpToLedger,onExportPDF})=>{
       React.createElement("div",{style:{marginLeft:"auto"}},React.createElement(ViewToggle,{value:view,onChange:setView}))
     ),
     React.createElement("div",{style:{display:"flex",gap:10,flexWrap:"wrap",marginBottom:18}},
-      React.createElement(StatCard,{label:"Total Income",val:INR(totInc),col:"#16a34a",icon:React.createElement(Icon,{n:"money",size:18})}),
+      React.createElement(StatCard,{label:"Total Income",val:INR(totInc),col:"#16a34a",icon:React.createElement(Icon,{n:"money",size:15})}),
       React.createElement(StatCard,{label:"Total Expenses",val:INR(totExp),col:"#ef4444",icon:React.createElement(Icon,{n:"expense",size:18})}),
       React.createElement(StatCard,{label:"Net Flow",val:INR(totNet),col:totNet>=0?"#16a34a":"#ef4444",icon:"≈"}),
       React.createElement(StatCard,{label:"Savings Rate",val:savingsRate.toFixed(1)+"%",col:"#0e7490",icon:React.createElement(Icon,{n:"invest",size:18})}),
@@ -15037,9 +15037,9 @@ const RptCatMonthly=({data,from,to,onJumpToLedger,onExportPDF})=>{
         ),
         React.createElement(Card,{sx:{padding:16}},
           React.createElement("div",{style:{fontSize:12,color:"#16a34a",fontWeight:700,marginBottom:12,display:"flex",alignItems:"center",gap:6}},
-            React.createElement("span",null,React.createElement(Icon,{n:"income",size:18}))," Where Money Comes From"
+            React.createElement("span",null,React.createElement(Icon,{n:"income",size:16}))," Where Money Comes From"
           ),
-          incDonutData.length===0?React.createElement(Empty,{icon:React.createElement(Icon,{n:"income",size:18}),text:"No income data"})
+          incDonutData.length===0?React.createElement(Empty,{icon:React.createElement(Icon,{n:"income",size:16}),text:"No income data"})
             :React.createElement("div",{style:{display:"flex",gap:14,alignItems:"flex-start",flexWrap:"wrap"}},
               React.createElement(CatDonut,{data:incDonutData,size:130}),
               React.createElement("div",{style:{flex:1,minWidth:100}},
@@ -15311,7 +15311,7 @@ const RptCatQuarterly=({data,from,to,onJumpToLedger,onExportPDF})=>{
       React.createElement("div",{style:{marginLeft:"auto"}},React.createElement(ViewToggle,{value:view,onChange:setView}))
     ),
     React.createElement("div",{style:{display:"flex",gap:10,flexWrap:"wrap",marginBottom:18}},
-      React.createElement(StatCard,{label:"Total Income",val:INR(totInc),col:"#16a34a",icon:React.createElement(Icon,{n:"money",size:18})}),
+      React.createElement(StatCard,{label:"Total Income",val:INR(totInc),col:"#16a34a",icon:React.createElement(Icon,{n:"money",size:15})}),
       React.createElement(StatCard,{label:"Total Expenses",val:INR(totExp),col:"#ef4444",icon:React.createElement(Icon,{n:"expense",size:18})}),
       React.createElement(StatCard,{label:"Net Flow",val:INR(totNet),col:totNet>=0?"#16a34a":"#ef4444",icon:"≈"}),
       React.createElement(StatCard,{label:"Savings Rate",val:savingsRate.toFixed(1)+"%",col:"#0e7490",icon:React.createElement(Icon,{n:"invest",size:18})}),
@@ -15346,9 +15346,9 @@ const RptCatQuarterly=({data,from,to,onJumpToLedger,onExportPDF})=>{
         ),
         React.createElement(Card,{sx:{padding:16}},
           React.createElement("div",{style:{fontSize:12,color:"#16a34a",fontWeight:700,marginBottom:12,display:"flex",alignItems:"center",gap:6}},
-            React.createElement("span",null,React.createElement(Icon,{n:"income",size:18}))," Where Money Comes From"
+            React.createElement("span",null,React.createElement(Icon,{n:"income",size:16}))," Where Money Comes From"
           ),
-          incDonutData.length===0?React.createElement(Empty,{icon:React.createElement(Icon,{n:"income",size:18}),text:"No income data"})
+          incDonutData.length===0?React.createElement(Empty,{icon:React.createElement(Icon,{n:"income",size:16}),text:"No income data"})
             :React.createElement("div",{style:{display:"flex",gap:14,alignItems:"flex-start",flexWrap:"wrap"}},
               React.createElement(CatDonut,{data:incDonutData,size:130}),
               React.createElement("div",{style:{flex:1,minWidth:100}},
@@ -15600,7 +15600,7 @@ const RptCatYearly=({data,from,to,onJumpToLedger,onExportPDF})=>{
       React.createElement("div",{style:{marginLeft:"auto"}},React.createElement(ViewToggle,{value:view,onChange:setView}))
     ),
     React.createElement("div",{style:{display:"flex",gap:10,flexWrap:"wrap",marginBottom:18}},
-      React.createElement(StatCard,{label:"Total Income",val:INR(totInc),col:"#16a34a",icon:React.createElement(Icon,{n:"money",size:18})}),
+      React.createElement(StatCard,{label:"Total Income",val:INR(totInc),col:"#16a34a",icon:React.createElement(Icon,{n:"money",size:15})}),
       React.createElement(StatCard,{label:"Total Expenses",val:INR(totExp),col:"#ef4444",icon:React.createElement(Icon,{n:"expense",size:18})}),
       React.createElement(StatCard,{label:"Net Flow",val:INR(totNet),col:totNet>=0?"#16a34a":"#ef4444",icon:"≈"}),
       React.createElement(StatCard,{label:"Savings Rate",val:savingsRate.toFixed(1)+"%",col:"#0e7490",icon:React.createElement(Icon,{n:"invest",size:18})}),
@@ -15635,9 +15635,9 @@ const RptCatYearly=({data,from,to,onJumpToLedger,onExportPDF})=>{
         ),
         React.createElement(Card,{sx:{padding:16}},
           React.createElement("div",{style:{fontSize:12,color:"#16a34a",fontWeight:700,marginBottom:12,display:"flex",alignItems:"center",gap:6}},
-            React.createElement("span",null,React.createElement(Icon,{n:"income",size:18}))," Where Money Comes From"
+            React.createElement("span",null,React.createElement(Icon,{n:"income",size:16}))," Where Money Comes From"
           ),
-          incDonutData.length===0?React.createElement(Empty,{icon:React.createElement(Icon,{n:"income",size:18}),text:"No income data"})
+          incDonutData.length===0?React.createElement(Empty,{icon:React.createElement(Icon,{n:"income",size:16}),text:"No income data"})
             :React.createElement("div",{style:{display:"flex",gap:14,alignItems:"flex-start",flexWrap:"wrap"}},
               React.createElement(CatDonut,{data:incDonutData,size:130}),
               React.createElement("div",{style:{flex:1,minWidth:100}},
@@ -16117,7 +16117,7 @@ const RptMoneyComes=({data,from,to,onJumpToLedger,onExportPDF})=>{
   const months=Object.keys(Object.fromEntries(allTx.map(t=>[t.date.substr(0,7),1]))).sort();
   const hmRows=buildHeatRows(allTx,months,data.categories);
   return React.createElement("div",{className:"fu"},
-    React.createElement(RptHeader,{title:"Where the Money Comes From",desc:"All income inflow — by category and sub-category",icon:React.createElement(Icon,{n:"income",size:18})}),
+    React.createElement(RptHeader,{title:"Where the Money Comes From",desc:"All income inflow — by category and sub-category",icon:React.createElement(Icon,{n:"income",size:16})}),
     React.createElement(RptCtrlBar,{onExportPDF},
       React.createElement("span",{style:{fontSize:11,color:"var(--text5)",fontWeight:600,textTransform:"uppercase",letterSpacing:.4}},"Account:"),
       React.createElement(AccFilter,{data,value:accFilter,onChange:setAccFilter}),
@@ -16128,7 +16128,7 @@ const RptMoneyComes=({data,from,to,onJumpToLedger,onExportPDF})=>{
       React.createElement("div",{style:{marginLeft:"auto"}},React.createElement(ViewToggle,{value:view,onChange:setView}))
     ),
     React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
-      React.createElement(StatCard,{label:"Total Income",val:INR(total),col:"#16a34a",icon:React.createElement(Icon,{n:"income",size:18})}),
+      React.createElement(StatCard,{label:"Total Income",val:INR(total),col:"#16a34a",icon:React.createElement(Icon,{n:"income",size:16})}),
       React.createElement(StatCard,{label:"Sources",val:rows.length,col:"#0e7490",icon:React.createElement(Icon,{n:"tag",size:34})}),
       React.createElement(StatCard,{label:"Transactions",val:allTx.length,col:"var(--accent)",icon:React.createElement(Icon,{n:"report",size:22})})
     ),
@@ -16146,7 +16146,7 @@ const RptMoneyComes=({data,from,to,onJumpToLedger,onExportPDF})=>{
       ),
       React.createElement(Card,null,
         React.createElement("div",{style:{fontSize:11,color:"var(--text4)",fontWeight:600,marginBottom:12,textTransform:"uppercase",letterSpacing:.5}},"Total Income: "+INR(total)),
-        rows.length===0&&React.createElement(Empty,{icon:React.createElement(Icon,{n:"income",size:18}),text:"No income in period"}),
+        rows.length===0&&React.createElement(Empty,{icon:React.createElement(Icon,{n:"income",size:16}),text:"No income in period"}),
         rows.map(([cat,val],i)=>{
           const catObj=data.categories.find(c=>c.name===cat);
           const col=catObj?.color||PAL[i%PAL.length];
@@ -16164,7 +16164,7 @@ const RptMoneyComes=({data,from,to,onJumpToLedger,onExportPDF})=>{
     ),
     view==="detailed"&&React.createElement(Card,{sx:{padding:0,overflow:"hidden"}},
       React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 90px 80px 60px 90px",padding:"8px 14px",borderBottom:"1px solid var(--border)",fontSize:10,color:"var(--text6)",fontWeight:700,textTransform:"uppercase",background:"var(--bg4)"}},"Source Category","Amount","% Share","Txns",""),
-      rows.length===0&&React.createElement(Empty,{icon:React.createElement(Icon,{n:"income",size:18}),text:"No income data in period"}),
+      rows.length===0&&React.createElement(Empty,{icon:React.createElement(Icon,{n:"income",size:16}),text:"No income data in period"}),
       rows.map(([cat,val],i)=>{
         const catObj=data.categories.find(c=>c.name===cat);
         const col=catObj?.color||PAL[i%PAL.length];
@@ -16243,7 +16243,7 @@ const RptIncVsExp=({data,from,to,onExportPDF})=>{
       React.createElement("div",{style:{marginLeft:"auto"}},React.createElement(ViewToggle,{value:view,onChange:setView}))
     ),
     React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
-      React.createElement(StatCard,{label:"Total Income",val:INR(totInc),col:"#16a34a",icon:React.createElement(Icon,{n:"money",size:18})}),
+      React.createElement(StatCard,{label:"Total Income",val:INR(totInc),col:"#16a34a",icon:React.createElement(Icon,{n:"money",size:15})}),
       React.createElement(StatCard,{label:"Total Expenses",val:INR(totExp),col:"#ef4444",icon:React.createElement(Icon,{n:"expense",size:18})}),
       React.createElement(StatCard,{label:"Invested",val:INR(totInv),col:"#6d28d9",icon:React.createElement(Icon,{n:"invest",size:18})}),
       React.createElement(StatCard,{label:"Net Saved",val:INR(totInc-totExp),col:(totInc-totExp)>=0?"#16a34a":"#ef4444",icon:"≈"}),
@@ -16623,7 +16623,7 @@ const RptInvestments=({data,onExportPDF})=>{
       React.createElement("div",{style:{marginLeft:"auto"}},React.createElement(ViewToggle,{views:VIEWS_2,value:view,onChange:setView}))
     ),
     React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
-      React.createElement(StatCard,{label:"Total Invested",val:INR(totalInv),col:"#0e7490",icon:React.createElement(Icon,{n:"money",size:18})}),
+      React.createElement(StatCard,{label:"Total Invested",val:INR(totalInv),col:"#0e7490",icon:React.createElement(Icon,{n:"money",size:15})}),
       React.createElement(StatCard,{label:"Current Value",val:INR(totalCur),col:"var(--accent)",icon:React.createElement(Icon,{n:"chart",size:22})}),
       React.createElement(StatCard,{label:"Total P&L",val:INR(totalPnL),sub:totalInv>0?((totalPnL/totalInv)*100).toFixed(2)+"%":"",col:totalPnL>=0?"#16a34a":"#ef4444",icon:totalPnL>=0?"●":"●"}),
       React.createElement(StatCard,{label:"FD Value Today",val:INR(fdVal),sub:fdVal>fdPrinc?"+"+INR(fdVal-fdPrinc)+" accrued":"principal "+INR(fdPrinc),col:"#b45309",icon:React.createElement(Icon,{n:"bank",size:18})}),
@@ -17666,7 +17666,7 @@ const RptGstTds=({data,from,to,onExportPDF})=>{
     /* ── Stat cards ── */
     React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
       React.createElement(StatCard,{label:"Total GST Paid",val:INR(totGst),col:"var(--accent)",icon:React.createElement(Icon,{n:"building",size:18}),sub:gstCount+" transactions"}),
-      React.createElement(StatCard,{label:"Total Base Amount",val:INR(totBase),col:"#0e7490",icon:React.createElement(Icon,{n:"money",size:18}),sub:"Pre-GST value"}),
+      React.createElement(StatCard,{label:"Total Base Amount",val:INR(totBase),col:"#0e7490",icon:React.createElement(Icon,{n:"money",size:15}),sub:"Pre-GST value"}),
       React.createElement(StatCard,{label:"CGST + SGST",val:INR(totCgst)+" + "+INR(totCgst),col:"#16a34a",icon:React.createElement(Icon,{n:"balance",size:18}),sub:"Equal split (intra-state)"}),
       React.createElement(StatCard,{label:"Total TDS Deducted",val:INR(totTds),col:"#6d28d9",icon:React.createElement(Icon,{n:"edit",size:16}),sub:tdsCount+" transactions · Gross "+INR(totGross)})
     ),
@@ -17939,7 +17939,7 @@ const RptGstTds=({data,from,to,onExportPDF})=>{
 };
 
 const REPORT_TREE=[
-  {id:"cashflow",      label:"Cash Flow",                icon:React.createElement(Icon,{n:"money",size:18})},
+  {id:"cashflow",      label:"Cash Flow",                icon:React.createElement(Icon,{n:"money",size:15})},
   {id:"classification",label:"Classification Breakdown", icon:React.createElement(Icon,{n:"tag",size:18})},
   {id:"categories",    label:"Categories",               icon:React.createElement(Icon,{n:"folder",size:18}),children:[
     {id:"cat_monthly",   label:"Monthly",                icon:React.createElement(Icon,{n:"calendar",size:18})},
@@ -17947,7 +17947,7 @@ const REPORT_TREE=[
     {id:"cat_yearly",    label:"Yearly",                 icon:React.createElement(Icon,{n:"chart",size:18})},
     {id:"cat_summary",   label:"Summary",                icon:React.createElement(Icon,{n:"report",size:18})},
     {id:"cat_goes",      label:"Where Money Goes",       icon:React.createElement(Icon,{n:"expense",size:18})},
-    {id:"cat_comes",     label:"Where Money Comes From", icon:React.createElement(Icon,{n:"income",size:18})},
+    {id:"cat_comes",     label:"Where Money Comes From", icon:React.createElement(Icon,{n:"income",size:16})},
   ]},
   {id:"incvsexp",      label:"Income vs Expenses",       icon:React.createElement(Icon,{n:"balance",size:18})},
   {id:"investments",   label:"Investment Portfolio",     icon:React.createElement(Icon,{n:"invest",size:18})},
@@ -18194,7 +18194,7 @@ const InsightPrefsPanel=({state,dispatch})=>{
       )
     ),
     React.createElement(Card,{sx:{marginBottom:16}},
-      React.createElement(SecHdr,{icon:React.createElement(Icon,{n:"money",size:18}),title:"Monthly Income & Expenses",sub:"Override if your salary hits a bank account not tracked here, or if transactions don't fully represent your cash flow."}),
+      React.createElement(SecHdr,{icon:React.createElement(Icon,{n:"money",size:15}),title:"Monthly Income & Expenses",sub:"Override if your salary hits a bank account not tracked here, or if transactions don't fully represent your cash flow."}),
       React.createElement("div",{className:"grid-2col"},
         React.createElement("div",null,
           React.createElement(Field,{label:"Monthly Income Source"},
@@ -18243,7 +18243,7 @@ const InsightPrefsPanel=({state,dispatch})=>{
       )
     ),
     React.createElement(Card,{sx:{marginBottom:16}},
-      React.createElement(SecHdr,{icon:React.createElement(Icon,{n:"money",size:18}),title:"Budget Planning",sub:"Set a monthly spending target per category. These appear as plan lines in the Budget → Planned vs Actual view."}),
+      React.createElement(SecHdr,{icon:React.createElement(Icon,{n:"money",size:15}),title:"Budget Planning",sub:"Set a monthly spending target per category. These appear as plan lines in the Budget → Planned vs Actual view."}),
       (()=>{
         const spendCats=state.categories.filter(c=>c.classType!=="Income"&&c.classType!=="Transfer");
         const plans=P.budgetPlans||{};
@@ -23450,7 +23450,7 @@ const TagInput=({value="",onChange})=>{
 /* ══════════════════════════════════════════════════════════════════════════
    GOALS SECTION — financial goals with progress tracking
    ══════════════════════════════════════════════════════════════════════════ */
-const GOAL_ICONS=[React.createElement(Icon,{n:"target",size:18}),React.createElement(Icon,{n:"home",size:18}),React.createElement(Icon,{n:"travel",size:18}),React.createElement(Icon,{n:"vehicle",size:18}),React.createElement(Icon,{n:"phone",size:18}),React.createElement(Icon,{n:"education",size:18}),React.createElement(Icon,{n:"health",size:18}),React.createElement(Icon,{n:"ring",size:18}),React.createElement(Icon,{n:"beach",size:18}),React.createElement(Icon,{n:"music",size:18}),React.createElement(Icon,{n:"phone",size:18}),React.createElement(Icon,{n:"fitness",size:18}),React.createElement(Icon,{n:"gift",size:18}),React.createElement(Icon,{n:"money",size:18}),React.createElement(Icon,{n:"shield",size:18}),React.createElement(Icon,{n:"education",size:18})];
+const GOAL_ICONS=[React.createElement(Icon,{n:"target",size:18}),React.createElement(Icon,{n:"home",size:18}),React.createElement(Icon,{n:"travel",size:18}),React.createElement(Icon,{n:"vehicle",size:18}),React.createElement(Icon,{n:"phone",size:18}),React.createElement(Icon,{n:"education",size:18}),React.createElement(Icon,{n:"health",size:18}),React.createElement(Icon,{n:"ring",size:18}),React.createElement(Icon,{n:"beach",size:18}),React.createElement(Icon,{n:"music",size:18}),React.createElement(Icon,{n:"phone",size:18}),React.createElement(Icon,{n:"fitness",size:18}),React.createElement(Icon,{n:"gift",size:18}),React.createElement(Icon,{n:"money",size:15}),React.createElement(Icon,{n:"shield",size:18}),React.createElement(Icon,{n:"education",size:18})];
 const GOAL_COLORS=["#0e7490","#16a34a","#b45309","#6d28d9","#c2410c","#be185d","#1d4ed8","#059669"];
 
 const GoalsSection=React.memo(({goals,dispatch,isMobile,scheduled=[],banks=[],cards=[],cash={transactions:[]}})=>{
@@ -23586,7 +23586,7 @@ const GoalsSection=React.memo(({goals,dispatch,isMobile,scheduled=[],banks=[],ca
     /* Summary strip */
     goals.length>0&&React.createElement("div",{style:{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr",gap:12,marginBottom:20}},
       React.createElement(StatCard,{label:"Total Target",val:INR(totalTarget),icon:React.createElement(Icon,{n:"target",size:18}),col:"var(--accent)"}),
-      React.createElement(StatCard,{label:"Total Saved",val:INR(totalSaved),sub:((totalSaved/Math.max(totalTarget,1))*100).toFixed(1)+"% overall progress",icon:React.createElement(Icon,{n:"money",size:18}),col:"#16a34a"}),
+      React.createElement(StatCard,{label:"Total Saved",val:INR(totalSaved),sub:((totalSaved/Math.max(totalTarget,1))*100).toFixed(1)+"% overall progress",icon:React.createElement(Icon,{n:"money",size:15}),col:"#16a34a"}),
       React.createElement(StatCard,{label:"Active Goals",val:goals.length+" goals",sub:onTrack+" on track",icon:React.createElement(Icon,{n:"chart",size:18}),col:"#0e7490"})
     ),
     /* Goals grid */
@@ -25189,7 +25189,7 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
         ),
         /* ── KPI Row ── */
         React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
-          React.createElement(KpiCard,{label:"Investable Corpus",value:INR(Math.round(fireData.investableCorpus)),sub:"Savings+Investments−Debt",col:fireData.investableCorpus>0?"#16a34a":"#ef4444",icon:React.createElement(Icon,{n:"money",size:18})}),
+          React.createElement(KpiCard,{label:"Investable Corpus",value:INR(Math.round(fireData.investableCorpus)),sub:"Savings+Investments−Debt",col:fireData.investableCorpus>0?"#16a34a":"#ef4444",icon:React.createElement(Icon,{n:"money",size:15})}),
           React.createElement(KpiCard,{label:"Progress to FIRE",value:(Math.min(fireData.investableCorpus/fireData.fireNumber*100,100)).toFixed(1)+"%",sub:INR(Math.round(Math.max(fireData.fireNumber-fireData.investableCorpus,0)))+" to go",col:"var(--accent)",icon:React.createElement(Icon,{n:"target",size:18})}),
           React.createElement(KpiCard,{label:"Years to FIRE",value:fireData.yearsToFire?fireData.yearsToFire.toFixed(1)+" yrs":"—",sub:fireData.yearsToFire?"at current pace (10% returns)":"Save more to calculate",col:fireData.yearsToFire&&fireData.yearsToFire<15?"#16a34a":fireData.yearsToFire&&fireData.yearsToFire<25?"#b45309":"#ef4444",icon:"⏱"}),
           React.createElement(KpiCard,{label:"Savings Rate",value:fireData.currentSavingsRate.toFixed(1)+"%",sub:fireData.currentSavingsRate>=40?"FIRE pace!":fireData.currentSavingsRate>=20?"On track":"Needs improvement",col:fireData.currentSavingsRate>=40?"#16a34a":fireData.currentSavingsRate>=20?"#b45309":"#ef4444",icon:React.createElement(Icon,{n:"chart",size:18})})
@@ -26597,7 +26597,7 @@ const InfoSection=React.memo(({isMobile})=>{
       ),
       Warning({icon:React.createElement(Icon,{n:"unlock",size:20}),text:"Unauthorised copying, cloning, re-hosting, or redistribution of this application or any portion of its source code, whether in original or modified form, without the explicit written permission of Vivek Hegde Hulimane."}),
       Warning({icon:React.createElement(Icon,{n:"refresh",size:16}),text:"Creating derivative works, modified versions, or forks of this application and presenting them as your own, or removing or altering any copyright, attribution, or developer notices contained within."}),
-      Warning({icon:React.createElement(Icon,{n:"money",size:18}),text:"Using this application or any portion of its code, design, or logic for commercial purposes, including resale, SaaS offerings, or bundling into paid products, without a written commercial licence from the developer."}),
+      Warning({icon:React.createElement(Icon,{n:"money",size:15}),text:"Using this application or any portion of its code, design, or logic for commercial purposes, including resale, SaaS offerings, or bundling into paid products, without a written commercial licence from the developer."}),
       Warning({icon:React.createElement(Icon,{n:"detective",size:20}),text:"Attempting to reverse-engineer, decompile, or extract the source code, algorithms, or financial logic of this application for use in competing or third-party products."}),
       Warning({icon:React.createElement(Icon,{n:"globe",size:18}),text:"Embedding, iframing, or re-hosting this application on any external domain, platform, or service without explicit written authorisation from the developer."}),
       React.createElement("div",{style:{

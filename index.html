@@ -8828,7 +8828,7 @@ const FinancialCalendar=({data,isMobile})=>{
   });
   (data.goals||[]).filter(g=>g.targetDate&&g.targetDate>=todayStr&&g.targetDate<=horizonStr).forEach(g=>{
     const pct=Math.min(100,((+g.savedAmount||0)/(+g.targetAmount||1))*100);
-    events.push({date:g.targetDate,icon:g.icon||React.createElement(Icon,{n:"target",size:18}),label:(g.title||"Goal")+" deadline",
+    events.push({date:g.targetDate,icon:resolveGoalIcon(g.icon),label:(g.title||"Goal")+" deadline",
       sub:Math.round(pct)+"% saved of "+INRc(+g.targetAmount||0),
       amount:+g.targetAmount||0,aCol:"#b45309",aSign:"",col:"#b45309"});
   });
@@ -23765,7 +23765,11 @@ const TagInput=({value="",onChange})=>{
 /* ══════════════════════════════════════════════════════════════════════════
    GOALS SECTION — financial goals with progress tracking
    ══════════════════════════════════════════════════════════════════════════ */
-const GOAL_ICONS=[React.createElement(Icon,{n:"target",size:18}),React.createElement(Icon,{n:"home",size:18}),React.createElement(Icon,{n:"travel",size:18}),React.createElement(Icon,{n:"vehicle",size:18}),React.createElement(Icon,{n:"phone",size:18}),React.createElement(Icon,{n:"education",size:18}),React.createElement(Icon,{n:"health",size:18}),React.createElement(Icon,{n:"ring",size:18}),React.createElement(Icon,{n:"beach",size:18}),React.createElement(Icon,{n:"music",size:18}),React.createElement(Icon,{n:"phone",size:18}),React.createElement(Icon,{n:"fitness",size:18}),React.createElement(Icon,{n:"gift",size:18}),React.createElement(Icon,{n:"money",size:15}),React.createElement(Icon,{n:"shield",size:18}),React.createElement(Icon,{n:"education",size:18})];
+const GOAL_ICON_NAMES=["target","home","travel","vehicle","phone","education","health","ring","beach","music","fitness","gift","money","shield","invest","calendar"];
+const GOAL_ICON_LABELS=["🎯 Target","🏠 Home","✈️ Travel","🚗 Vehicle","📱 Gadget","🎓 Education","❤️ Health","💍 Ring / Wedding","🏖️ Vacation","🎵 Music","💪 Fitness","🎁 Gift","💰 Savings","🛡️ Emergency Fund","📈 Investment","📅 Milestone"];
+/* Helper: resolve stored icon (may be legacy React element or new string name) → Icon element */
+const resolveGoalIcon=(ic,sz=18)=>React.createElement(Icon,{n:typeof ic==="string"&&ic?ic:"target",size:sz});
+const GOAL_ICONS=GOAL_ICON_NAMES.map(n=>React.createElement(Icon,{n,size:18}));
 const GOAL_COLORS=["#0e7490","#16a34a","#b45309","#6d28d9","#c2410c","#be185d","#1d4ed8","#059669"];
 
 const GoalsSection=React.memo(({goals,dispatch,isMobile,scheduled=[],banks=[],cards=[],cash={transactions:[]}})=>{
@@ -23774,7 +23778,7 @@ const GoalsSection=React.memo(({goals,dispatch,isMobile,scheduled=[],banks=[],ca
   const[fundsGoal,setFundsGoal]=useState(null);
   const[delGoal,setDelGoal]=useState(null);
   const[sipLinkGoal,setSipLinkGoal]=useState(null); /* goal to link a SIP to */
-  const EMPTY_GOAL={title:"",icon:React.createElement(Icon,{n:"target",size:18}),targetAmount:"",savedAmount:"",targetDate:"",color:"#0e7490",notes:"",linkedSipId:""};
+  const EMPTY_GOAL={title:"",icon:"target",targetAmount:"",savedAmount:"",targetDate:"",color:"#0e7490",notes:"",linkedSipId:""};
   const[gf,setGf]=useState(EMPTY_GOAL);
   const[fundsAmt,setFundsAmt]=useState("");
   const gset=k=>e=>setGf(p=>({...p,[k]:e.target.value}));
@@ -23806,7 +23810,7 @@ const GoalsSection=React.memo(({goals,dispatch,isMobile,scheduled=[],banks=[],ca
     setGf(EMPTY_GOAL);setAddOpen(false);
   };
 
-  const openEdit=g=>{setEditGoal(g);setGf({title:g.title,icon:g.icon||React.createElement(Icon,{n:"target",size:18}),targetAmount:String(g.targetAmount),savedAmount:String(g.savedAmount||0),targetDate:g.targetDate||"",color:g.color||"#0e7490",notes:g.notes||"",linkedSipId:g.linkedSipId||""});setAddOpen(true);};
+  const openEdit=g=>{setEditGoal(g);setGf({title:g.title,icon:typeof g.icon==="string"&&g.icon?g.icon:"target",targetAmount:String(g.targetAmount),savedAmount:String(g.savedAmount||0),targetDate:g.targetDate||"",color:g.color||"#0e7490",notes:g.notes||"",linkedSipId:g.linkedSipId||""});setAddOpen(true);};
 
   const lbl={display:"block",color:"var(--text5)",fontSize:11,textTransform:"uppercase",letterSpacing:.5,marginBottom:5};
 
@@ -23865,7 +23869,7 @@ const GoalsSection=React.memo(({goals,dispatch,isMobile,scheduled=[],banks=[],ca
 
   const FundsModal=fundsGoal&&React.createElement(Modal,{title:"Add Funds to Goal",onClose:()=>{setFundsGoal(null);setFundsAmt("");},w:380},
     React.createElement("div",{style:{textAlign:"center",padding:"10px 0 18px"}},
-      React.createElement("div",{style:{fontSize:36,marginBottom:6}},fundsGoal.icon||React.createElement(Icon,{n:"target",size:18})),
+      React.createElement("div",{style:{fontSize:36,marginBottom:6}},resolveGoalIcon(fundsGoal.icon,28)),
       React.createElement("div",{style:{fontSize:15,fontWeight:600,color:"var(--text)"}},fundsGoal.title),
       React.createElement("div",{style:{fontSize:12,color:"var(--text5)",marginTop:3}},
         INR(fundsGoal.savedAmount||0)+" of "+INR(fundsGoal.targetAmount)+" saved"
@@ -23925,7 +23929,7 @@ const GoalsSection=React.memo(({goals,dispatch,isMobile,scheduled=[],banks=[],ca
               /* Header */
               React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
                 React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10}},
-                  React.createElement("div",{style:{width:42,height:42,borderRadius:12,background:col+"20",border:"1px solid "+col+"40",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}},g.icon||React.createElement(Icon,{n:"target",size:18})),
+                  React.createElement("div",{style:{width:42,height:42,borderRadius:12,background:col+"20",border:"1px solid "+col+"40",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}},resolveGoalIcon(g.icon)),
                   React.createElement("div",null,
                     React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"var(--text)",lineHeight:1.2}},g.title),
                     g.targetDate&&React.createElement("div",{style:{fontSize:11,color:overdue?"#ef4444":daysLeft<30?"#c2410c":"var(--text5)",marginTop:2}},

@@ -2209,7 +2209,7 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.43.6";
+const APP_VERSION="3.43.7";
 
 /* ── SVG Icon Library (replaces all emoji icons) ─────────────────────── */
 const SVGI=(path,opts={})=>React.createElement("svg",{
@@ -23794,20 +23794,20 @@ const GoalsSection=React.memo(({goals,dispatch,isMobile,scheduled=[],banks=[],ca
   const[fundsAmt,setFundsAmt]=useState("");
   const gset=k=>e=>setGf(p=>({...p,[k]:e.target.value}));
 
-  /* ── Investment Pool Calculation ── */
+  /* ── Investment Pool Calculation (liquid assets only; RE excluded) ── */
+  const bankBal=banks.reduce((s,b)=>s+(b.balance||0),0);
   const mfVal=mf.reduce((s,m)=>s+(m.currentValue||m.invested||0),0);
   const sharesVal=shares.reduce((s,sh)=>s+(sh.qty||0)*(sh.currentPrice||0),0);
   const fdVal=fd.reduce((s,f)=>s+calcFDValueToday(f),0);
-  const reVal=(re||[]).reduce((s,r)=>s+(r.currentValue||r.acquisitionCost||0),0);
-  const totalInvestmentPool=mfVal+sharesVal+fdVal+reVal;
+  const totalInvestmentPool=bankBal+mfVal+sharesVal+fdVal;
   const totalAllocated=goals.reduce((s,g)=>s+(+g.savedAmount||0),0);
   const availablePool=Math.max(0,totalInvestmentPool-totalAllocated);
   const poolAllocPct=totalInvestmentPool>0?Math.min(100,totalAllocated/totalInvestmentPool*100):0;
   const poolBreakdown=[
+    {label:"Bank Accounts",val:bankBal,col:"#0e7490"},
     {label:"Mutual Funds",val:mfVal,col:"#6d28d9"},
     {label:"Shares",val:sharesVal,col:"#16a34a"},
     {label:"Fixed Deposits",val:fdVal,col:"#b45309"},
-    {label:"Real Estate",val:reVal,col:"#c2410c"},
   ].filter(x=>x.val>0);
 
   const totalTarget=goals.reduce((s,g)=>s+(+g.targetAmount||0),0);

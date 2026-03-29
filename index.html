@@ -2209,7 +2209,7 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.43.4";
+const APP_VERSION="3.43.5";
 
 /* ── SVG Icon Library (replaces all emoji icons) ─────────────────────── */
 const SVGI=(path,opts={})=>React.createElement("svg",{
@@ -2362,6 +2362,16 @@ const Icon=({n,size=16,col,style={}})=>{
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.43.5",date:"2026-03-29",title:"Enhancement — App-wide Selection Signature System & Bug Fix — Goals Tab crash",changes:[
+    "Selection Signature System: introduced a unified visual language for every selected/active state in the app, mirroring the vivid sidebar nav-bar treatment — accent label colour, a directional border strip, a gradient tint background, and an ambient glow shadow.",
+    "Three CSS utility classes added: .mm-tab-sel (horizontal tabs — 3px bottom border + top-to-bottom accentbg gradient + drop glow), .mm-pill-sel (pill/chip selectors — 1.5px full border + diagonal gradient + outer glow ring), .mm-row-sel (list rows — 3px left border + left-to-transparent sweep + inset glow). All classes use a spring-pop entrance animation (mm-sel-pop).",
+    "::selection and ::-moz-selection overridden to use var(--accentbg5) background and var(--accent) text — text highlights now match the app accent colour across all 17 themes.",
+    "CSS upgraded: .ldg-row.ldg-sel now uses a 90° left-sweep gradient (accentbg → accentbg2 → transparent) with a 3px accent left border and inset glow shadow. .accard.active gains a 135° gradient fill and outer glow ring instead of a plain flat tint.",
+    "Components upgraded to full signature treatment: SectionTab (Settings left nav), ViewToggle (all report view pickers), DateFilter period presets, tabBtn factory (Insights section tabs), tabSty factory (Calculator tabs), tBtn (Net Worth view tabs), SortBtn (Payee Analytics), Notes filter pills, GST type filter pills, ITC sort pills, ModeToggle (Scheduled), itcSort pills, inline PayeeCombobox dropdown rows, both desktop-table and mobile-card ledger selected rows, PayeeAnalytics list selected row, and Calendar day cell selection.",
+    "Bug Fix — Financial Goals tab blank screen crash: GOAL_ICON_NAMES and GOAL_ICON_LABELS were referenced throughout GoalsSection but never defined anywhere in the codebase — a ReferenceError that crashed React on every Goals tab render.",
+    "Fix: added const GOAL_ICON_NAMES (16 icon name strings) and const GOAL_ICON_LABELS (16 emoji + text labels) alongside the existing GOAL_ICONS array. Added resolveGoalIcon(ic, sz) compatibility helper that safely accepts either a legacy stored React element or a new string name.",
+    "EMPTY_GOAL.icon changed from a React element to the string 'target'. openEdit() normalises any legacy goals from localStorage (stored React elements fall back gracefully to 'target'). All four icon render sites (goal card avatar, Add Funds modal, Dashboard calendar events, goal edit form select) patched to use resolveGoalIcon().",
+  ]},
   {version:"3.43.4",date:"2026-03-29",title:"Fix — Removed nav animation effects causing click lag",changes:[
     "Removed all CSS keyframe animations from sidebar nav items (nb-spring, nb-enter, nb-glow-pulse, nb-label-shine) and the :active scale transform — these were causing a perceptible delay before the selected page appeared.",
     "Active nav items retain their full vibrant per-item colour styling (vivid text colour, gradient background tint, coloured left border, glow box-shadow, icon drop-shadow) — purely static CSS with no animation overhead.",

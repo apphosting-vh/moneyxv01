@@ -1109,9 +1109,13 @@ select.inp option{background:var(--inp-opt)}
 .db-pulse-bar-fill{height:6px;border-radius:3px;transition:width 1s cubic-bezier(.22,1,.36,1)}
 .tr:hover{background:var(--accentbg2)!important}
 .nb:hover{background:var(--accentbg4)!important;color:var(--accent2)!important}
-.accard{cursor:pointer;transition:border-color .2s,transform .15s,box-shadow .2s}
+.accard{cursor:pointer;transition:border-color .2s,transform .15s,box-shadow .2s,background .2s}
 .accard:hover{border-color:var(--accent)44!important;transform:translateY(-1px)}
-.accard.active{border-color:var(--accent)!important;box-shadow:0 0 0 2px var(--accentbg5)!important}
+.accard.active{
+  border-color:var(--accent)!important;
+  background:linear-gradient(135deg,var(--accentbg),var(--accentbg2))!important;
+  box-shadow:0 0 0 2px var(--accentbg5),0 4px 20px var(--accentbg5)!important;
+}
 .mr:hover{background:var(--mr-hover)!important}
 .txrow{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border3);transition:background .15s;gap:12px}
 .txrow:hover{background:var(--accentbg2)}
@@ -1120,7 +1124,11 @@ textarea.inp{resize:vertical}
 /* Ledger table */
 .ldg-row{transition:background .1s;cursor:pointer;border-left:3px solid transparent}
 .ldg-row:hover{background:var(--accentbg2)!important}
-.ldg-row.ldg-sel{background:var(--accentbg)!important;border-left:3px solid var(--accent)!important}
+.ldg-row.ldg-sel{
+  background:linear-gradient(90deg,var(--accentbg),var(--accentbg2) 55%,transparent 100%)!important;
+  border-left:3px solid var(--accent)!important;
+  box-shadow:inset 3px 0 12px var(--accentbg5)!important;
+}
 .tb-btn{padding:5px 12px;border-radius:7px;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;transition:all .15s;white-space:nowrap}
 .tb-btn:disabled{opacity:.38;cursor:not-allowed}
 
@@ -1448,6 +1456,60 @@ textarea.inp{resize:vertical}
 .tax-wrap .exp-card-hdr {font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px}
 .tax-wrap .exp-spinner {display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:itr-spin 0.7s linear infinite;margin-right:4px}
 @keyframes itr-spin {to{transform:rotate(360deg)}}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SELECTION SIGNATURE SYSTEM
+   One vivid accent treatment echoes the sidebar nav-bar active style across
+   every selection state in the app:
+     • accent label colour   (vivid, not muted)
+     • border strip          (3px solid at the active edge)
+     • gradient tint bg      (from accentbg at edge → transparent/accentbg2)
+     • ambient glow shadow   (soft accentbg5 halo)
+   Three utility classes + ::selection pseudo-element.
+   ══════════════════════════════════════════════════════════════════════════ */
+@keyframes mm-sel-pop{0%{opacity:.7;transform:scale(.97)}60%{transform:scale(1.015)}100%{opacity:1;transform:scale(1)}}
+
+/* ── Text highlight (browser ::selection) ─────────────────────────────── */
+::selection{background:var(--accentbg5);color:var(--accent);}
+::-moz-selection{background:var(--accentbg5);color:var(--accent);}
+
+/* ── Horizontal tab — bottom border strip, top→bottom tint ───────────── */
+.mm-tab-sel{
+  background:linear-gradient(180deg,var(--accentbg),var(--accentbg2))!important;
+  color:var(--accent)!important;
+  font-weight:700!important;
+  border-bottom:3px solid var(--accent)!important;
+  box-shadow:0 3px 16px var(--accentbg5)!important;
+  position:relative;
+  animation:mm-sel-pop .2s ease both;
+}
+.mm-tab-sel::after{
+  content:'';position:absolute;bottom:0;left:10%;right:10%;
+  height:3px;background:var(--accent);
+  border-radius:2px 2px 0 0;
+  box-shadow:0 0 10px var(--accentbg5),0 0 4px var(--accent);
+  pointer-events:none;
+}
+
+/* ── Pill / chip — full accent border + glow ring ─────────────────────── */
+.mm-pill-sel{
+  background:linear-gradient(135deg,var(--accentbg),var(--accentbg2))!important;
+  color:var(--accent)!important;
+  font-weight:700!important;
+  border:1.5px solid var(--accent)!important;
+  box-shadow:0 0 0 3px var(--accentbg5),0 2px 12px var(--accentbg5)!important;
+  animation:mm-sel-pop .2s ease both;
+}
+
+/* ── List row — left border sweep (mirrors full nav bar active) ─────────── */
+.mm-row-sel{
+  background:linear-gradient(90deg,var(--accentbg),var(--accentbg2) 55%,transparent 100%)!important;
+  color:var(--accent)!important;
+  font-weight:600!important;
+  border-left:3px solid var(--accent)!important;
+  box-shadow:inset 3px 0 12px var(--accentbg5)!important;
+  animation:mm-sel-pop .2s ease both;
+}
 </style>
 </head>
 <body>
@@ -6554,8 +6616,9 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
             style:{
               padding:"11px 14px",
               borderBottom:"1px solid var(--border2)",
-              background:isSel?"var(--accentbg)":idx%2===0?"transparent":"rgba(255,255,255,.015)",
+              background:isSel?"linear-gradient(90deg,var(--accentbg),var(--accentbg2) 60%,transparent 100%)":idx%2===0?"transparent":"rgba(255,255,255,.015)",
               borderLeft:isSel?"3px solid var(--accent)":"3px solid transparent",
+              boxShadow:isSel?"inset 3px 0 10px var(--accentbg5)":"none",
               cursor:"pointer",
             }
           },
@@ -6956,7 +7019,7 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
             display:"grid",
             gridTemplateColumns:"32px 28px 38px 92px 78px 58px 1fr 140px 140px 100px 100px 108px",
             minWidth:980,
-            background:isSel?"var(--accentbg)":idx%2===0?"transparent":"rgba(255,255,255,.02)",
+            background:isSel?"linear-gradient(90deg,var(--accentbg),var(--accentbg2) 60%,transparent 100%)":idx%2===0?"transparent":"rgba(255,255,255,.02)",
             borderBottom:"1px solid var(--border2)",
             alignItems:"center"
           }
@@ -8524,7 +8587,12 @@ const PayeeAnalyticsModal=({allTx,categories,onClose,isMobile})=>{
 
   const SortBtn=({k,label})=>React.createElement("button",{
     onClick:()=>setSortBy(k),
-    style:{padding:"4px 12px",borderRadius:20,border:"1px solid "+(sortBy===k?"var(--accent)":"var(--border)"),background:sortBy===k?"var(--accentbg)":"transparent",color:sortBy===k?"var(--accent)":"var(--text5)",cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif",fontWeight:sortBy===k?700:400,transition:"all .15s"}
+    style:{padding:"4px 12px",borderRadius:20,
+      border:"1.5px solid "+(sortBy===k?"var(--accent)":"var(--border)"),
+      background:sortBy===k?"linear-gradient(135deg,var(--accentbg),var(--accentbg2))":"transparent",
+      color:sortBy===k?"var(--accent)":"var(--text5)",
+      boxShadow:sortBy===k?"0 0 0 3px var(--accentbg5)":"none",
+      cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif",fontWeight:sortBy===k?700:400,transition:"all .15s"}
   },label);
 
   return React.createElement(Modal,{title:"Payee Analytics",onClose,w:isMobile?360:820},
@@ -8551,8 +8619,9 @@ const PayeeAnalyticsModal=({allTx,categories,onClose,isMobile})=>{
               onClick:()=>setSelPayee(isSel?null:p.name),
               style:{
                 padding:"9px 12px",borderRadius:9,cursor:"pointer",
-                background:isSel?"var(--accentbg)":"transparent",
-                border:"1px solid "+(isSel?"var(--accent)44":"transparent"),
+                background:isSel?"linear-gradient(90deg,var(--accentbg),var(--accentbg2) 70%,transparent 100%)":"transparent",
+                border:"1.5px solid "+(isSel?"var(--accent)":"transparent"),
+                boxShadow:isSel?"0 0 0 2px var(--accentbg5)":"none",
                 transition:"all .12s",position:"relative",overflow:"hidden"
               },
               className:"tr"
@@ -13934,11 +14003,13 @@ const ConfirmModal=({msg,onConfirm,onCancel,title,confirmLabel,btnVariant,detail
 const SectionTab=({id,active,label,icon,onClick})=>React.createElement("button",{
   onClick:()=>onClick(id),
   style:{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"10px 14px",borderRadius:10,border:"none",cursor:"pointer",
-    fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:active?600:400,
-    background:active?"linear-gradient(90deg,rgba(180,83,9,.15),rgba(180,83,9,.04))":"transparent",
-    color:active?"var(--accent)":"var(--text5)",borderLeft:active?"2px solid var(--accent)":"2px solid transparent",
+    fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:active?700:400,
+    background:active?"linear-gradient(90deg,var(--accentbg),var(--accentbg2) 60%,transparent 100%)":"transparent",
+    color:active?"var(--accent)":"var(--text5)",
+    borderLeft:active?"3px solid var(--accent)":"3px solid transparent",
+    boxShadow:active?"inset 3px 0 10px var(--accentbg5)":"none",
     transition:"all .2s",marginBottom:3,textAlign:"left"}
-},React.createElement("span",{style:{display:"flex",alignItems:"center",opacity:active?1:0.65}},icon),label);
+},React.createElement("span",{style:{display:"flex",alignItems:"center",opacity:active?1:0.65,filter:active?"drop-shadow(0 0 4px var(--accentbg5))":"none"}},icon),label);
 
 /* ── INLINE PAYEE PICKER ──────────────────────────────────────────────────
    Defined at TOP LEVEL (not inside CategoriesPanel) so its identity is
@@ -14023,9 +14094,10 @@ const InlinePayeePicker=({value,onChange,payees,placeholder="Set default payee�
           key:p.id,
           onClick:()=>{onChange(p.name);setOpen(false);setQ("");},
           className:"mr",
-          style:{padding:"8px 12px",fontSize:12,color:"var(--text2)",cursor:"pointer",
-            display:"flex",alignItems:"center",gap:8,
-            background:value===p.name?"var(--accentbg)":"transparent"}
+          style:{padding:"8px 12px",fontSize:12,color:value===p.name?"var(--accent)":"var(--text2)",cursor:"pointer",
+            display:"flex",alignItems:"center",gap:8,fontWeight:value===p.name?700:400,
+            background:value===p.name?"linear-gradient(90deg,var(--accentbg),var(--accentbg2) 70%,transparent 100%)":"transparent",
+            borderLeft:value===p.name?"3px solid var(--accent)":"3px solid transparent"}
         },
           React.createElement("span",{style:{
             width:22,height:22,borderRadius:"50%",background:"var(--accentbg3,rgba(180,83,9,.15))",
@@ -14530,9 +14602,12 @@ const DateFilter=({from,to,onFrom,onTo,presets})=>
   React.createElement("div",{style:{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:18,padding:"10px 14px",background:"var(--bg4)",border:"1px solid var(--border2)",borderRadius:10}},
     React.createElement("span",{style:{fontSize:11,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.5,fontWeight:600}},"Period:"),
     presets.map(p=>React.createElement("button",{key:p.label,onClick:p.onClick,style:{
-      padding:"4px 11px",borderRadius:6,border:"1px solid var(--border)",
-      background:p.active?"var(--accentbg)":"transparent",color:p.active?"var(--accent)":"var(--text4)",
-      cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif",fontWeight:p.active?600:400,transition:"all .15s"
+      padding:"4px 11px",borderRadius:6,
+      border:"1.5px solid "+(p.active?"var(--accent)":"var(--border)"),
+      background:p.active?"linear-gradient(135deg,var(--accentbg),var(--accentbg2))":"transparent",
+      color:p.active?"var(--accent)":"var(--text4)",
+      boxShadow:p.active?"0 0 0 3px var(--accentbg5)":"none",
+      cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif",fontWeight:p.active?700:400,transition:"all .15s"
     }},p.label)),
     React.createElement("div",{style:{display:"flex",gap:6,alignItems:"center",marginLeft:"auto"}},
       React.createElement("input",{type:"date",value:from,onChange:e=>onFrom(e.target.value),className:"inp",style:{width:135,fontSize:12,padding:"5px 10px"}}),
@@ -14549,8 +14624,11 @@ const VIEWS_3=[{id:"snapshot",label:"Snapshot",icon:React.createElement(Icon,{n:
 const VIEWS_2=[{id:"snapshot",label:"Snapshot",icon:React.createElement(Icon,{n:"chart",size:18})},{id:"detailed",label:"Detailed",icon:React.createElement(Icon,{n:"report",size:18})}];
 const ViewToggle=({views=VIEWS_3,value,onChange})=>React.createElement("div",{style:{display:"flex",gap:6,flexWrap:"wrap"}},
   views.map(v=>React.createElement("button",{key:v.id,onClick:()=>onChange(v.id),style:{
-    padding:"6px 14px",borderRadius:20,border:"1px solid "+(value===v.id?"var(--accent)":"var(--border)"),
-    background:value===v.id?"var(--accentbg)":"transparent",color:value===v.id?"var(--accent)":"var(--text4)",
+    padding:"6px 14px",borderRadius:20,
+    border:"1.5px solid "+(value===v.id?"var(--accent)":"var(--border)"),
+    background:value===v.id?"linear-gradient(135deg,var(--accentbg),var(--accentbg2))":"transparent",
+    color:value===v.id?"var(--accent)":"var(--text4)",
+    boxShadow:value===v.id?"0 0 0 3px var(--accentbg5),0 2px 10px var(--accentbg5)":"none",
     cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:value===v.id?700:400,
     display:"flex",alignItems:"center",gap:5,transition:"all .15s"
   }},v.icon," ",v.label))
@@ -17705,10 +17783,12 @@ const RptGstTds=({data,from,to,onExportPDF})=>{
         React.createElement("span",{style:{fontSize:11,color:"var(--text5)",fontWeight:600}})
         ,["all","inclusive","exclusive"].map(t=>React.createElement("button",{key:t,
           onClick:()=>setGstTypeFilter(t),
-          style:{padding:"5px 12px",borderRadius:20,border:"1px solid "+(gstTypeFilter===t?"var(--accent)":"var(--border)"),
-            background:gstTypeFilter===t?"var(--accentbg)":"transparent",
+          style:{padding:"5px 12px",borderRadius:20,
+            border:"1.5px solid "+(gstTypeFilter===t?"var(--accent)":"var(--border)"),
+            background:gstTypeFilter===t?"linear-gradient(135deg,var(--accentbg),var(--accentbg2))":"transparent",
             color:gstTypeFilter===t?"var(--accent)":"var(--text4)",
-            cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif",fontWeight:gstTypeFilter===t?700:400}
+            boxShadow:gstTypeFilter===t?"0 0 0 3px var(--accentbg5)":"none",
+            cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif",fontWeight:gstTypeFilter===t?700:400,transition:"all .15s"}
         },t==="all"?"All GST":t==="inclusive"?"Inclusive":"Exclusive")),
         React.createElement("span",{style:{fontSize:11,color:"var(--text6)",margin:"0 4px"}},"│"),
         React.createElement("button",{
@@ -17723,8 +17803,11 @@ const RptGstTds=({data,from,to,onExportPDF})=>{
       React.createElement("div",{style:{display:"flex",gap:5,flexWrap:"wrap"}},
         [{id:"snapshot",label:"Snapshot",icon:React.createElement(Icon,{n:"chart",size:18})},{id:"detailed",label:"Detailed",icon:React.createElement(Icon,{n:"report",size:18})},{id:"itc",label:"ITC Tracker",icon:React.createElement(Icon,{n:"receipt",size:18})}].map(v=>
           React.createElement("button",{key:v.id,onClick:()=>setView(v.id),style:{
-            padding:"6px 14px",borderRadius:20,border:"1px solid "+(view===v.id?"var(--accent)":"var(--border)"),
-            background:view===v.id?"var(--accentbg)":"transparent",color:view===v.id?"var(--accent)":"var(--text4)",
+            padding:"6px 14px",borderRadius:20,
+            border:"1.5px solid "+(view===v.id?"var(--accent)":"var(--border)"),
+            background:view===v.id?"linear-gradient(135deg,var(--accentbg),var(--accentbg2))":"transparent",
+            color:view===v.id?"var(--accent)":"var(--text4)",
+            boxShadow:view===v.id?"0 0 0 3px var(--accentbg5)":"none",
             cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:view===v.id?700:400,
             display:"flex",alignItems:"center",gap:5,transition:"all .15s"
           }},v.icon," ",v.label)
@@ -17945,9 +18028,12 @@ const RptGstTds=({data,from,to,onExportPDF})=>{
       React.createElement("div",{style:{display:"flex",gap:6,alignItems:"center",marginBottom:12,flexWrap:"wrap"}},
         React.createElement("span",{style:{fontSize:11,color:"var(--text5)",fontWeight:600,textTransform:"uppercase",letterSpacing:.4}},"Sort by:"),
         ["gst","base","count"].map(sk=>React.createElement("button",{key:sk,onClick:()=>setItcSort(sk),
-          style:{padding:"4px 12px",borderRadius:16,border:"1px solid "+(itcSort===sk?"var(--accent)":"var(--border)"),
-            background:itcSort===sk?"var(--accentbg)":"transparent",color:itcSort===sk?"var(--accent)":"var(--text4)",
-            cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif",fontWeight:itcSort===sk?700:400}
+          style:{padding:"4px 12px",borderRadius:16,
+            border:"1.5px solid "+(itcSort===sk?"var(--accent)":"var(--border)"),
+            background:itcSort===sk?"linear-gradient(135deg,var(--accentbg),var(--accentbg2))":"transparent",
+            color:itcSort===sk?"var(--accent)":"var(--text4)",
+            boxShadow:itcSort===sk?"0 0 0 3px var(--accentbg5)":"none",
+            cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif",fontWeight:itcSort===sk?700:400,transition:"all .15s"}
         },sk==="gst"?"GST Amount":sk==="base"?"Base Amount":"Txn Count"))
       ),
       (()=>{
@@ -18212,9 +18298,12 @@ const InsightPrefsPanel=({state,dispatch})=>{
     );
   const ModeToggle=({mode,onChange})=>React.createElement("div",{style:{display:"flex",gap:6,marginBottom:12}},
     ["auto","manual"].map(m=>React.createElement("button",{key:m,onClick:()=>onChange(m),style:{
-      flex:1,padding:"7px",borderRadius:8,border:"1px solid "+(mode===m?"var(--accent)":"var(--border)"),
-      background:mode===m?"var(--accentbg)":"transparent",color:mode===m?"var(--accent)":"var(--text5)",
-      fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:mode===m?700:400,cursor:"pointer"
+      flex:1,padding:"7px",borderRadius:8,
+      border:"1.5px solid "+(mode===m?"var(--accent)":"var(--border)"),
+      background:mode===m?"linear-gradient(135deg,var(--accentbg),var(--accentbg2))":"transparent",
+      color:mode===m?"var(--accent)":"var(--text5)",
+      boxShadow:mode===m?"0 0 0 3px var(--accentbg5),0 2px 10px var(--accentbg5)":"none",
+      fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:mode===m?700:400,cursor:"pointer",transition:"all .15s"
     }},m==="auto"?"Auto-calculate":"Manual override"))
   );
   const Slider=({label,value,onChange,min,max,step,suffix,hint,marks})=>
@@ -21234,10 +21323,11 @@ const NotesSection=React.memo(({notes=[],dispatch})=>{
       React.createElement("input",{className:"inp",placeholder:"Search notes…",value:search,onChange:e=>setSearch(e.target.value),style:{flex:"1 1 200px",maxWidth:320,fontSize:13}}),
       React.createElement("div",{style:{display:"flex",gap:6}},
         ["all","today","reminders"].map(fv=>React.createElement("button",{key:fv,onClick:()=>setFilter(fv),style:{
-          padding:"6px 13px",borderRadius:18,fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:filter===fv?600:400,
-          border:"1px solid "+(filter===fv?"var(--accent)":"var(--border)"),
-          background:filter===fv?"var(--accentbg)":"transparent",
-          color:filter===fv?"var(--accent)":"var(--text5)",transition:"all .15s"
+          padding:"6px 13px",borderRadius:18,fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:filter===fv?700:400,
+          border:"1.5px solid "+(filter===fv?"var(--accent)":"var(--border)"),
+          background:filter===fv?"linear-gradient(135deg,var(--accentbg),var(--accentbg2))":"transparent",
+          color:filter===fv?"var(--accent)":"var(--text5)",
+          boxShadow:filter===fv?"0 0 0 3px var(--accentbg5)":"none",transition:"all .15s"
         }},{all:"All",today:"Today",reminders:"Reminders"}[fv]))
       )
     ),
@@ -22933,8 +23023,9 @@ const CalendarSection=React.memo(({banks,cards,cash,categories,isMobile})=>{
           onClick:()=>setSelDay(day===selDay?null:day),
           style:{
             minHeight:isMobile?52:64,padding:"6px 6px 4px",borderRadius:8,cursor:hasData?"pointer":"default",
-            background:isSel?"var(--accentbg)":colBg,
-            border:"1px solid "+(isSel?"var(--accent)":colBorder),
+            background:isSel?"linear-gradient(135deg,var(--accentbg),var(--accentbg2))":colBg,
+            border:"1.5px solid "+(isSel?"var(--accent)":colBorder),
+            boxShadow:isSel?"0 0 0 3px var(--accentbg5),0 2px 12px var(--accentbg5)":"none",
             transition:"all .12s",display:"flex",flexDirection:"column",alignItems:"center",
             outline:isToday?"2px solid var(--accent)":"none",outlineOffset:1,
           }
@@ -24079,8 +24170,10 @@ const NetWorthInsightTab=({banks,cards,cash,mf,shares,fd,re,loans,categories,pre
   const tBtn=id=>({
     padding:"8px 20px",borderRadius:8,cursor:"pointer",border:"none",
     fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:view===id?700:400,
-    background:view===id?"var(--accentbg)":"transparent",
+    borderBottom:view===id?"3px solid var(--accent)":"3px solid transparent",
+    background:view===id?"linear-gradient(180deg,var(--accentbg),var(--accentbg2))":"transparent",
     color:view===id?"var(--accent)":"var(--text5)",
+    boxShadow:view===id?"0 3px 16px var(--accentbg5)":"none",
     transition:"all .15s"
   });
 
@@ -24739,7 +24832,7 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
   const totalSubBurn=subscriptionData.reduce((s,sub)=>s+sub.amount,0);
 
   /* ── UI HELPERS ── */
-  const tabBtn=id=>({padding:"7px 14px",borderRadius:8,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:stab===id?600:400,border:"none",background:stab===id?"var(--accentbg)":"transparent",color:stab===id?"var(--accent)":"var(--text5)",transition:"all .15s",whiteSpace:"nowrap"});
+  const tabBtn=id=>({padding:"7px 14px",borderRadius:8,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:stab===id?700:400,border:"none",borderBottom:stab===id?"3px solid var(--accent)":"3px solid transparent",background:stab===id?"linear-gradient(180deg,var(--accentbg),var(--accentbg2))":"transparent",color:stab===id?"var(--accent)":"var(--text5)",boxShadow:stab===id?"0 3px 16px var(--accentbg5)":"none",transition:"all .15s",whiteSpace:"nowrap"});
   const KpiCard=({label,value,sub,col,icon})=>React.createElement("div",{style:{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",flex:"1 1 150px",minWidth:0}},
     icon&&React.createElement("div",{style:{fontSize:20,marginBottom:6}},icon),
     React.createElement("div",{style:{fontSize:11,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}},label),
@@ -26258,7 +26351,7 @@ const InsightCalculators=({isMobile})=>{
     {id:"xirr",        label:"XIRR Calculator"},
     {id:"montecarlo",  label:"Monte Carlo"},
   ];
-  const tabSty=id=>({padding:"8px 16px",borderRadius:8,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:calc===id?700:400,border:"none",background:calc===id?"var(--accentbg)":"transparent",color:calc===id?"var(--accent)":"var(--text5)",transition:"all .15s",whiteSpace:"nowrap"});
+  const tabSty=id=>({padding:"8px 16px",borderRadius:8,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:calc===id?700:400,border:"none",borderBottom:calc===id?"3px solid var(--accent)":"3px solid transparent",background:calc===id?"linear-gradient(180deg,var(--accentbg),var(--accentbg2))":"transparent",color:calc===id?"var(--accent)":"var(--text5)",boxShadow:calc===id?"0 3px 16px var(--accentbg5)":"none",transition:"all .15s",whiteSpace:"nowrap"});
 
   /* ════════════════════════════════════════════════════
      1. SWP CALCULATOR

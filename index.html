@@ -2313,7 +2313,7 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.46.0";
+const APP_VERSION="3.47.0";
 
 /* ── SVG Icon Library (replaces all emoji icons) ─────────────────────── */
 const SVGI=(path,opts={})=>React.createElement("svg",{
@@ -4483,6 +4483,56 @@ const ImportTxModal=({onImport,onClose,categories,accType="bank",existingTxns=[]
   );
 };
 
+/* ══════════════════════════════════════════════════════════════════════════
+   VIRTUAL LIST — windowed rendering for long lists (react-window style)
+   Only renders visible items + overscan buffer to keep DOM lean.
+   Accepts optional `header` prop for sticky table headers inside the
+   scroll container.
+   ══════════════════════════════════════════════════════════════════════════ */
+const VirtualList=React.memo(({items,getItemKey,itemHeight,overscan=5,className,style,containerStyle,header,children})=>{
+  const scrollRef=React.useRef(null);
+  const[range,setRange]=React.useState({start:0,end:Math.ceil(600/itemHeight)+overscan});
+  const totalH=items.length*itemHeight;
+
+  React.useEffect(()=>{
+    const el=scrollRef.current;if(!el)return;
+    let raf=null;
+    const recalc=()=>{
+      const ch=el.clientHeight||600;
+      const st=el.scrollTop;
+      const s=Math.max(0,Math.floor(st/itemHeight)-overscan);
+      const e=Math.min(items.length,Math.ceil((st+ch)/itemHeight)+overscan);
+      setRange(prev=>(prev.start===s&&prev.end===e)?prev:{start:s,end:e});
+    };
+    const onScroll=()=>{if(raf)cancelAnimationFrame(raf);raf=requestAnimationFrame(recalc);};
+    el.addEventListener("scroll",onScroll,{passive:true});
+    recalc();
+    const ro=new ResizeObserver(recalc);
+    ro.observe(el);
+    return()=>{el.removeEventListener("scroll",onScroll);if(raf)cancelAnimationFrame(raf);ro.disconnect();};
+  },[items.length,itemHeight,overscan]);
+
+  /* Reset scroll when item count changes drastically (e.g. filter applied) */
+  const prevLen=React.useRef(items.length);
+  React.useEffect(()=>{
+    if(Math.abs(prevLen.current-items.length)>50&&scrollRef.current){scrollRef.current.scrollTop=0;}
+    prevLen.current=items.length;
+  },[items.length]);
+
+  const visible=[];
+  for(let i=range.start;i<range.end;i++){
+    if(items[i]==null)continue;
+    visible.push(children(items[i],i));
+  }
+
+  return React.createElement("div",{ref:scrollRef,className,style:{overflow:"auto",flex:1,...style}},
+    header,
+    React.createElement("div",{style:{height:totalH,position:"relative",...containerStyle}},
+      React.createElement("div",{style:{position:"absolute",top:range.start*itemHeight,left:0,right:0}},visible)
+    )
+  );
+});
+
 /* ── LEDGER TABLE VIEW ─────────────────────────────────────────────────── */
 const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport,onUpsert,onMassUpdateStatus,onMassCategorize,onMassDelete,categories,payees,txTypes,allAccounts,currentAccountId,accentColor,openBalance,accType="bank",accountName="",isMobile=false,jumpTxId=null,jumpSerial=null})=>{
   const[selId,setSelId]=useState(null);
@@ -4786,10 +4836,15 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
       ),
       /* Filter panel */
       showFilters&&FilterPanel,
-      /* Card list */
-      React.createElement("div",{style:{flex:1}},
-        filtered.length===0&&React.createElement("div",{style:{textAlign:"center",padding:"36px 20px",color:"var(--text6)"}},(search||activeFilterCount>0)?`No transactions match the current filters`:"No transactions yet"),
-        filtered.map((tx,idx)=>{
+      /* Card list — virtualized for performance with large ledgers */
+      filtered.length===0?React.createElement("div",{style:{textAlign:"center",padding:"36px 20px",color:"var(--text6)"}},(search||activeFilterCount>0)?`No transactions match the current filters`:"No transactions yet")
+      :React.createElement(VirtualList,{
+        items:filtered,
+        getItemKey:(tx)=>tx.id,
+        itemHeight:80,
+        overscan:4,
+        style:{flex:1},
+      },(tx,idx)=>{
           const isSel=selId===tx.id;
           const isDebit=tx.type==="debit";
           const bal=balMap[tx.id];
@@ -4851,7 +4906,7 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
             )
           );
         })
-      ),
+      ,
       /* Edit modal */
       editTx&&React.createElement(TxEditModal,{tx:editTx,categories,payees,txTypes,allAccounts:allAccounts||[],onSave:(updated)=>{onEdit(updated,editTx);setEditTx(null);setSelId(updated.id);},onClose:()=>setEditTx(null)}),
       confirmDel&&React.createElement(ConfirmModal,{msg:`Delete "${confirmDel.desc||confirmDel.payee||"this transaction"}"? This will adjust your balance.`,onConfirm:()=>{onDelete(confirmDel);setConfirmDel(null);setSelId(null);},onCancel:()=>setConfirmDel(null)}),
@@ -7082,82 +7137,92 @@ const Dashboard=React.memo(({data,isMobile})=>{
 
   /* ━━ 1. BANKING CORE METRICS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
   const MNAMES=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const bTotal   = data.banks.reduce((s,b)=>s+b.balance,0);
+  const bTotal   = React.useMemo(()=>data.banks.reduce((s,b)=>s+b.balance,0),[data.banks]);
   const cashBal  = data.cash.balance;
-  const cDebt    = data.cards.reduce((s,c)=>s+c.outstanding,0);
-  const cLimit   = data.cards.reduce((s,c)=>s+c.limit,0);
+  const cDebt    = React.useMemo(()=>data.cards.reduce((s,c)=>s+c.outstanding,0),[data.cards]);
+  const cLimit   = React.useMemo(()=>data.cards.reduce((s,c)=>s+c.limit,0),[data.cards]);
   const netLiquid= bTotal+cashBal-cDebt;
   const todayStr = TODAY();
   const thisMonth= todayStr.substr(0,7);
 
   /* ━━ 2. ALL BANKING TRANSACTIONS (banks + cards + cash) ━━━ */
-  const allBankTx=[
+  const allBankTx=React.useMemo(()=>[
     ...data.banks.flatMap(b=>b.transactions.filter(t=>!isAnyTransfer(t,data.categories)).map(t=>({...t,_bid:b.id,_src:b.name,_srcType:"bank",_col:"#0e7490"}))),
     ...data.cards.flatMap(c=>c.transactions.filter(t=>!isAnyTransfer(t,data.categories)).map(t=>({...t,_bid:c.id,_src:c.name,_srcType:"card",_col:"#c2410c"}))),
     ...data.cash.transactions.filter(t=>!isAnyTransfer(t,data.categories)).map(t=>({...t,_bid:"cash",_src:"Cash",_srcType:"cash",_col:"var(--accent)"})),
-  ];
+  ],[data.banks,data.cards,data.cash,data.categories]);
 
   /* ━━ 3. MONTHLY CASH FLOW — bank txs only (no cards/cash) ━ */
-  const bankOnlyTx=data.banks.flatMap(b=>b.transactions);
-  const flowMap={};
-  bankOnlyTx.forEach(t=>{
-    const ct=catClassType(data.categories,t.cat||"Others");
-    if(ct==="Transfer")return;
-    const k=t.date.substr(0,7);
-    if(!flowMap[k])flowMap[k]={inc:0,exp:0,inv:0};
-    const d=txCatDelta(t,ct);
-    if(ct==="Income")flowMap[k].inc+=d;
-    else if(ct==="Investment")flowMap[k].inv+=d;
-    else flowMap[k].exp+=d;
-  });
-  const monthlyFlow=Object.entries(flowMap).sort().slice(-6).map(([k,v])=>({
-    key:k,label:MNAMES[+k.slice(5)-1]+" '"+k.slice(2,4),inc:v.inc,exp:v.exp,inv:v.inv||0
-  }));
+  const monthlyFlow=React.useMemo(()=>{
+    const bankOnlyTx=data.banks.flatMap(b=>b.transactions);
+    const flowMap={};
+    bankOnlyTx.forEach(t=>{
+      const ct=catClassType(data.categories,t.cat||"Others");
+      if(ct==="Transfer")return;
+      const k=t.date.substr(0,7);
+      if(!flowMap[k])flowMap[k]={inc:0,exp:0,inv:0};
+      const d=txCatDelta(t,ct);
+      if(ct==="Income")flowMap[k].inc+=d;
+      else if(ct==="Investment")flowMap[k].inv+=d;
+      else flowMap[k].exp+=d;
+    });
+    return Object.entries(flowMap).sort().slice(-6).map(([k,v])=>({
+      key:k,label:MNAMES[+k.slice(5)-1]+" '"+k.slice(2,4),inc:v.inc,exp:v.exp,inv:v.inv||0
+    }));
+  },[data.banks,data.categories]);
 
   /* ━━ 4. THIS MONTH from ALL banking sources ━━━━━━━━━━━━━━ */
-  const allFlowMap={};
-  allBankTx.forEach(t=>{
-    const ct=catClassType(data.categories,t.cat||"Others");
-    if(ct==="Transfer")return;
-    const k=t.date.substr(0,7);
-    if(!allFlowMap[k])allFlowMap[k]={inc:0,exp:0,inv:0};
-    const d=txCatDelta(t,ct);
-    if(ct==="Income")allFlowMap[k].inc+=d;
-    else if(ct==="Investment")allFlowMap[k].inv+=d;
-    else allFlowMap[k].exp+=d;
-  });
-  const curMD    = allFlowMap[thisMonth]||{inc:0,exp:0,inv:0};
-  const smKeys   = Object.keys(allFlowMap).sort();
-  const prevKey  = smKeys.length>=2?smKeys[smKeys.length-2]:null;
-  const prevMD   = prevKey&&prevKey!==thisMonth?allFlowMap[prevKey]:null;
-  /* Savings rate = (income - pure expenses) / income  — investments are savings, not expenses */
-  const savingsRate = curMD.inc>0?Math.max(0,Math.min(100,((curMD.inc-curMD.exp)/curMD.inc)*100)):0;
-  const incDelta = prevMD?curMD.inc-prevMD.inc:null;
-  const expDelta = prevMD?curMD.exp-prevMD.exp:null;
-  const invDelta = prevMD?curMD.inv-prevMD.inv:null;
+  const {curMD,incDelta,expDelta,invDelta,savingsRate}=React.useMemo(()=>{
+    const allFlowMap={};
+    allBankTx.forEach(t=>{
+      const ct=catClassType(data.categories,t.cat||"Others");
+      if(ct==="Transfer")return;
+      const k=t.date.substr(0,7);
+      if(!allFlowMap[k])allFlowMap[k]={inc:0,exp:0,inv:0};
+      const d=txCatDelta(t,ct);
+      if(ct==="Income")allFlowMap[k].inc+=d;
+      else if(ct==="Investment")allFlowMap[k].inv+=d;
+      else allFlowMap[k].exp+=d;
+    });
+    const _curMD=allFlowMap[thisMonth]||{inc:0,exp:0,inv:0};
+    const smKeys=Object.keys(allFlowMap).sort();
+    const prevKey=smKeys.length>=2?smKeys[smKeys.length-2]:null;
+    const _prevMD=prevKey&&prevKey!==thisMonth?allFlowMap[prevKey]:null;
+    return{
+      curMD:_curMD,
+      incDelta:_prevMD?_curMD.inc-_prevMD.inc:null,
+      expDelta:_prevMD?_curMD.exp-_prevMD.exp:null,
+      invDelta:_prevMD?_curMD.inv-_prevMD.inv:null,
+      savingsRate:_curMD.inc>0?Math.max(0,Math.min(100,((_curMD.inc-_curMD.exp)/_curMD.inc)*100)):0,
+    };
+  },[allBankTx,data.categories,thisMonth]);
 
   /* ━━ 5. CATEGORY SPEND this month — all banking tx ━━━━━━━ */
-  const catSpend={};
-  allBankTx.filter(t=>t.date.substr(0,7)===thisMonth&&t.type==="debit").forEach(t=>{
-    const main=catMainName(t.cat||"Others");
-    const ct=catClassType(data.categories,t.cat||"Others");
-    if(ct==="Transfer"||ct==="Income")return;
-    catSpend[main]=(catSpend[main]||0)+txCatDelta(t,ct);
-  });
-  const catEntries=Object.entries(catSpend).sort((a,b)=>b[1]-a[1]);
-  const catTotal=catEntries.reduce((s,[,v])=>s+v,0);
+  const {catEntries,catTotal}=React.useMemo(()=>{
+    const catSpend={};
+    allBankTx.filter(t=>t.date.substr(0,7)===thisMonth&&t.type==="debit").forEach(t=>{
+      const main=catMainName(t.cat||"Others");
+      const ct=catClassType(data.categories,t.cat||"Others");
+      if(ct==="Transfer"||ct==="Income")return;
+      catSpend[main]=(catSpend[main]||0)+txCatDelta(t,ct);
+    });
+    const _catEntries=Object.entries(catSpend).sort((a,b)=>b[1]-a[1]);
+    return{catEntries:_catEntries,catTotal:_catEntries.reduce((s,[,v])=>s+v,0)};
+  },[allBankTx,data.categories,thisMonth]);
 
   /* ━━ 6. TOP PAYEES this month — all banking tx ━━━━━━━━━━━ */
-  const payeeSpend={};
-  allBankTx.filter(t=>t.date.substr(0,7)===thisMonth&&t.type==="debit"&&t.payee).forEach(t=>{
-    payeeSpend[t.payee]=(payeeSpend[t.payee]||0)+t.amount;
-  });
-  const topPayees=Object.entries(payeeSpend).sort((a,b)=>b[1]-a[1]).slice(0,6);
-  const payeeMax=topPayees.length?topPayees[0][1]:1;
+  const {topPayees,payeeMax}=React.useMemo(()=>{
+    const payeeSpend={};
+    allBankTx.filter(t=>t.date.substr(0,7)===thisMonth&&t.type==="debit"&&t.payee).forEach(t=>{
+      payeeSpend[t.payee]=(payeeSpend[t.payee]||0)+t.amount;
+    });
+    const _topPayees=Object.entries(payeeSpend).sort((a,b)=>b[1]-a[1]).slice(0,6);
+    return{topPayees:_topPayees,payeeMax:_topPayees.length?_topPayees[0][1]:1};
+  },[allBankTx,thisMonth]);
 
   /* ━━ 7. RECENT TRANSACTIONS feed ━━━━━━━━━━━━━━━━━━━━━━━━━ */
-  const recentAll=allBankTx.slice().sort((a,b)=>b.date.localeCompare(a.date));
-  const recentFiltered=(txTab==="all"?recentAll:recentAll.filter(t=>t._bid===txTab)).slice(0,12);
+  const recentAll=React.useMemo(()=>allBankTx.slice().sort((a,b)=>b.date.localeCompare(a.date)),[allBankTx]);
+  const recentFiltered=React.useMemo(()=>(txTab==="all"?recentAll:recentAll.filter(t=>t._bid===txTab)).slice(0,12),[txTab,recentAll]);
 
   /* ━━ 8. UPCOMING SCHEDULED ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
   const upcoming=(data.scheduled||[])
@@ -7519,8 +7584,8 @@ const Dashboard=React.memo(({data,isMobile})=>{
                 ),
                 React.createElement("div",{style:{display:"flex",gap:14}},
                   React.createElement("span",{style:{fontSize:10,color:"var(--text5)"}},"This month:"),
-                  React.createElement("span",{style:{fontSize:11,fontWeight:700,color:"#16a34a"}},INR(flowMap[thisMonth]?.inc||0)),
-                  React.createElement("span",{style:{fontSize:11,fontWeight:700,color:"#ef4444"}},INR(flowMap[thisMonth]?.exp||0))
+                  React.createElement("span",{style:{fontSize:11,fontWeight:700,color:"#16a34a"}},INR(monthlyFlow.find(m=>m.key===thisMonth)?.inc||0)),
+                  React.createElement("span",{style:{fontSize:11,fontWeight:700,color:"#ef4444"}},INR(monthlyFlow.find(m=>m.key===thisMonth)?.exp||0))
                 )
               )
             )
@@ -8045,9 +8110,9 @@ const Dashboard=React.memo(({data,isMobile})=>{
       /* Top payee this month */
       const topPayeeEntry=topPayees[0]||null;
       /* vs last month */
-      const incChg=prevMD?curMD.inc-prevMD.inc:null;
-      const expChg=prevMD?curMD.exp-prevMD.exp:null;
-      const netChg=prevMD?(net-(prevMD.inc-prevMD.exp)):null;
+      const incChg=incDelta;
+      const expChg=expDelta;
+      const netChg=incDelta!==null?incDelta-expDelta:null;
       const monthName=MNAMES[parseInt(thisMonth.substr(5,2))-1]+" "+thisMonth.substr(0,4);
 
       const Stat=({icon,label,val,sub,col})=>React.createElement("div",{style:{
@@ -8439,7 +8504,7 @@ const GlobalSearchModal=({state,onClose,onJumpToTx,setTab})=>{
 
   /* Fix 3 — 150ms debounce: input updates instantly, scan fires once per typing burst */
   React.useEffect(()=>{
-    const t=setTimeout(()=>setDebouncedQ(q),150);
+    const t=setTimeout(()=>setDebouncedQ(q),200);
     return()=>clearTimeout(t);
   },[q]);
 
@@ -19402,6 +19467,8 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
                     dispatch({type:"RESET_ALL"});
                     try{
                       localStorage.setItem(LS_KEY,JSON.stringify(EMPTY_STATE()));
+                      localStorage.removeItem(LS_EOD_PRICES);
+                      localStorage.removeItem(LS_EOD_NAVS);
                       localStorage.removeItem(LS_THEME);
                       savePinHash("");
                       clearSessionUnlock();
@@ -20514,6 +20581,8 @@ const ScheduledSection=React.memo(({scheduled=_EA,banks,cards,cash,categories,pa
 
 /* ── LOCALSTORAGE PERSISTENCE ─────────────────────────────────────────────── */
 const LS_KEY="mm_v7_state";
+const LS_EOD_PRICES="mm_v7_eodPrices";
+const LS_EOD_NAVS="mm_v7_eodNavs";
 const LS_THEME="mm_v7_theme";
 const LS_PIN="mm_v7_pin";   /* stores SHA-256 hex hash of the 6-digit PIN */
 const SS_UNLOCK="mm_v7_unlocked"; /* sessionStorage — cleared when tab closes */
@@ -20547,8 +20616,9 @@ const loadState=()=>{
       notes:(parsed.notes||def.notes||[]),
       goals:(parsed.goals||def.goals||[]),
       nwSnapshots:(parsed.nwSnapshots||def.nwSnapshots||{}),
-      eodPrices:(parsed.eodPrices||{}),
-      eodNavs:normalizeEodNavKeys(parsed.eodNavs||{}),
+      /* ── Selective loading: try separate keys first, fallback to main state for migration ── */
+      eodPrices:(function(){try{const r=localStorage.getItem(LS_EOD_PRICES);if(r)return JSON.parse(r);}catch{}return(parsed.eodPrices||{});})(),
+      eodNavs:(function(){try{const r=localStorage.getItem(LS_EOD_NAVS);if(r)return normalizeEodNavKeys(JSON.parse(r));}catch{}return normalizeEodNavKeys(parsed.eodNavs||{});})(),
       historyCache:(parsed.historyCache||{}),
       hiddenTabs:(parsed.hiddenTabs||[]),
       taxData:(parsed.taxData||null),
@@ -20575,6 +20645,8 @@ const loadState=()=>{
    ══════════════════════════════════════════════════════════════════════════ */
 const MM_LS_KEYS=[
   {key:LS_KEY,         label:"App State (transactions, accounts, investments)"},
+  {key:LS_EOD_PRICES,  label:"EOD share prices cache (separate)"},
+  {key:LS_EOD_NAVS,    label:"EOD mutual fund NAVs cache (separate)"},
   {key:LS_THEME,       label:"Theme preference"},
   {key:"mm_v7_pin",    label:"PIN hash"},
   {key:"mm_nav_col",   label:"Sidebar collapse state"},
@@ -20679,8 +20751,11 @@ const _emergencyCompact=(s)=>{
    total failure — so the call site can dispatch the matching PRUNE action
    to bring in-memory state in sync with what was persisted. */
 const saveState=(s)=>{
+  /* ── Selective serialization: eodPrices and eodNavs are saved to separate keys
+     to avoid serializing large historical price caches on every state change. ── */
+  const _stripped=(({eodPrices,eodNavs,...rest})=>rest)(s);
   try{
-    localStorage.setItem(LS_KEY,JSON.stringify(s));
+    localStorage.setItem(LS_KEY,JSON.stringify(_stripped));
     /* After a successful save, check if we are approaching the limit and
        fire a warning event so the App banner can update */
     const stats=getStorageStats();
@@ -20698,6 +20773,15 @@ const saveState=(s)=>{
       return null;
     }
   }
+};
+/* ── Save eodPrices/eodNavs to separate localStorage keys (called only on change) ── */
+const _saveEodCaches=(state)=>{
+  try{
+    const eP=state.eodPrices||{};
+    const eN=state.eodNavs||{};
+    if(Object.keys(eP).length>0)localStorage.setItem(LS_EOD_PRICES,JSON.stringify(eP));
+    if(Object.keys(eN).length>0)localStorage.setItem(LS_EOD_NAVS,JSON.stringify(eN));
+  }catch{}
 };
 
 const loadTheme=()=>{
@@ -21090,6 +21174,9 @@ const usePersistentReducer=(reducer,init)=>{
   /* stateRef: live pointer so writeNow() can access current state without
      waiting for a state-change to re-trigger the debounced effect */
   const stateRef=React.useRef(state);
+  /* ── Selective eodPrices/eodNavs serialization: only write to separate LS keys on change ── */
+  const _prevEodPricesJson=React.useRef(null);
+  const _prevEodNavsJson=React.useRef(null);
   /* Expose writeNow on the FSA singleton so every grant-point can call it
      immediately after permission is obtained, even with no state change */
   React.useEffect(()=>{
@@ -21114,6 +21201,13 @@ const usePersistentReducer=(reducer,init)=>{
       if(ricRef.current)cancelIdleCallback?.(ricRef.current);
       ricRef.current=_ric(()=>{
         const _compacted=saveState(state);
+        /* ── Selective eodPrices/eodNavs save: only when content actually changed ── */
+        try{
+          const _ePJson=JSON.stringify(state.eodPrices||{});
+          const _eNJson=JSON.stringify(state.eodNavs||{});
+          if(_ePJson!==_prevEodPricesJson.current){_prevEodPricesJson.current=_ePJson;localStorage.setItem(LS_EOD_PRICES,_ePJson);}
+          if(_eNJson!==_prevEodNavsJson.current){_prevEodNavsJson.current=_eNJson;localStorage.setItem(LS_EOD_NAVS,_eNJson);}
+        }catch{}
         /* Bug 2 fix: if emergency compaction pruned caches to fit in localStorage,
            dispatch the matching PRUNE action(s) so in-memory state stays in sync.
            Without this the next save would re-include the full caches and trigger
@@ -21624,7 +21718,8 @@ const UnifiedLedgerSection=React.memo(({banks,cards,cash,categories,payees,isMob
     else{cmp=a.date.localeCompare(b.date);if(cmp===0)cmp=(a._sn||0)-(b._sn||0);}
     return sortDir==="desc"?-cmp:cmp;
   }),[allTxns,sortKey,sortDir]);
-  const filtered=sorted.filter(tx=>{
+  /* ── Memoized filter: avoids re-running on unrelated state changes ── */
+  const filtered=React.useMemo(()=>sorted.filter(tx=>{
     if(deferredUniSearch){const q=deferredUniSearch.toLowerCase();const hit=(tx.desc||"").toLowerCase().includes(q)||(tx.payee||"").toLowerCase().includes(q)||(tx.cat||"").toLowerCase().includes(q)||(tx._accName||"").toLowerCase().includes(q)||(tx._accBank||"").toLowerCase().includes(q)||String(tx.amount).includes(q);if(!hit)return false;}
     if(filterAccounts.size>0&&!filterAccounts.has(tx._accId))return false;
     if(filterCats.size>0){const main=catMainName(tx.cat||"");if(!filterCats.has(main)&&!filterCats.has(tx.cat||""))return false;}
@@ -21635,10 +21730,10 @@ const UnifiedLedgerSection=React.memo(({banks,cards,cash,categories,payees,isMob
     if(filterType==="credit"&&tx.type!=="credit")return false;
     if(filterTags.size>0){const txTags=(tx.tags||"").split(",").map(t=>t.trim()).filter(Boolean);if(!Array.from(filterTags).every(ft=>txTags.includes(ft)))return false;}
     return true;
-  });
+  }),[sorted,deferredUniSearch,filterAccounts,filterCats,filterPayees,dateFrom,dateTo,filterType,filterTags]);
 
-  const totalIn =filtered.filter(t=>t.type==="credit").reduce((s,t)=>s+t.amount,0);
-  const totalOut=filtered.filter(t=>t.type==="debit" ).reduce((s,t)=>s+t.amount,0);
+  const totalIn =React.useMemo(()=>filtered.filter(t=>t.type==="credit").reduce((s,t)=>s+t.amount,0),[filtered]);
+  const totalOut=React.useMemo(()=>filtered.filter(t=>t.type==="debit" ).reduce((s,t)=>s+t.amount,0),[filtered]);
 
   /* SN per account: use stored _sn if present, fallback to _addedAt for legacy */
   const unifiedSnMap={};
@@ -21926,12 +22021,17 @@ const UnifiedLedgerSection=React.memo(({banks,cards,cash,categories,payees,isMob
       showFilters&&FilterPanel,
       HeroCard,
       SummaryBar,
-      /* Card list */
-      React.createElement("div",{style:{flex:1,overflowY:"auto",borderRadius:12,border:"1px solid var(--border)",background:"var(--bg3)"}},
-        filtered.length===0&&React.createElement("div",{style:{textAlign:"center",padding:"36px 20px",color:"var(--text6)"}},
+      /* Card list — virtualized */
+      filtered.length===0?React.createElement("div",{style:{textAlign:"center",padding:"36px 20px",color:"var(--text6)"}},
           (search||activeFilterCount>0)?"No transactions match the current filters":"No transactions"
-        ),
-        filtered.map((tx,idx)=>{
+        )
+      :React.createElement(VirtualList,{
+        items:filtered,
+        getItemKey:(tx)=>tx.id+"-"+tx._accId,
+        itemHeight:72,
+        overscan:4,
+        style:{flex:1,borderRadius:12,border:"1px solid var(--border)",background:"var(--bg3)"},
+      },(tx,idx)=>{
           const isDebit=tx.type==="debit";
           const accCol=tx._accType==="bank"?"#0e7490":tx._accType==="card"?"#c2410c":"#16a34a";
           const col=catColor(categories,catMainName(tx.cat||""));
@@ -21959,7 +22059,6 @@ const UnifiedLedgerSection=React.memo(({banks,cards,cash,categories,payees,isMob
             )
           );
         })
-      )
     );
   }
 
@@ -21993,75 +22092,30 @@ const UnifiedLedgerSection=React.memo(({banks,cards,cash,categories,payees,isMob
     HeroCard,
     /* Ledger card */
     React.createElement("div",{style:{display:"flex",flexDirection:"column",flex:1,minHeight:0,borderRadius:12,border:"1px solid var(--border)",overflow:"hidden",background:"var(--bg3)"}},
-      /* Scroll wrapper */
-      React.createElement("div",{style:{flex:1,minHeight:0,overflow:"auto"}},
-        React.createElement("div",{style:{minWidth:MINW}},
-          /* Sticky column header */
-          React.createElement("div",{className:"ldg-table-hdr",style:{display:"grid",gridTemplateColumns:COLS,position:"sticky",top:0,zIndex:3,minWidth:MINW,background:"var(--bg4)",borderBottom:"2px solid var(--border)",fontSize:11,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.5,userSelect:"none"}},
-            /* SN — click resets to date-desc */
-            React.createElement("div",{
-              style:{padding:"9px 4px",cursor:"pointer",color:sortKey==="date"?"var(--accent)":"var(--text5)"},
-              onClick:()=>{setSortKey("date");setSortDir("desc");},
-              title:"Reset to default sort (newest first)"
-            },"SN"),
-            /* Date */
-            (()=>{const active=sortKey==="date";return React.createElement("div",{
-              style:{padding:"9px 4px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,
-                color:active?"var(--accent)":"var(--text5)",
-                background:active?"var(--accentbg2)":"transparent",borderRadius:4,transition:"background .12s"},
-              onClick:()=>handleSortU("date","desc"),title:"Sort by Date"
-            },"Date",React.createElement("span",{style:{fontSize:10,opacity:active?1:.35}},active?(sortDir==="desc"?"▼":"▲"):"⇅"));})(),
-            /* Account */
-            (()=>{const active=sortKey==="account";return React.createElement("div",{
-              style:{padding:"9px 4px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,
-                color:active?"var(--accent)":"var(--text5)",
-                background:active?"var(--accentbg2)":"transparent",borderRadius:4,transition:"background .12s"},
-              onClick:()=>handleSortU("account","asc"),title:"Sort by Account"
-            },"Account",React.createElement("span",{style:{fontSize:10,opacity:active?1:.35}},active?(sortDir==="desc"?"▼":"▲"):"⇅"));})(),
-            /* Description */
-            (()=>{const active=sortKey==="desc_col";return React.createElement("div",{
-              style:{padding:"9px 4px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,
-                color:active?"var(--accent)":"var(--text5)",
-                background:active?"var(--accentbg2)":"transparent",borderRadius:4,transition:"background .12s"},
-              onClick:()=>handleSortU("desc_col","asc"),title:"Sort by Description"
-            },"Description",React.createElement("span",{style:{fontSize:10,opacity:active?1:.35}},active?(sortDir==="desc"?"▼":"▲"):"⇅"));})(),
-            /* Payee */
-            (()=>{const active=sortKey==="payee";return React.createElement("div",{
-              style:{padding:"9px 4px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,
-                color:active?"var(--accent)":"var(--text5)",
-                background:active?"var(--accentbg2)":"transparent",borderRadius:4,transition:"background .12s"},
-              onClick:()=>handleSortU("payee","asc"),title:"Sort by Payee"
-            },"Payee",React.createElement("span",{style:{fontSize:10,opacity:active?1:.35}},active?(sortDir==="desc"?"▼":"▲"):"⇅"));})(),
-            /* Category */
-            (()=>{const active=sortKey==="cat";return React.createElement("div",{
-              style:{padding:"9px 4px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,
-                color:active?"var(--accent)":"var(--text5)",
-                background:active?"var(--accentbg2)":"transparent",borderRadius:4,transition:"background .12s"},
-              onClick:()=>handleSortU("cat","asc"),title:"Sort by Category"
-            },"Category",React.createElement("span",{style:{fontSize:10,opacity:active?1:.35}},active?(sortDir==="desc"?"▼":"▲"):"⇅"));})(),
-            /* Out */
-            (()=>{const active=sortKey==="out";return React.createElement("div",{
-              style:{padding:"9px 4px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4,
-                color:active?"#ef4444":"var(--text5)",
-                background:active?"rgba(239,68,68,.07)":"transparent",borderRadius:4,transition:"background .12s"},
-              onClick:()=>handleSortU("out","desc"),title:"Sort by Debit amount"
-            },React.createElement("span",{style:{fontSize:10,opacity:active?1:.35}},active?(sortDir==="desc"?"▼":"▲"):"⇅"),"Out");})(),
-            /* In */
-            (()=>{const active=sortKey==="in";return React.createElement("div",{
-              style:{padding:"9px 4px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4,
-                color:active?"#16a34a":"var(--text5)",
-                background:active?"rgba(22,163,74,.07)":"transparent",borderRadius:4,transition:"background .12s"},
-              onClick:()=>handleSortU("in","desc"),title:"Sort by Credit amount"
-            },React.createElement("span",{style:{fontSize:10,opacity:active?1:.35}},active?(sortDir==="desc"?"▼":"▲"):"⇅"),"In");})(),
-            /* View — non-sortable */
-            React.createElement("div",{style:{padding:"9px 4px",textAlign:"center",color:"var(--accent)",fontSize:10}},"View")
-          ),
-          /* Empty state */
+      /* VirtualList: single scroll container for header + data rows */
+      React.createElement(VirtualList,{
+        items:filtered,
+        getItemKey:(tx)=>tx.id+"-"+tx._accId,
+        itemHeight:42,
+        overscan:5,
+        style:{flex:1},
+        header:React.createElement("div",{style:{position:"sticky",top:0,zIndex:3,minWidth:MINW}},
           filtered.length===0&&React.createElement("div",{style:{textAlign:"center",padding:"36px 20px",color:"var(--text6)"}},
             (search||activeFilterCount>0)?"No transactions match the current filters":"No transactions yet"
           ),
-          /* Data rows */
-          filtered.map((tx,idx)=>{
+          React.createElement("div",{className:"ldg-table-hdr",style:{display:"grid",gridTemplateColumns:COLS,minWidth:MINW,background:"var(--bg4)",borderBottom:"2px solid var(--border)",fontSize:11,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.5,userSelect:"none"}},
+            React.createElement("div",{style:{padding:"9px 4px",cursor:"pointer",color:sortKey==="date"?"var(--accent)":"var(--text5)"},onClick:()=>{setSortKey("date");setSortDir("desc");},title:"Reset to default sort (newest first)"},"SN"),
+            (()=>{const active=sortKey==="date";return React.createElement("div",{style:{padding:"9px 4px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,color:active?"var(--accent)":"var(--text5)",background:active?"var(--accentbg2)":"transparent",borderRadius:4,transition:"background .12s"},onClick:()=>handleSortU("date","desc"),title:"Sort by Date"},"Date",React.createElement("span",{style:{fontSize:10,opacity:active?1:.35}},active?(sortDir==="desc"?"▼":"▲"):"⇅"));})(),
+            (()=>{const active=sortKey==="account";return React.createElement("div",{style:{padding:"9px 4px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,color:active?"var(--accent)":"var(--text5)",background:active?"var(--accentbg2)":"transparent",borderRadius:4,transition:"background .12s"},onClick:()=>handleSortU("account","asc"),title:"Sort by Account"},"Account",React.createElement("span",{style:{fontSize:10,opacity:active?1:.35}},active?(sortDir==="desc"?"▼":"▲"):"⇅"));})(),
+            (()=>{const active=sortKey==="desc_col";return React.createElement("div",{style:{padding:"9px 4px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,color:active?"var(--accent)":"var(--text5)",background:active?"var(--accentbg2)":"transparent",borderRadius:4,transition:"background .12s"},onClick:()=>handleSortU("desc_col","asc"),title:"Sort by Description"},"Description",React.createElement("span",{style:{fontSize:10,opacity:active?1:.35}},active?(sortDir==="desc"?"▼":"▲"):"⇅"));})(),
+            (()=>{const active=sortKey==="payee";return React.createElement("div",{style:{padding:"9px 4px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,color:active?"var(--accent)":"var(--text5)",background:active?"var(--accentbg2)":"transparent",borderRadius:4,transition:"background .12s"},onClick:()=>handleSortU("payee","asc"),title:"Sort by Payee"},"Payee",React.createElement("span",{style:{fontSize:10,opacity:active?1:.35}},active?(sortDir==="desc"?"▼":"▲"):"⇅"));})(),
+            (()=>{const active=sortKey==="cat";return React.createElement("div",{style:{padding:"9px 4px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,color:active?"var(--accent)":"var(--text5)",background:active?"var(--accentbg2)":"transparent",borderRadius:4,transition:"background .12s"},onClick:()=>handleSortU("cat","asc"),title:"Sort by Category"},"Category",React.createElement("span",{style:{fontSize:10,opacity:active?1:.35}},active?(sortDir==="desc"?"▼":"▲"):"⇅"));})(),
+            (()=>{const active=sortKey==="out";return React.createElement("div",{style:{padding:"9px 4px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4,color:active?"#ef4444":"var(--text5)",background:active?"rgba(239,68,68,.07)":"transparent",borderRadius:4,transition:"background .12s"},onClick:()=>handleSortU("out","desc"),title:"Sort by Debit amount"},React.createElement("span",{style:{fontSize:10,opacity:active?1:.35}},active?(sortDir==="desc"?"▼":"▲"):"⇅"),"Out");})(),
+            (()=>{const active=sortKey==="in";return React.createElement("div",{style:{padding:"9px 4px",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4,color:active?"#16a34a":"var(--text5)",background:active?"rgba(22,163,74,.07)":"transparent",borderRadius:4,transition:"background .12s"},onClick:()=>handleSortU("in","desc"),title:"Sort by Credit amount"},React.createElement("span",{style:{fontSize:10,opacity:active?1:.35}},active?(sortDir==="desc"?"▼":"▲"):"⇅"),"In");})(),
+            React.createElement("div",{style:{padding:"9px 4px",textAlign:"center",color:"var(--accent)",fontSize:10}},"View")
+          )
+        ),
+      },(tx,idx)=>{
             const isDebit=tx.type==="debit";
             const globalIdx=unifiedSnMap[tx._accId+"__"+tx.id]||0;
             const col=catColor(categories,catMainName(tx.cat||""));
@@ -22113,9 +22167,7 @@ const UnifiedLedgerSection=React.memo(({banks,cards,cash,categories,payees,isMob
                 },"⤴")
               )
             );
-          })
-        )
-      ),
+          }),
       /* Collapsible filter panel */
       showFilters&&FilterPanel,
       /* Bottom toolbar */
@@ -27299,7 +27351,10 @@ function App(){
     rawDispatch(action);
   },[rawDispatch]);  // stable — no `state` dep
   /* Expose dispatch globally for Dashboard IIFE components that can't use hooks */
-  React.useEffect(()=>{window.__mm_dispatch=dispatch;},[dispatch]);
+  /* ── Expose dispatch globally for Dashboard IIFE — direct assignment avoids
+     useEffect overhead; dispatch is stable (useCallback) so this is a no-op on
+     re-renders. ── */
+  window.__mm_dispatch = dispatch;
   const[tab,setTab]=useRouting();
   /* ── PIN Lock: locked if a PIN hash is stored AND session not yet unlocked ── */
   const[locked,setLocked]=useState(()=>!!getPinHash()&&!isSessionUnlocked());
@@ -28238,7 +28293,7 @@ function App(){
       React.createElement("div",{style:{display:tab==="reports"?"contents":"none"}},
         React.createElement(ReportsSection,{data:state,isMobile,onJumpToLedger})),
       React.createElement("div",{style:{display:tab==="settings"?"contents":"none"}},
-        React.createElement(SettingsSection,{state,dispatch,themeId,setTheme,isMobile,onResetAll:()=>{dispatch({type:"RESET_ALL"});try{localStorage.removeItem(LS_KEY);localStorage.removeItem(LS_THEME);localStorage.removeItem(TAX_LS_KEY);}catch{}setTimeout(()=>window.location.reload(),100);}})),
+        React.createElement(SettingsSection,{state,dispatch,themeId,setTheme,isMobile,onResetAll:()=>{dispatch({type:"RESET_ALL"});try{localStorage.removeItem(LS_KEY);localStorage.removeItem(LS_EOD_PRICES);localStorage.removeItem(LS_EOD_NAVS);localStorage.removeItem(LS_THEME);localStorage.removeItem(TAX_LS_KEY);}catch{}setTimeout(()=>window.location.reload(),100);}})),
       React.createElement("div",{style:{display:tab==="info"?"contents":"none"}},
         React.createElement(InfoSection,{isMobile})),
       React.createElement("div",{style:{display:tab==="tax_est"?"contents":"none"}},

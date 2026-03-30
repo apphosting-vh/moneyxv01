@@ -2247,6 +2247,15 @@ const EMPTY_STATE=()=>({
   },
 });
 
+/* ── Stable empty-collection sentinels ──────────────────────────────────────
+   Replace inline ||[] and ||{} fallbacks in the App render. Every bare ||[]
+   allocates a new array reference each render, making React.memo's shallow-
+   equality check always fail even when nothing changed. A shared frozen
+   constant returns the same identity every time, so memo can bail out correctly.
+   ─────────────────────────────────────────────────────────────────────────── */
+const _EA=Object.freeze([]);   /* stable empty-array fallback  */
+const _EO=Object.freeze({});   /* stable empty-object fallback */
+
 const THEMES=[
   {id:"ocean",    name:"Ocean Teal",   desc:"Clean light blue",            dark:false, preview:["#f0f7ff","#0284c7","#c5ddf2","#0ea5e9"]},
   {id:"sky",      name:"Sky Blue",     desc:"Airy light sky-blue",         dark:false, preview:["#f0f9ff","#0ea5e9","#bae6fd","#0284c7"]},
@@ -2273,7 +2282,7 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.46.0";
+const APP_VERSION="3.45.0";
 
 /* ── SVG Icon Library (replaces all emoji icons) ─────────────────────── */
 const SVGI=(path,opts={})=>React.createElement("svg",{
@@ -19799,8 +19808,7 @@ const NotesSection=React.memo(({notes=[],dispatch})=>{
 /* ══════════════════════════════════════════════════════════════════════════
    SCHEDULED TRANSACTIONS SECTION
    ══════════════════════════════════════════════════════════════════════════ */
-const ScheduledSection=React.memo(({state,dispatch})=>{
-  const{scheduled=[],banks,cards,cash,categories,payees=[]}=state;
+const ScheduledSection=React.memo(({scheduled=_EA,banks,cards,cash,categories,payees=_EA,dispatch})=>{
   const[editSc,setEditSc]=useState(null);
   const[execConfirm,setExecConfirm]=useState(null);
   const[delScConfirm,setDelScConfirm]=useState(null);
@@ -28162,32 +28170,32 @@ function App(){
       React.createElement("div",{style:{display:tab==="dashboard"?"contents":"none"}},
         React.createElement(Dashboard,{data:state,isMobile})),
       React.createElement("div",{style:{display:tab==="banks"?"contents":"none"}},
-        React.createElement(BankSection,{banks:state.banks,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,cash:state.cash,loans:state.loans||[],isMobile,jumpAccId:txJump?.accType==="bank"?txJump.accId:null,jumpTxId:txJump?.accType==="bank"?txJump.txId:null,jumpSerial:txJump?.accType==="bank"?txJump.serial:null,onClearAccountJump:onClearTxJump})),
+        React.createElement(BankSection,{banks:state.banks,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,cash:state.cash,loans:state.loans||_EA,isMobile,jumpAccId:txJump?.accType==="bank"?txJump.accId:null,jumpTxId:txJump?.accType==="bank"?txJump.txId:null,jumpSerial:txJump?.accType==="bank"?txJump.serial:null,onClearAccountJump:onClearTxJump})),
       React.createElement("div",{style:{display:tab==="cards"?"contents":"none"}},
-        React.createElement(CardSection,{cards:state.cards,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,cash:state.cash,loans:state.loans||[],isMobile,jumpAccId:txJump?.accType==="card"?txJump.accId:null,jumpTxId:txJump?.accType==="card"?txJump.txId:null,jumpSerial:txJump?.accType==="card"?txJump.serial:null,onClearAccountJump:onClearTxJump})),
+        React.createElement(CardSection,{cards:state.cards,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,cash:state.cash,loans:state.loans||_EA,isMobile,jumpAccId:txJump?.accType==="card"?txJump.accId:null,jumpTxId:txJump?.accType==="card"?txJump.txId:null,jumpSerial:txJump?.accType==="card"?txJump.serial:null,onClearAccountJump:onClearTxJump})),
       React.createElement("div",{style:{display:tab==="cash"?"contents":"none"}},
-        React.createElement(CashSection,{cash:state.cash,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,loans:state.loans||[],isMobile,jumpTxId:txJump?.accType==="cash"?txJump.txId:null,jumpSerial:txJump?.accType==="cash"?txJump.serial:null})),
+        React.createElement(CashSection,{cash:state.cash,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,loans:state.loans||_EA,isMobile,jumpTxId:txJump?.accType==="cash"?txJump.txId:null,jumpSerial:txJump?.accType==="cash"?txJump.serial:null})),
       React.createElement("div",{style:{display:tab==="inv_dash"?"contents":"none"}},
-        React.createElement(InvestDashboard,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{}})),
+        React.createElement(InvestDashboard,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||_EA,dispatch,isMobile,eodPrices:state.eodPrices||_EO,eodNavs:state.eodNavs||_EO})),
       /* InvestSection: five sub-tabs reuse the same component with different
          defaultTab — keep the && pattern so each sub-tab mounts independently */
-      tab==="inv_mf"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],pf:state.pf||[],dispatch,defaultTab:"mf",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
-      tab==="inv_shares"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],pf:state.pf||[],dispatch,defaultTab:"shares",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
-      tab==="inv_fd"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],pf:state.pf||[],dispatch,defaultTab:"fd",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
-      tab==="inv_re"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],pf:state.pf||[],dispatch,defaultTab:"re",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
-      tab==="inv_pf"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],pf:state.pf||[],dispatch,defaultTab:"pf",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
+      tab==="inv_mf"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||_EA,pf:state.pf||_EA,dispatch,defaultTab:"mf",isMobile,eodPrices:state.eodPrices||_EO,eodNavs:state.eodNavs||_EO,historyCache:state.historyCache||_EO}),
+      tab==="inv_shares"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||_EA,pf:state.pf||_EA,dispatch,defaultTab:"shares",isMobile,eodPrices:state.eodPrices||_EO,eodNavs:state.eodNavs||_EO,historyCache:state.historyCache||_EO}),
+      tab==="inv_fd"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||_EA,pf:state.pf||_EA,dispatch,defaultTab:"fd",isMobile,eodPrices:state.eodPrices||_EO,eodNavs:state.eodNavs||_EO,historyCache:state.historyCache||_EO}),
+      tab==="inv_re"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||_EA,pf:state.pf||_EA,dispatch,defaultTab:"re",isMobile,eodPrices:state.eodPrices||_EO,eodNavs:state.eodNavs||_EO,historyCache:state.historyCache||_EO}),
+      tab==="inv_pf"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||_EA,pf:state.pf||_EA,dispatch,defaultTab:"pf",isMobile,eodPrices:state.eodPrices||_EO,eodNavs:state.eodNavs||_EO,historyCache:state.historyCache||_EO}),
       React.createElement("div",{style:{display:tab==="loans"?"contents":"none"}},
         React.createElement(LoanSection,{loans:state.loans,dispatch,allBanks:state.banks,allCards:state.cards,cash:state.cash,categories:state.categories,payees:state.payees,isMobile})),
       React.createElement("div",{style:{display:tab==="goals"?"contents":"none"}},
-        React.createElement(GoalsSection,{goals:state.goals||[],dispatch,isMobile,scheduled:state.scheduled||[],banks:state.banks,cards:state.cards,cash:state.cash,mf:state.mf||[],shares:state.shares||[],fd:state.fd||[],re:state.re||[]})),
+        React.createElement(GoalsSection,{goals:state.goals||_EA,dispatch,isMobile,scheduled:state.scheduled||_EA,banks:state.banks,cards:state.cards,cash:state.cash,mf:state.mf||_EA,shares:state.shares||_EA,fd:state.fd||_EA,re:state.re||_EA})),
       React.createElement("div",{style:{display:tab==="insights"?"contents":"none"}},
-        React.createElement(InsightsSection,{banks:state.banks,cards:state.cards,cash:state.cash,categories:state.categories,dispatch,isMobile,goals:state.goals,mf:state.mf,shares:state.shares,fd:state.fd,re:state.re,loans:state.loans,prefs:state.insightPrefs,onJumpToLedger,nwSnapshots:state.nwSnapshots||{}})),
+        React.createElement(InsightsSection,{banks:state.banks,cards:state.cards,cash:state.cash,categories:state.categories,dispatch,isMobile,goals:state.goals,mf:state.mf,shares:state.shares,fd:state.fd,re:state.re,loans:state.loans,prefs:state.insightPrefs,onJumpToLedger,nwSnapshots:state.nwSnapshots||_EO})),
       React.createElement("div",{style:{display:tab==="notes"?"contents":"none"}},
-        React.createElement(NotesSection,{notes:state.notes||[],dispatch})),
+        React.createElement(NotesSection,{notes:state.notes||_EA,dispatch})),
       React.createElement("div",{style:{display:tab==="calculator"?"contents":"none"}},
         React.createElement(CalculatorSection,null)),
       React.createElement("div",{style:{display:tab==="scheduled"?"contents":"none"}},
-        React.createElement(ScheduledSection,{state,dispatch})),
+        React.createElement(ScheduledSection,{scheduled:state.scheduled||_EA,banks:state.banks,cards:state.cards,cash:state.cash,categories:state.categories,payees:state.payees||_EA,dispatch})),
       React.createElement("div",{style:{display:tab==="unified_ledger"?"contents":"none"}},
         React.createElement(UnifiedLedgerSection,{banks:state.banks,cards:state.cards,cash:state.cash,categories:state.categories,payees:state.payees,isMobile,initialFilter:jumpFilter,onClearJump,onJumpToTx})),
       React.createElement("div",{style:{display:tab==="calendar"?"contents":"none"}},
@@ -28285,7 +28293,7 @@ function App(){
           categories:state.categories,
           payees:state.payees,
           txTypes:txT,
-          allAccounts:[...state.banks.map(b=>({...b,accType:"bank",accTypeLbl:"↳"})),{id:"__cash__",...state.cash,name:"Cash",accType:"cash",accTypeLbl:"↳"},...state.cards.map(c=>({...c,accType:"card",accTypeLbl:"↳"})),...(state.loans||[]).map(l=>({...l,accType:"loan",accTypeLbl:"↳",name:l.name+" (Loan)"}))],
+          allAccounts:[...state.banks.map(b=>({...b,accType:"bank",accTypeLbl:"↳"})),{id:"__cash__",...state.cash,name:"Cash",accType:"cash",accTypeLbl:"↳"},...state.cards.map(c=>({...c,accType:"card",accTypeLbl:"↳"})),...(state.loans||_EA).map(l=>({...l,accType:"loan",accTypeLbl:"↳",name:l.name+" (Loan)"}))],
           currentAccountId:defaultAcc.id,
           dispatch,state,
         });

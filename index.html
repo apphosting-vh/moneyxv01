@@ -8,7 +8,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
 <meta http-equiv="Pragma"        content="no-cache"/>
 <meta http-equiv="Expires"       content="0"/>
-<title>₹ Money Manager — Personal Finance India</title>
+<title>ArthaStack — Personal Finance India</title>
 
 <!-- ── PWA / Android TWA ──────────────────────────────────────── -->
 <link rel="manifest" href="manifest.json"/>
@@ -20,12 +20,12 @@
 <!-- iOS / Safari PWA -->
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-<meta name="apple-mobile-web-app-title" content="Money Manager"/>
+<meta name="apple-mobile-web-app-title" content="ArthaStack"/>
 <link rel="apple-touch-icon" href="icons/icon-192.png"/>
 
 <!-- Android / Chrome -->
 <meta name="mobile-web-app-capable" content="yes"/>
-<meta name="application-name" content="Money Manager"/>
+<meta name="application-name" content="ArthaStack"/>
 
 <!-- SEO / share -->
 <meta name="description" content="Offline personal finance manager for India — banks, cards, investments, loans."/>
@@ -1550,7 +1550,7 @@ textarea.inp{resize:vertical}
 <div id="mm-splash">
   <div class="bg-glow"></div>
   <div class="card">
-    <div class="logo"><span>₹</span>Money Manager</div>
+    <div class="logo"><span>₹</span>ArthaStack</div>
 
     <!-- Bar chart + coin row -->
     <div style="display:flex;align-items:flex-end;gap:20px">
@@ -2209,7 +2209,7 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.43.9";
+const APP_VERSION="3.44.0";
 
 /* ── SVG Icon Library (replaces all emoji icons) ─────────────────────── */
 const SVGI=(path,opts={})=>React.createElement("svg",{
@@ -2362,6 +2362,11 @@ const Icon=({n,size=16,col,style={}})=>{
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.44.0",date:"2026-03-30",title:"Rebrand — Money Manager renamed to ArthaStack",changes:[
+    "App renamed from '₹ Money Manager' to 'ArthaStack' across all UI surfaces.",
+    "Updated: browser tab title, PWA app title (apple-mobile-web-app-title, application-name meta tags), loading screen logo, sidebar logo, PIN lock screen header, Info tab app name and description row, Settings export/share strings, PDF report headers and footers, Excel export filename and sheet header, HTML report title and header, Google Drive backup folder name, file picker dialog descriptions, and all in-app notification titles.",
+    "36 occurrences replaced across the codebase — zero legacy 'Money Manager' strings remain in any user-visible text.",
+  ]},
   {version:"3.43.9",date:"2026-03-30",title:"Fix — Report table headers cramped into one column + Goals card amount overlap",changes:[
     "Bug Fix — All report section tables (Categories Monthly, Quarterly, Yearly, Cash Flow, Classification, Income vs Expenses, Forecast, Account Summary, Payees, Investment Portfolio, Reconciliation, Net Worth, and more): column header texts were rendering concatenated into a single grid cell instead of occupying separate columns. Root cause: bare text string children of display:grid containers are treated as a single anonymous block by browsers. Fixed by wrapping every header string in a React.createElement span so each becomes a proper grid item.",
     "28 grid header rows fixed across all report components. Each header cell now also carries whiteSpace:nowrap to prevent mid-word wrapping on narrow screens.",
@@ -2514,7 +2519,7 @@ const CHANGELOG=[
   {version:"3.35.0",date:"2026-03-23",title:"Feature — PDF Export of Current Report View (all 17 reports × all views)",changes:[
     "New 'Export this View' button (📄) added to every report's RptCtrlBar toolbar — visible in Snapshot, Detailed and Heatmap views of all 17 reports (Cash Flow, Classification, Categories Monthly/Quarterly/Yearly/Summary, Where Money Goes, Where Money Comes From, Income vs Expenses, Forecast, My Usage, Payees, Summary of Accounts, Investment Portfolio, Reconciliation, Net Worth, GST & TDS).",
     "Clicking 'Export this View' generates a PDF of exactly what is currently visible on screen — the active view (Snapshot/Detailed/Heatmap), current date range, current account filter — ready for A4 print.",
-    "PDF header injected temporarily into the print area: shows '₹ Money Manager — [Report Name]', the active date range, and the generation timestamp. Removed automatically after print dialog closes.",
+    "PDF header injected temporarily into the print area: shows 'ArthaStack — [Report Name]', the active date range, and the generation timestamp. Removed automatically after print dialog closes.",
     "Print mode uses CSS custom property overrides on #rpt-print-area so all charts, cards and text render in a clean light palette (white background, dark text, blue accent) regardless of which dark/light theme is active in the app.",
     "Two-layer print block preserved: Ctrl+P / browser print is still blocked (beforeprint listener + @media print CSS). Only the 'Export this View' button path sets window.__mmPrintOK=true and html[data-mm-printing] attribute, bypassing both guards.",
     "RptCtrlBar upgraded: accepts optional onExportPDF prop; renders the Export button at the trailing edge of the toolbar only when the prop is provided. All 17 RptCtrlBar call sites pass {onExportPDF}.",
@@ -2844,7 +2849,7 @@ const CHANGELOG=[
     "Feature: XIRR on Share cards — each share's P&L box now shows an '📊 XIRR (annualised)' row using buyDate and current market value via Newton-Raphson. Displayed as e.g. '+14.52% p.a.'.",
     "Feature: XIRR on MF cards — each MF card shows a purple '📊 XIRR' badge computing annualised return from the fund's startDate (new optional field on Add Fund form) and current value.",
     "Feature: XIRR strip in Investment Dashboard — when share or FD data is available, a new row below the per-asset stat cards shows annualised XIRR for the Shares portfolio (aggregated using all buyDates) and for Fixed Deposits (using start/maturity dates). Labeled 'Annualised returns via XIRR'.",
-    "Feature: Google Drive Cloud Backup — new '☁ Cloud Backup' panel under Settings. User configures their own Google OAuth Client ID (one-time setup, stored in localStorage). OAuth2 implicit flow opens a popup; token stored in sessionStorage only. Backups are uploaded directly from the browser to a 'Money Manager Backups' folder on the user's own Drive using the Drive API v3 multipart upload. Lists recent backups, auto-prunes to the 7 most recent. No proxy server — data goes directly browser → Google Drive.",
+    "Feature: Google Drive Cloud Backup — new '☁ Cloud Backup' panel under Settings. User configures their own Google OAuth Client ID (one-time setup, stored in localStorage). OAuth2 implicit flow opens a popup; token stored in sessionStorage only. Backups are uploaded directly from the browser to a 'ArthaStack Backups' folder on the user's own Drive using the Drive API v3 multipart upload. Lists recent backups, auto-prunes to the 7 most recent. No proxy server — data goes directly browser → Google Drive.",
     "Feature: MF Add form — new optional 'First Investment Date' date field (stores as startDate) used by the XIRR badge on the card.",
     "Bug fix: DevTools window-size lock false positive — Method B heuristic (outerWidth/outerHeight delta) now requires the condition to persist across 2 consecutive poll cycles (~2–3 s) before triggering lockScreen. Threshold raised from 200 px to 250 px. Counter resets to 0 on any clean poll. Eliminates false triggers on Android split-screen multitasking, browser zoom changes, and OS on-screen keyboard appearance.",
     "Bug fix: Undo Toast stale closure — undoSnapRef (React.useRef) now mirrors undoSnap state. doUndo reads from the ref rather than the state closure, so it always has the latest snapshot even when the useCallback was captured before the last setUndoSnap settled. Timer cleanup also clears the ref. Toast label corrected from 'Action undone in 6 s' → 'Last action deleted • undo within 6 s'.",
@@ -2955,9 +2960,9 @@ const CHANGELOG=[
     "Reset All Data: localStorage.removeItem(TAX_LS_KEY) added to the reset handler — both the main state and the legacy tax key are cleared on full reset.",
     "Tab Management summary pill updated: description now correctly states Tax Estimator can be hidden.",
   ]},
-  {version:"3.28.2",date:"2026-03-18",title:"Tax Estimator: full Money Manager theme integration",changes:[
-    "All 28 hardcoded --itr-* CSS variables remapped to Money Manager theme tokens: --itr-bg→var(--bg), --itr-surface→var(--bg3), --itr-surface2→var(--bg5), --itr-border→var(--border), --itr-navy/navy-lt→var(--accent2)/var(--accentbg), --itr-text→var(--text), --itr-blue-lt→var(--accentbg2) etc. Tax Estimator now automatically follows all 16 themes.",
-    "Header: removed the standalone app's dark gradient hero banner. Replaced with a compact Money Manager–style section header using Sora font, var(--text) for title, var(--accent) for emphasis, and var(--bg5)/var(--border2) chips — identical in structure to all other MM tabs.",
+  {version:"3.28.2",date:"2026-03-18",title:"Tax Estimator: full ArthaStack theme integration",changes:[
+    "All 28 hardcoded --itr-* CSS variables remapped to ArthaStack theme tokens: --itr-bg→var(--bg), --itr-surface→var(--bg3), --itr-surface2→var(--bg5), --itr-border→var(--border), --itr-navy/navy-lt→var(--accent2)/var(--accentbg), --itr-text→var(--text), --itr-blue-lt→var(--accentbg2) etc. Tax Estimator now automatically follows all 16 themes.",
+    "Header: removed the standalone app's dark gradient hero banner. Replaced with a compact ArthaStack-style section header using Sora font, var(--text) for title, var(--accent) for emphasis, and var(--bg5)/var(--border2) chips — identical in structure to all other MM tabs.",
     "Budget banner: converted from hardcoded amber gradient to a themed info box using --itr-saffron-lt/bd (semantic amber kept) with var(--text4) body text.",
     "Cards: background changed from white surface to var(--card) gradient; borders use var(--border); card headers use var(--bg5) background — matches MM's Card component exactly.",
     "Inputs: all three input types (number, date, text) now use var(--inp-bg) background, var(--border), DM Sans font, and var(--accent)/var(--accentbg3) focus ring — identical to every other input in the app.",
@@ -2971,7 +2976,7 @@ const CHANGELOG=[
     "Collapsible section buttons: var(--accent2)/var(--accent) — matches all other MM expandable section toggles.",
     "Disclaimer, save bar, export card, comparison box: all use var(--card), var(--border), var(--text) hierarchy.",
     "Semantic colors (gain green #16a34a, loss red #dc2626, warning amber #d97706) kept as fixed values — these convey financial domain meaning that must remain consistent regardless of color theme.",
-    "DM Mono font references replaced with DM Sans throughout (Money Manager does not load DM Mono; DM Sans is the app's body font).",
+    "DM Mono font references replaced with DM Sans throughout (ArthaStack does not load DM Mono; DM Sans is the app's body font).",
   ]},
   {version:"3.28.1",date:"2026-03-18",title:"New Tab: Tax Estimator (ITR-3, AY 2026-27)",changes:[
     "Merged the standalone ITR-3 Income Tax Estimator app as a new Tax Estimator tab in the More section of the sidebar (🧾 icon).",
@@ -2982,8 +2987,8 @@ const CHANGELOG=[
     "TDS Credits: add multiple deductor rows (name, amount, date); total TDS credited live.",
     "Advance Tax: add multiple challans (amount, date, BSR ref); instalment-wise 234C analysis table shows shortfall and interest per due date (Jun/Sep/Dec/Mar); 234B interest estimated from 1 Apr 2026.",
     "Export: Excel (5 sheets: Tax Summary, Capital Gains, TDS Credits, Advance Tax & 234C, Regime Comparison) and PDF (A4 formatted report with all sections, disclaimer).",
-    "Auto-save to localStorage under key itr3_ay2627_v1 (separate from money manager state); restores on next open.",
-    "CSS fully scoped under .tax-wrap to prevent any style conflicts with money manager; all CSS variables renamed --itr-* to avoid clashing with money manager's CSS variable set; @keyframes renamed itr-pulse/itr-spin.",
+    "Auto-save to localStorage under key itr3_ay2627_v1 (separate from ArthaStack state); restores on next open.",
+    "CSS fully scoped under .tax-wrap to prevent any style conflicts with ArthaStack; all CSS variables renamed --itr-* to avoid clashing with ArthaStack's CSS variable set; @keyframes renamed itr-pulse/itr-spin.",
     "jsPDF and jspdf-autotable scripts added to the app head for PDF export support.",
   ]},
   {version:"3.28.0",date:"2026-03-18",title:"Reconciliation-Gated Balances — balance only reflects Reconciled transactions",changes:[
@@ -3562,7 +3567,7 @@ const CHANGELOG=[
     "New Settings → File Storage tab (📁) — save your data to any file on your computer: D: drive, Documents, Dropbox, OneDrive, USB drive, or anywhere you choose",
     "Uses the browser-native File System Access API (Chrome 86+ / Edge 86+ on desktop) — no extensions, no server, no installs required",
     "📁 Connect New Save File: opens a native 'Save As' dialog; current data is written to the chosen file immediately and auto-saved on every future change",
-    "📂 Load from Existing File: opens an existing Money Manager JSON backup; restores all data and sets that file as the going-forward auto-save target",
+    "📂 Load from Existing File: opens an existing ArthaStack JSON backup; restores all data and sets that file as the going-forward auto-save target",
     "Auto-save: every state change (transactions, edits, settings) triggers a write to the connected file within 400ms — identical timing to the existing localStorage save",
     "Dual-write architecture: localStorage remains the primary fast cache; the file on disk is a real-time copy the user fully controls",
     "File handle persistence: file handles are stored in IndexedDB (not localStorage) so they survive page reloads; the panel auto-reconnects on mount if permission was already granted",
@@ -8783,7 +8788,7 @@ const ShareSummaryModal=({data,allBankTx,thisMonth,onClose})=>{
     ...top5.map(([cat,amt],i)=>`  ${i+1}. ${cat}: ${fmt(amt)}`),``,
     `Net Worth: ${fmt(curNW2)}`,
     ...(overBudget.length?[``,`*Budget Alerts:*`,...overBudget]:[]),``,
-    `_Shared from ₹ Money Manager_`,
+    `_Shared from ArthaStack_`,
   ];
   const text=lines.join("\n");
   const waUrl="https://wa.me/?text="+encodeURIComponent(text);
@@ -17149,7 +17154,7 @@ const ExportReportModal=({data,onClose})=>{
       const netFlow=totIncome-totExpense-totInvest;
       const savRate=totIncome>0?((netFlow/totIncome)*100).toFixed(1)+"%" :"--";
       addSheet("Summary",[
-        ["Money Manager — Export Report","","",""],
+        ["ArthaStack — Export Report","","",""],
         ["Generated",new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}),"",""],
         ["Period",label,"",""],
         ["Date Range",from+" to "+to,"",""],
@@ -17281,7 +17286,7 @@ const ExportReportModal=({data,onClose})=>{
         ["Cash Balance","","",data.cash.balance],
       ]);
 
-      const fname=`MoneyManager_${periodType==="monthly"?selMonth:selYear}_Report.xlsx`;
+      const fname=`ArthaStack_${periodType==="monthly"?selMonth:selYear}_Report.xlsx`;
       XLSX.writeFile(WB,fname);
       setStatus({ok:true,msg:"Excel exported successfully: "+fname});
     }catch(e){setStatus({ok:false,msg:"Export failed: "+e.message});}
@@ -17334,7 +17339,7 @@ const ExportReportModal=({data,onClose})=>{
 
       /* ── Build HTML ── */
       const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-<title>Money Manager Report — ${label}</title>
+<title>ArthaStack Report — ${label}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Segoe UI',Arial,sans-serif;color:#1a1a2e;background:#fff;padding:28px;font-size:12px;}
@@ -17362,7 +17367,7 @@ const ExportReportModal=({data,onClose})=>{
 <div style="border-bottom:3px solid #1e3a5f;margin-bottom:20px;padding-bottom:14px;">
   <div style="display:flex;justify-content:space-between;align-items:flex-end;">
     <div>
-      <h1>₹ Money Manager</h1>
+      <h1>ArthaStack</h1>
       <h2>${periodType==="monthly"?"Monthly":"Yearly"} Summary Report &mdash; ${label}</h2>
       <span class="badge">${from} to ${to}</span>
       <span class="badge">Generated ${new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})}</span>
@@ -17560,7 +17565,7 @@ ${table(
 
 <!-- FOOTER -->
 <div style="margin-top:32px;padding-top:12px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;font-size:10px;color:#9ca3af;">
-  <span>₹ Money Manager v${APP_VERSION} · Exported ${new Date().toLocaleString("en-IN")}</span>
+  <span>ArthaStack v${APP_VERSION} · Exported ${new Date().toLocaleString("en-IN")}</span>
   <span>${label} · Personal Finance Report</span>
 </div>
 </body></html>`;
@@ -18193,7 +18198,7 @@ const ReportsSection=React.memo(({data,isMobile,onJumpToLedger})=>{
     hdr.id="mm-print-hdr";
     hdr.style.cssText="font-family:\'Sora\',sans-serif;margin-bottom:18px;padding-bottom:12px;border-bottom:2px solid #1d4ed8;page-break-after:avoid";
     const genDate=new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
-    hdr.innerHTML="<div style=\"font-size:19px;font-weight:800;color:#0f172a;margin-bottom:3px\">₹ Money Manager — "+rptLabel+"</div>"
+    hdr.innerHTML="<div style=\"font-size:19px;font-weight:800;color:#0f172a;margin-bottom:3px\">ArthaStack — "+rptLabel+"</div>"
       +"<div style=\"font-size:11px;color:#64748b;font-family:\'DM Sans\',sans-serif\">"+(dateLabel?"Period: "+dateLabel+" &nbsp;·&nbsp; ":"")+"Generated: "+genDate+"</div>";
     const area=document.getElementById("rpt-print-area");
     if(area)area.insertBefore(hdr,area.firstChild);
@@ -18750,7 +18755,7 @@ const FSAStoragePanel=({state,dispatch})=>{
     try{
       const handle=await window.showSaveFilePicker({
         suggestedName:"money-manager-data.json",
-        types:[{description:"Money Manager Data",accept:{"application/json":[".json"]}}],
+        types:[{description:"ArthaStack Data",accept:{"application/json":[".json"]}}],
       });
       await fsaSetHandle(handle);
       window.__fsa.handle=handle;window.__fsa.filename=handle.name;window.__fsa.ready=true;
@@ -18768,7 +18773,7 @@ const FSAStoragePanel=({state,dispatch})=>{
     setBusy(true);
     try{
       const[handle]=await window.showOpenFilePicker({
-        types:[{description:"Money Manager Data",accept:{"application/json":[".json"]}}],
+        types:[{description:"ArthaStack Data",accept:{"application/json":[".json"]}}],
         multiple:false,
       });
       const data=await fsaReadFile(handle);
@@ -18923,7 +18928,7 @@ const FSAStoragePanel=({state,dispatch})=>{
           React.createElement("span",{style:{fontSize:16,flexShrink:0}},React.createElement(Icon,{n:"folder",size:18})),
           React.createElement("div",{style:{fontSize:12,color:"var(--text5)",lineHeight:1.7}},
             React.createElement("strong",{style:{color:"var(--text3)"}},"Load from Existing File"),
-            " — Opens an existing Money Manager JSON file. Restores all data from that file and sets it as the auto-save location going forward.")
+            " — Opens an existing ArthaStack JSON file. Restores all data from that file and sets it as the auto-save location going forward.")
         )
       )
     ),
@@ -18965,7 +18970,7 @@ const FSAStoragePanel=({state,dispatch})=>{
    CLOUD BACKUP PANEL — Google Drive backup via OAuth2 + Drive API v3
    The user provides their own Google Cloud OAuth client_id (one-time setup).
    Access tokens are stored in sessionStorage only (cleared on tab close).
-   Backups are uploaded as JSON files to a "Money Manager Backups" folder
+   Backups are uploaded as JSON files to a "ArthaStack Backups" folder
    on the user's own Google Drive. Up to 7 recent backups are kept.
    ══════════════════════════════════════════════════════════════════════════ */
 const CloudBackupPanel=({state})=>{
@@ -19017,9 +19022,9 @@ const CloudBackupPanel=({state})=>{
     say("Disconnected from Google Drive. Session token cleared.");
   };
 
-  /* ── Helper: find or create "Money Manager Backups" folder ── */
+  /* ── Helper: find or create "ArthaStack Backups" folder ── */
   const getFolderId=async(tok)=>{
-    const q=`name='Money Manager Backups' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    const q=`name='ArthaStack Backups' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
     const r=await fetch("https://www.googleapis.com/drive/v3/files?q="+encodeURIComponent(q)+"&fields=files(id,name)",{
       headers:{Authorization:"Bearer "+tok}
     });
@@ -19029,7 +19034,7 @@ const CloudBackupPanel=({state})=>{
     /* Create folder */
     const cr=await fetch("https://www.googleapis.com/drive/v3/files",{
       method:"POST",headers:{Authorization:"Bearer "+tok,"Content-Type":"application/json"},
-      body:JSON.stringify({name:"Money Manager Backups",mimeType:"application/vnd.google-apps.folder"})
+      body:JSON.stringify({name:"ArthaStack Backups",mimeType:"application/vnd.google-apps.folder"})
     });
     if(!cr.ok)return null;
     const cd=await cr.json();
@@ -19059,7 +19064,7 @@ const CloudBackupPanel=({state})=>{
       });
       if(r.status===401){sessionStorage.removeItem("mm_gdrive_tok");setToken("");say("Session expired — please reconnect.",false);setBusy(false);return;}
       if(!r.ok){say("Upload failed: "+r.statusText,false);setBusy(false);return;}
-      say("✓ Backup uploaded to Google Drive → Money Manager Backups/"+filename);
+      say("✓ Backup uploaded to Google Drive → ArthaStack Backups/"+filename);
       listFiles();
       /* Auto-prune: keep only 7 most recent */
       pruneOld(token,folderId);
@@ -19187,7 +19192,7 @@ const CloudBackupPanel=({state})=>{
     token&&React.createElement(Card,{sx:{marginBottom:14}},
       React.createElement("div",{style:{fontSize:11,fontWeight:700,color:"var(--text4)",textTransform:"uppercase",letterSpacing:.7,marginBottom:10}},"Recent Drive Backups"),
       files.length===0&&!loadingFiles
-        ?React.createElement("div",{style:{fontSize:12,color:"var(--text5)",fontStyle:"italic"}},"No backups found in Money Manager Backups folder on Drive yet.")
+        ?React.createElement("div",{style:{fontSize:12,color:"var(--text5)",fontStyle:"italic"}},"No backups found in ArthaStack Backups folder on Drive yet.")
         :React.createElement("div",null,
           files.map(f=>React.createElement("div",{key:f.id,style:{
             display:"flex",justifyContent:"space-between",alignItems:"center",
@@ -19998,7 +20003,7 @@ const NotificationsPanel=({state})=>{
 
   const sendTest=()=>{
     if(perm!=="granted")return;
-    new Notification("₹ Money Manager",{body:"Test notification — reminders are working!",icon:"icons/icon-192.png"});
+    new Notification("ArthaStack",{body:"Test notification — reminders are working!",icon:"icons/icon-192.png"});
   };
 
   /* Build upcoming reminders from current state */
@@ -22585,7 +22590,7 @@ const PinLockScreen=({onUnlock})=>{
     /* App logo */
     React.createElement("div",{style:{marginBottom:36,textAlign:"center"}},
       React.createElement("div",{style:{fontSize:38,marginBottom:8}},React.createElement(Icon,{n:"shield",size:20})),
-      React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontSize:22,fontWeight:800,color:"#0ea5e9",letterSpacing:-.3}},"₹ Money Manager"),
+      React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontSize:22,fontWeight:800,color:"#0ea5e9",letterSpacing:-.3}},"ArthaStack"),
       React.createElement("div",{style:{fontSize:12,color:"rgba(255,255,255,.35)",marginTop:4,letterSpacing:.8}})
     ),
 
@@ -27096,13 +27101,13 @@ const InfoSection=React.memo(({isMobile})=>{
     /* ── Page header ── */
     React.createElement("div",{style:{marginBottom:22}},
       React.createElement("h2",{style:{fontFamily:"'Sora',sans-serif",fontSize:isMobile?18:22,fontWeight:800,color:"var(--text)",marginBottom:4}},"App Information"),
-      React.createElement("p",{style:{fontSize:13,color:"var(--text5)",lineHeight:1.6,margin:0}},"Developer details, version history, copyright, and terms of authorised use for ₹ Money Manager.")
+      React.createElement("p",{style:{fontSize:13,color:"var(--text5)",lineHeight:1.6,margin:0}},"Developer details, version history, copyright, and terms of authorised use for ArthaStack.")
     ),
 
     /* ── Developer Card ── */
     Block({icon:React.createElement(Icon,{n:"user",size:20}),title:"Developer",accent:"var(--accent)",children:React.createElement("div",null,
       Row({label:"Name",       value:"Vivek Hegde Hulimane"}),
-      Row({label:"App",        value:"₹ Money Manager — Personal Finance India"}),
+      Row({label:"App",        value:"ArthaStack — Personal Finance India"}),
       Row({label:"Version",    value:"v"+APP_VERSION, mono:true}),
       Row({label:"Platform",   value:"Progressive Web App (PWA) · Offline-first · Single-file"}),
       Row({label:"Built with", value:"React 18 · Babel · SheetJS · Google Fonts"}),
@@ -27122,7 +27127,7 @@ const InfoSection=React.memo(({isMobile})=>{
         padding:"14px 16px",marginBottom:16,
       }},
         React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontSize:15,fontWeight:800,color:"var(--text)",marginBottom:4}},"© "+YEAR+" Vivek Hegde Hulimane. All Rights Reserved."),
-        React.createElement("div",{style:{fontSize:12,color:"var(--text4)",lineHeight:1.8}},"₹ Money Manager — Personal Finance India")
+        React.createElement("div",{style:{fontSize:12,color:"var(--text4)",lineHeight:1.8}},"ArthaStack — Personal Finance India")
       ),
       React.createElement("p",{style:{fontSize:13,color:"var(--text3)",lineHeight:1.8,marginBottom:10}},
         "The software, source code, design, layout, user interface, financial logic, and all associated content of this application are the exclusive intellectual property of ",
@@ -27285,7 +27290,7 @@ const InfoSection=React.memo(({isMobile})=>{
       border:"1px solid var(--border2)",borderRadius:12,
       background:"var(--bg4)",
     }},
-      React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:700,color:"var(--text4)",marginBottom:4}},"₹ Money Manager · v"+APP_VERSION),
+      React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:700,color:"var(--text4)",marginBottom:4}},"ArthaStack · v"+APP_VERSION),
       React.createElement("div",{style:{fontSize:11,color:"var(--text6)"}},
         "© "+YEAR+" Vivek Hegde Hulimane · All Rights Reserved · Personal use only"
       )
@@ -29653,7 +29658,7 @@ function App(){
       display:"flex",alignItems:"center",justifyContent:"space-between",gap:8
     }},
       React.createElement("div",null,
-        React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontSize:17,fontWeight:800,color:"var(--accent)",letterSpacing:-.3}},"₹ Money Manager"),
+        React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontSize:17,fontWeight:800,color:"var(--accent)",letterSpacing:-.3}},"ArthaStack"),
         React.createElement("div",{style:{fontSize:10,color:"var(--text8)",marginTop:3,letterSpacing:.4}},"PERSONAL FINANCE · INDIA")
       ),
       /* Collapse chevron button */

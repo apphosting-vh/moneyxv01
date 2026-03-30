@@ -298,9 +298,11 @@
 })();
 </script>
 
+<!-- ① preconnect to both font & JS CDNs — saves ~100ms per domain on first paint -->
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
-<!-- ② preconnect to the font-file CDN so the TLS handshake is ready -->
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin/>
+<link rel="dns-prefetch" href="https://cdnjs.cloudflare.com"/>
 
 <!-- ③ Preload critical weights (logo/headings: Sora 700/800, body: DM Sans 400/500)
      as="style" fetches the CSS early; onload swaps rel to stylesheet non-blocking -->
@@ -330,7 +332,10 @@
      Babel scans for <script type="text/babel"> and transpiles the app. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin defer></script>
+<!-- Babel loads last; defer ensures DOM is fully parsed before transpilation -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js" defer></script>
+<!-- Preload Babel so it downloads in parallel with React without delaying FCP -->
+<link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js" as="script" crossorigin/>
 <!-- xlsx (~1.0 MB) + jsPDF (~700 KB) are intentionally absent here.
      They are injected on demand by window.__loadExportLibs() on first export click. -->
 <style>
@@ -365,6 +370,18 @@ input, textarea, [contenteditable] {
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
+/* ── Performance: CSS containment ── */
+/* Contain layout/paint for card containers — prevents full-page reflows */
+.card-container, .stat-card { contain: layout style; }
+/* Content-visibility for long scrollable lists — skips offscreen layout/paint */
+.scroll-list { content-visibility: auto; contain-intrinsic-size: auto 500px; }
+/* Prevent layout thrashing on animated elements */
+#mm-splash .coin { will-change: transform; }
+#mm-splash .bar { will-change: transform, opacity; }
+/* Disable expensive effects on low-power devices */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
 
 /* ── THEME TOKENS (default: Midnight Blue) ── */
 :root{
@@ -1547,7 +1564,6 @@ textarea.inp{resize:vertical}
 @keyframes coin-spin{0%{transform:rotateY(0deg)}100%{transform:rotateY(360deg)}}
 @keyframes shimmer{0%{opacity:.35}50%{opacity:.75}100%{opacity:.35}}
 @keyframes dot-pulse{0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(1.5);opacity:1}}
-@keyframes shimmer{0%{opacity:.35}50%{opacity:.75}100%{opacity:.35}}
 @keyframes candle-flicker{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.12)}}
 #mm-splash{display:flex;height:100vh;align-items:center;justify-content:center;background:#05080f;flex-direction:column;gap:0;font-family:'DM Sans',sans-serif;overflow:hidden;position:relative}
 #mm-splash .bg-glow{position:absolute;width:420px;height:420px;border-radius:50%;background:radial-gradient(circle,rgba(2,132,199,.10) 0%,transparent 70%);top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none}
@@ -1643,7 +1659,22 @@ textarea.inp{resize:vertical}
   </div>
 </div></div>
 <script type="text/babel">
-const{useState,useReducer}=React;
+const{useState,useReducer,useRef,useEffect,useCallback,useMemo,useDeferredValue}=React;
+/* ══════════════════════════════════════════════════════════════════════════
+   PERFORMANCE UTILITIES
+   ══════════════════════════════════════════════════════════════════════════ */
+/** useDebouncedValue: returns a debounced copy of `value` after `delay` ms.
+ *  Prevents expensive re-filtering on every keystroke. */
+const useDebouncedValue=(value,delay=200)=>{
+  const [debounced,setDebounced]=useState(value);
+  useEffect(()=>{const t=setTimeout(()=>setDebounced(value),delay);return()=>clearTimeout(t);},[value,delay]);
+  return debounced;
+};
+/** useDebouncedCallback: returns a memoized debounced version of `fn`. */
+const useDebouncedCallback=(fn,delay=200)=>{
+  const timerRef=useRef(null);
+  return useCallback((...args)=>{if(timerRef.current)clearTimeout(timerRef.current);timerRef.current=setTimeout(()=>fn(...args),delay);},[fn,delay]);
+};
 
 /* ── Lazy export-lib loader ─────────────────────────────────────────────────
    xlsx (~1.0 MB) and jsPDF (~700 KB) are heavy; we skip them at startup and
@@ -2282,7 +2313,7 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.45.0";
+const APP_VERSION="3.46.0";
 
 /* ── SVG Icon Library (replaces all emoji icons) ─────────────────────── */
 const SVGI=(path,opts={})=>React.createElement("svg",{
@@ -4459,6 +4490,7 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
   const[jumpActive,setJumpActive]=useState(false); /* true = show ONLY the jumped-to tx */
   const[selectedIds,setSelectedIds]=useState(new Set());
   const[search,setSearch]=useState("");
+  const deferredSearch=useDeferredValue(search); /* defer filtering while typing */
   const[sortDir,setSortDir]=useState("desc");
   const[sortKey,setSortKey]=useState("date"); /* date|desc_col|payee|cat|out|in|balance */
   const[editTx,setEditTx]=useState(null);
@@ -4594,28 +4626,28 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
   });
 
   // compute running balance for each row (from open balance forward in date order — always chronological)
-  const chronological=[...transactions].sort((a,b)=>a.date.localeCompare(b.date));
-  const balMap={};
-  let running=openBalance||0;
-  for(const tx of chronological){
-    /* Only Reconciled transactions advance the running balance */
-    if(tx.status==="Reconciled")running+=(tx.type==="credit"?tx.amount:-tx.amount);
-    balMap[tx.id]=running;
-  }
-
-  // SN: use stored _sn if present (assigned at creation time), fallback to _addedAt order for legacy transactions
-  const snMap={};
-  const hasSn=transactions.some(t=>t._sn!=null);
-  if(hasSn){
-    // Mix of new (_sn) and legacy (no _sn) — assign legacy ones after the max existing _sn
-    const maxSn=transactions.reduce((m,t)=>Math.max(m,t._sn||0),0);
-    const legacy=[...transactions].filter(t=>t._sn==null).sort((a,b)=>(a._addedAt||a.id).localeCompare(b._addedAt||b.id));
-    transactions.forEach(t=>{snMap[t.id]=t._sn||0;});
-    legacy.forEach((t,i)=>{snMap[t.id]=maxSn+i+1;});
-  }else{
-    // All legacy — rank by _addedAt ascending
-    [...transactions].sort((a,b)=>(a._addedAt||a.id).localeCompare(b._addedAt||b.id)).forEach((t,i)=>{snMap[t.id]=i+1;});
-  }
+  // Memoize since transactions change infrequently but render often
+  const{balMap,snMap}=React.useMemo(()=>{
+    const chronological=[...transactions].sort((a,b)=>a.date.localeCompare(b.date));
+    const bm={};
+    let running=openBalance||0;
+    for(const tx of chronological){
+      if(tx.status==="Reconciled")running+=(tx.type==="credit"?tx.amount:-tx.amount);
+      bm[tx.id]=running;
+    }
+    // SN: use stored _sn if present (assigned at creation time), fallback to _addedAt order for legacy transactions
+    const sm={};
+    const hasSn=transactions.some(t=>t._sn!=null);
+    if(hasSn){
+      const maxSn=transactions.reduce((m,t)=>Math.max(m,t._sn||0),0);
+      const legacy=[...transactions].filter(t=>t._sn==null).sort((a,b)=>(a._addedAt||a.id).localeCompare(b._addedAt||b.id));
+      transactions.forEach(t=>{sm[t.id]=t._sn||0;});
+      legacy.forEach((t,i)=>{sm[t.id]=maxSn+i+1;});
+    }else{
+      [...transactions].sort((a,b)=>(a._addedAt||a.id).localeCompare(b._addedAt||b.id)).forEach((t,i)=>{sm[t.id]=i+1;});
+    }
+    return{balMap:bm,snMap:sm};
+  },[transactions,openBalance]);
 
   // sort & multi-filter
   /* ── Sort helper: click a header to set key; click same key to flip dir ── */
@@ -4624,7 +4656,7 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
     else{setSortKey(key);setSortDir(defaultDir);}
   };
 
-  const sorted=[...transactions].sort((a,b)=>{
+  const sorted=React.useMemo(()=>[...transactions].sort((a,b)=>{
     let cmp=0;
     if(sortKey==="date"){
       cmp=a.date.localeCompare(b.date);
@@ -4652,12 +4684,12 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
       if(cmp===0) cmp=(snMap[a.id]||0)-(snMap[b.id]||0);
     }
     return sortDir==="desc"?-cmp:cmp;
-  });
+  }),[transactions,sortKey,sortDir,snMap,balMap]);
   const filtered=sorted.filter(tx=>{
     /* Jump isolation mode — show ONLY the target transaction */
     if(jumpActive&&jumpTxId) return tx.id===jumpTxId;
-    /* text search */
-    if(search){const q=search.toLowerCase();const hit=(tx.desc||"").toLowerCase().includes(q)||(tx.payee||"").toLowerCase().includes(q)||(tx.cat||"").toLowerCase().includes(q)||(tx.txNum||"").toLowerCase().includes(q)||(tx.notes||"").toLowerCase().includes(q)||String(tx.amount).includes(q);if(!hit)return false;}
+    /* text search — uses deferredSearch so typing doesn't re-filter on every keystroke */
+    if(deferredSearch){const q=deferredSearch.toLowerCase();const hit=(tx.desc||"").toLowerCase().includes(q)||(tx.payee||"").toLowerCase().includes(q)||(tx.cat||"").toLowerCase().includes(q)||(tx.txNum||"").toLowerCase().includes(q)||(tx.notes||"").toLowerCase().includes(q)||String(tx.amount).includes(q);if(!hit)return false;}
     /* category filter — match on main category name */
     if(filterCats.size>0){const main=catMainName(tx.cat||"");if(!filterCats.has(main)&&!filterCats.has(tx.cat||""))return false;}
     /* payee filter */
@@ -6680,6 +6712,7 @@ const TxPanel=({account,label,onAddTx,onEditTx,onDeleteTx,onDupTx,onSplitTx,onIm
 const PayeeAnalyticsModal=({allTx,categories,onClose,isMobile})=>{
   const[sortBy,setSortBy]=React.useState("total"); /* total|count|avg */
   const[search,setSearch]=React.useState("");
+  const deferredPayeeSearch=useDeferredValue(search);
   const[selPayee,setSelPayee]=React.useState(null);
   const MNAMES_S=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
@@ -6703,12 +6736,12 @@ const PayeeAnalyticsModal=({allTx,categories,onClose,isMobile})=>{
 
   const rows=React.useMemo(()=>{
     let list=Object.values(payeeMap);
-    if(search.trim())list=list.filter(p=>p.name.toLowerCase().includes(search.toLowerCase()));
+    if(deferredPayeeSearch.trim())list=list.filter(p=>p.name.toLowerCase().includes(deferredPayeeSearch.toLowerCase()));
     if(sortBy==="total")list=list.sort((a,b)=>b.total-a.total);
     else if(sortBy==="count")list=list.sort((a,b)=>b.count-a.count);
     else list=list.sort((a,b)=>b.avg-a.avg);
     return list;
-  },[payeeMap,search,sortBy]);
+  },[payeeMap,deferredPayeeSearch,sortBy]);
 
   const maxTotal=rows.length?rows[0].total:1;
 
@@ -19635,6 +19668,7 @@ const NotesSection=React.memo(({notes=[],dispatch})=>{
   const[open,setOpen]=useState(false);
   const[editing,setEditing]=useState(null);
   const[search,setSearch]=useState("");
+  const deferredNotesSearch=useDeferredValue(search);
   const[filter,setFilter]=useState("all"); /* all | today | reminders */
   const[noteDelConfirm,setNoteDelConfirm]=useState(null);
   const[reminderAlert,setReminderAlert]=useState(null);
@@ -19666,7 +19700,7 @@ const NotesSection=React.memo(({notes=[],dispatch})=>{
   },[]);
 
   const filtered=notes.filter(n=>{
-    const q=search.toLowerCase();
+    const q=deferredNotesSearch.toLowerCase();
     const matchSearch=!q||(n.title||"").toLowerCase().includes(q)||(n.body||"").toLowerCase().includes(q);
     if(!matchSearch)return false;
     if(filter==="today")return n.date===TODAY();
@@ -21481,6 +21515,7 @@ const UnifiedLedgerSection=React.memo(({banks,cards,cash,categories,payees,isMob
 
   /* ── Filter states — all declared before any reference ── */
   const[search,setSearch]=useState("");
+  const deferredUniSearch=useDeferredValue(search);
   const[sortDir,setSortDir]=useState("desc");
   const[sortKey,setSortKey]=useState("date"); /* date|account|desc_col|payee|cat|out|in */
   const handleSortU=(key,defaultDir="asc")=>{
@@ -21574,7 +21609,7 @@ const UnifiedLedgerSection=React.memo(({banks,cards,cash,categories,payees,isMob
   };
 
   /* ── Sort then filter ── */
-  const sorted=[...allTxns].sort((a,b)=>{
+  const sorted=React.useMemo(()=>[...allTxns].sort((a,b)=>{
     let cmp=0;
     if(sortKey==="date"){
       cmp=a.date.localeCompare(b.date);
@@ -21588,9 +21623,9 @@ const UnifiedLedgerSection=React.memo(({banks,cards,cash,categories,payees,isMob
     else if(sortKey==="in"){const aA=a.type==="credit"?a.amount:0;const bA=b.type==="credit"?b.amount:0;cmp=aA-bA;}
     else{cmp=a.date.localeCompare(b.date);if(cmp===0)cmp=(a._sn||0)-(b._sn||0);}
     return sortDir==="desc"?-cmp:cmp;
-  });
+  }),[allTxns,sortKey,sortDir]);
   const filtered=sorted.filter(tx=>{
-    if(search){const q=search.toLowerCase();const hit=(tx.desc||"").toLowerCase().includes(q)||(tx.payee||"").toLowerCase().includes(q)||(tx.cat||"").toLowerCase().includes(q)||(tx._accName||"").toLowerCase().includes(q)||(tx._accBank||"").toLowerCase().includes(q)||String(tx.amount).includes(q);if(!hit)return false;}
+    if(deferredUniSearch){const q=deferredUniSearch.toLowerCase();const hit=(tx.desc||"").toLowerCase().includes(q)||(tx.payee||"").toLowerCase().includes(q)||(tx.cat||"").toLowerCase().includes(q)||(tx._accName||"").toLowerCase().includes(q)||(tx._accBank||"").toLowerCase().includes(q)||String(tx.amount).includes(q);if(!hit)return false;}
     if(filterAccounts.size>0&&!filterAccounts.has(tx._accId))return false;
     if(filterCats.size>0){const main=catMainName(tx.cat||"");if(!filterCats.has(main)&&!filterCats.has(tx.cat||""))return false;}
     if(filterPayees.size>0){const p=(tx.payee||"").trim();if(!filterPayees.has(p))return false;}

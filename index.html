@@ -24445,18 +24445,18 @@ const GoalsSection=React.memo(({goals,dispatch,isMobile,scheduled=[],banks=[],ca
                 )
               ),
               /* Amounts row */
-              React.createElement("div",{style:{display:"flex",justifyContent:"space-between"}},
-                React.createElement("div",null,
-                  React.createElement("div",{style:{fontSize:10,color:"var(--text5)"}},"Allocated"),
-                  React.createElement("div",{style:{fontSize:16,fontFamily:"'Sora',sans-serif",fontWeight:700,color:"#06b6d4"}},INR(+g.savedAmount||0))
+              React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:4}},
+                React.createElement("div",{style:{flex:1,minWidth:0}},
+                  React.createElement("div",{style:{fontSize:9,color:"var(--text5)"}},"Allocated"),
+                  React.createElement("div",{style:{fontSize:12,fontFamily:"'Sora',sans-serif",fontWeight:700,color:"#06b6d4",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},INR(+g.savedAmount||0))
                 ),
-                React.createElement("div",{style:{textAlign:"center"}},
-                  React.createElement("div",{style:{fontSize:10,color:"var(--text5)"}},"Remaining"),
-                  React.createElement("div",{style:{fontSize:14,fontFamily:"'Sora',sans-serif",fontWeight:600,color:remaining>0?"#f59e0b":"#16a34a"}},INR(remaining))
+                React.createElement("div",{style:{flex:1,minWidth:0,textAlign:"center"}},
+                  React.createElement("div",{style:{fontSize:9,color:"var(--text5)"}},"Remaining"),
+                  React.createElement("div",{style:{fontSize:12,fontFamily:"'Sora',sans-serif",fontWeight:600,color:remaining>0?"#f59e0b":"#16a34a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},INR(remaining))
                 ),
-                React.createElement("div",{style:{textAlign:"right"}},
-                  React.createElement("div",{style:{fontSize:10,color:"var(--text5)"}},"Target"),
-                  React.createElement("div",{style:{fontSize:14,fontFamily:"'Sora',sans-serif",fontWeight:600,color:"var(--text4)"}},INR(+g.targetAmount||0))
+                React.createElement("div",{style:{flex:1,minWidth:0,textAlign:"right"}},
+                  React.createElement("div",{style:{fontSize:9,color:"var(--text5)"}},"Target"),
+                  React.createElement("div",{style:{fontSize:12,fontFamily:"'Sora',sans-serif",fontWeight:600,color:"var(--text4)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},INR(+g.targetAmount||0))
                 )
               ),
               /* Portfolio share pill */

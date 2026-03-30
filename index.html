@@ -2157,6 +2157,7 @@ const EMPTY_STATE=()=>({
   shares:[],
   fd:[],
   re:[],
+  pf:[],
   loans:[],
   notes:[],
   goals:[],
@@ -2209,7 +2210,7 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.44.0";
+const APP_VERSION="3.45.0";
 
 /* ── SVG Icon Library (replaces all emoji icons) ─────────────────────── */
 const SVGI=(path,opts={})=>React.createElement("svg",{
@@ -2362,6 +2363,23 @@ const Icon=({n,size=16,col,style={}})=>{
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
 const CHANGELOG=[
+  {version:"3.45.0",date:"2026-03-30",title:"Feature — Provident Fund (PF) tab for PPF, EPF, VPF, NPS, GPF tracking",changes:[
+    "New 'Provident Funds' tab added to the Investments section in the sidebar (id: inv_pf, colour: emerald #34d399, shield-with-₹ icon).",
+    "Supports all major Indian PF instruments: PPF (Public Provident Fund), EPF (Employee Provident Fund), VPF (Voluntary PF), NPS (National Pension System), GPF (General Provident Fund), and Other.",
+    "Add PF Account modal: type selector, account/UAN/PRAN number, holder name, employer name (for EPF/VPF), current balance, annual employee and employer contributions, interest rate (with helper text showing current government-declared rates — PPF 7.1% Q1 FY25-26, EPF 8.25% FY2023-24), account opening date, PPF maturity date, and free-text notes field.",
+    "Edit PF Account modal: all fields editable inline; dispatches EDIT_PF action.",
+    "Delete PF Account: window.confirm guard before dispatching DEL_PF.",
+    "Per-card note system: click-to-edit inline notes (UAN, PRAN, nominee, branch, linked bank) with save/cancel flow and × clear button, consistent with MF/Shares/FD/RE note UX.",
+    "Stat row (3 cards): Total PF Balance, Total Contributions (Employee + Employer breakdown in sub-label), and Est. Interest Earned (balance minus contributions, shown in green).",
+    "PF account cards: vibrant per-type colour badge (PPF teal, EPF blue, VPF violet, NPS amber, GPF green), balance hero value, 2×2 metric grid (employee contrib, employer contrib, interest rate, estimated interest), account metadata row (account number, since date, maturity date), and Edit/Delete action buttons.",
+    "Empty state: friendly empty-card shown when no accounts exist yet.",
+    "State: pf:[] field added to EMPTY_STATE, loadState() merge (backward-compatible — existing data is unaffected), and ADD_PF / EDIT_PF / DEL_PF reducer cases.",
+    "Settings → Investments panel: PF accounts now listed in a summary table with type, holder, balance, rate, and account number columns; delete button per row.",
+    "DEL_PF added to DESTRUCTIVE action set (triggers undo-snap).",
+    "Tab Management (Settings → Tab Management): Provident Funds tab appears in the Investments group and can be hidden/shown like all other tabs.",
+    "VALID_TABS, NAV array, NAV_COLORS, and NavIcon switch all updated with inv_pf entry.",
+    "URL hash routing: #/inv_pf is a valid deep-link target (via VALID_TABS membership).",
+  ]},
   {version:"3.44.0",date:"2026-03-30",title:"Rebrand — Money Manager renamed to ArthaStack",changes:[
     "App renamed from '₹ Money Manager' to 'ArthaStack' across all UI surfaces.",
     "Updated: browser tab title, PWA app title (apple-mobile-web-app-title, application-name meta tags), loading screen logo, sidebar logo, PIN lock screen header, Info tab app name and description row, Settings export/share strings, PDF report headers and footers, Excel export filename and sheet header, HTML report title and header, Google Drive backup folder name, file picker dialog descriptions, and all in-app notification titles.",
@@ -4869,6 +4887,9 @@ const reducer=(s,a)=>{
     case"DEL_RE":return{...s,re:s.re.filter(r=>r.id!==a.id)};
     case"EDIT_FD":return{...s,fd:s.fd.map(f=>f.id===a.p.id?{...f,...a.p}:f)};
     case"DEL_FD":return{...s,fd:s.fd.filter(f=>f.id!==a.id)};
+    case"ADD_PF":return{...s,pf:[...( s.pf||[]),a.p]};
+    case"EDIT_PF":return{...s,pf:(s.pf||[]).map(p=>p.id===a.p.id?{...p,...a.p}:p)};
+    case"DEL_PF":return{...s,pf:(s.pf||[]).filter(p=>p.id!==a.id)};
     case"IMPORT_BULK_MF":return{...s,mf:[...s.mf,...(a.items||[])]};
     case"IMPORT_BULK_FD":return{...s,fd:[...s.fd,...(a.items||[])]};
     case"ADD_LOAN":return{...s,loans:[...s.loans,a.p]};
@@ -12554,7 +12575,7 @@ const FDTimeline=({fd})=>{
   );
 };
 
-const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eodPrices={},eodNavs={},historyCache={}})=>{
+const InvestSection=React.memo(({mf,shares,fd,re=[],pf=[],dispatch,defaultTab="mf",eodPrices={},eodNavs={},historyCache={}})=>{
   const[tab,setTab]=useState(defaultTab);const[open,setOpen]=useState(false);const[navLoad,setNavLoad]=useState(false);
   React.useEffect(()=>{setTab(defaultTab);},[defaultTab]);
   const[srch,setSrch]=useState("");const[results,setResults]=useState([]);const[searching,setSearching]=useState(false);
@@ -12565,6 +12586,8 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
   const[editMf,setEditMf]=useState(null);   /* MF entry being edited */
   const[reF,setReF]=useState({title:"",acquisitionCost:"",acquisitionDate:TODAY(),currentValue:"",notes:""});
   const[editRe,setEditRe]=useState(null);
+  const[pfF,setPfF]=useState({type:"PPF",accountNumber:"",holder:"",employer:"",balance:"",employeeContrib:"",employerContrib:"",rate:"",startDate:TODAY(),maturityDate:"",notes:""});
+  const[editPf,setEditPf]=useState(null);
   const[noteEdit,setNoteEdit]=useState(null);
   const[importMFOpen,setImportMFOpen]=useState(false);
   const[importFDOpen,setImportFDOpen]=useState(false);
@@ -12651,12 +12674,18 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
   const shCost=shares.reduce((s,sh)=>s+sh.qty*sh.buyPrice,0);
   const fdTotal=fd.reduce((s,f)=>s+f.amount,0);
   const fdTodayTotal=fd.reduce((s,f)=>s+calcFDValueToday(f),0);
+  const pfBalance=pf.reduce((s,p)=>s+(+p.balance||0),0);
+  const pfEmpContrib=pf.reduce((s,p)=>s+(+p.employeeContrib||0),0);
+  const pfErContrib=pf.reduce((s,p)=>s+(+p.employerContrib||0),0);
+  const pfTotalContrib=pfEmpContrib+pfErContrib;
+  const pfInterest=pfBalance-pfTotalContrib;
   /* Dynamic section config based on active tab */
   const CFG={
     mf:{title:"Mutual Funds",sub:"Portfolio: ",subVal:INR(mfTotal),subCol:"#6d28d9",addLabel:"+ Add Fund"},
     shares:{title:"Shares",sub:"Market Value: ",subVal:INR(shVal),subCol:"#16a34a",addLabel:"+ Add Share"},
     fd:{title:"Fixed Deposits",sub:"Value Today: ",subVal:INR(fdTodayTotal),subCol:"#b45309",addLabel:"+ Add FD"},
     re:{title:"Real Estate",sub:"Portfolio Value: ",subVal:INR(re.reduce((s,r)=>s+(r.currentValue||r.acquisitionCost),0)),subCol:"#c2410c",addLabel:"+ Add Property"},
+    pf:{title:"Provident Funds",sub:"Total Balance: ",subVal:INR(pfBalance),subCol:"#0f766e",addLabel:"+ Add PF Account"},
   };
   const cfg=CFG[tab]||CFG.mf;
   return React.createElement("div",{className:"fu"},
@@ -12719,6 +12748,12 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
         React.createElement(StatCard,{label:"Unrealised Gain",val:(reGain>=0?"+":"")+INR(reGain),sub:reCost>0?((reGain/reCost*100).toFixed(1)+"% return"):"--",col:reGain>=0?"#16a34a":"#ef4444",icon:reGain>=0?"▲":"▼"})
       );
     })(),
+    /* ── PF stat row */
+    tab==="pf"&&React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
+      React.createElement(StatCard,{label:"Total PF Balance",val:INR(pfBalance),sub:pf.length+" account"+(pf.length===1?"":"s"),col:"#0f766e",icon:React.createElement(Icon,{n:"bank",size:18})}),
+      React.createElement(StatCard,{label:"Total Contributions",val:INR(pfTotalContrib),sub:"Emp "+INR(pfEmpContrib)+" + Er "+INR(pfErContrib),col:"#0e7490",icon:React.createElement(Icon,{n:"money",size:15})}),
+      pfInterest>0&&React.createElement(StatCard,{label:"Interest Earned",val:INR(pfInterest),sub:"Balance − contributions",col:"#16a34a",icon:"▲"})
+    ),
     /* ── MF content */
     tab==="mf"&&React.createElement("div",null,
       React.createElement("div",{style:{display:"flex",justifyContent:"flex-end",marginBottom:12}},
@@ -13253,6 +13288,103 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
         })
       )
     ),
+    /* ── PF content */
+    tab==="pf"&&(pf.length===0
+      ? React.createElement(Empty,{icon:React.createElement(Icon,{n:"bank",size:18}),text:"No provident fund accounts added yet"})
+      : React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(310px,1fr))",gap:14}},
+          pf.map(p=>{
+            const PF_COLORS={PPF:"#0f766e",EPF:"#1d4ed8",VPF:"#7c3aed",NPS:"#b45309",GPF:"#059669",Other:"#475569"};
+            const col=PF_COLORS[p.type]||"#0f766e";
+            const totalContrib=(+p.employeeContrib||0)+(+p.employerContrib||0);
+            const interest=(+p.balance||0)-totalContrib;
+            const defaultRates={PPF:7.1,EPF:8.25,VPF:8.25,NPS:10,GPF:7.1,Other:0};
+            const rateDisplay=p.rate?+p.rate:(defaultRates[p.type]||0);
+            return React.createElement(Card,{key:p.id},
+              /* Header: type badge + balance */
+              React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}},
+                React.createElement("div",null,
+                  React.createElement("span",{style:{
+                    display:"inline-block",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,
+                    background:col+"22",color:col,border:"1px solid "+col+"44",letterSpacing:.4,marginBottom:6
+                  }},p.type),
+                  React.createElement("div",{style:{fontSize:13,fontWeight:600,color:"var(--text3)",lineHeight:1.35}},
+                    p.holder||p.accountNumber||p.type+" Account"
+                  ),
+                  p.employer&&React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginTop:2}},"Employer: "+p.employer)
+                ),
+                React.createElement("div",{style:{textAlign:"right",flexShrink:0}},
+                  React.createElement("div",{style:{fontSize:10,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.4,marginBottom:2}},"Balance"),
+                  React.createElement("div",{style:{fontSize:20,fontFamily:"'Sora',sans-serif",fontWeight:800,color:col}},INR(+p.balance||0))
+                )
+              ),
+              /* Metric grid */
+              React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:1,borderRadius:9,overflow:"hidden",marginBottom:10,border:"1px solid var(--border)"}},
+                React.createElement("div",{style:{padding:"8px 11px",background:"var(--bg5)"}},
+                  React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.4,marginBottom:2}},"Employee Contrib"),
+                  React.createElement("div",{style:{fontSize:14,fontWeight:700,fontFamily:"'Sora',sans-serif",color:"var(--text3)"}},(+p.employeeContrib||0)>0?INR(+p.employeeContrib):"—")
+                ),
+                React.createElement("div",{style:{padding:"8px 11px",background:"var(--bg4)",textAlign:"right"}},
+                  React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.4,marginBottom:2}},"Employer Contrib"),
+                  React.createElement("div",{style:{fontSize:14,fontWeight:700,fontFamily:"'Sora',sans-serif",color:"var(--text3)"}},(+p.employerContrib||0)>0?INR(+p.employerContrib):"—")
+                ),
+                React.createElement("div",{style:{padding:"8px 11px",background:"var(--bg5)"}},
+                  React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.4,marginBottom:2}},"Interest Rate"),
+                  React.createElement("div",{style:{fontSize:14,fontWeight:700,fontFamily:"'Sora',sans-serif",color:col}},rateDisplay?rateDisplay+"% p.a.":"—")
+                ),
+                React.createElement("div",{style:{padding:"8px 11px",background:"var(--bg4)",textAlign:"right"}},
+                  React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.4,marginBottom:2}},"Est. Interest"),
+                  React.createElement("div",{style:{fontSize:14,fontWeight:700,fontFamily:"'Sora',sans-serif",color:interest>0?"#16a34a":"var(--text5)"}},interest>0?"+"+INR(interest):"—")
+                )
+              ),
+              /* Dates row */
+              (p.startDate||p.maturityDate||p.accountNumber)&&React.createElement("div",{style:{
+                display:"flex",gap:8,flexWrap:"wrap",marginBottom:10,padding:"8px 11px",
+                borderRadius:8,background:"var(--accentbg2)",border:"1px solid var(--border2)"
+              }},
+                p.accountNumber&&React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},
+                  React.createElement("span",{style:{color:"var(--text6)"}},"A/C: "),p.accountNumber
+                ),
+                p.startDate&&React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},
+                  React.createElement("span",{style:{color:"var(--text6)"}},"Since: "),
+                  new Date(p.startDate+"T12:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})
+                ),
+                p.maturityDate&&React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},
+                  React.createElement("span",{style:{color:"var(--text6)"}},"Matures: "),
+                  new Date(p.maturityDate+"T12:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})
+                )
+              ),
+              /* Note */
+              noteEdit&&noteEdit.type==="pf"&&noteEdit.id===p.id
+                ? React.createElement("div",{style:{marginTop:8}},
+                    React.createElement("textarea",{className:"inp",autoFocus:true,value:noteEdit.val,rows:2,
+                      onChange:e=>setNoteEdit(n=>({...n,val:e.target.value})),
+                      style:{fontSize:11,lineHeight:1.5,resize:"vertical",marginBottom:6},
+                      placeholder:"UAN, PRAN, nominee, linked bank…"}),
+                    React.createElement("div",{style:{display:"flex",gap:6}},
+                      React.createElement("button",{onClick:()=>{dispatch({type:"EDIT_PF",p:{id:p.id,notes:noteEdit.val}});setNoteEdit(null);},style:{flex:1,padding:"4px 8px",borderRadius:6,border:"1px solid #22c55e88",background:"rgba(22,163,74,.1)",color:"#16a34a",cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif",fontWeight:600}},"✓ Save"),
+                      React.createElement("button",{onClick:()=>setNoteEdit(null),style:{padding:"4px 8px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text5)",cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif"}},"Cancel")
+                    )
+                  )
+                : React.createElement("div",{style:{marginTop:8,padding:"6px 9px",borderRadius:7,background:p.notes?"var(--accentbg2)":"transparent",border:p.notes?"1px solid var(--border2)":"1px dashed var(--border2)",position:"relative",cursor:"text",minHeight:28},onClick:()=>setNoteEdit({type:"pf",id:p.id,val:p.notes||""})},
+                    p.notes
+                      ? React.createElement(React.Fragment,null,
+                          React.createElement("div",{style:{fontSize:11,color:"var(--text4)",lineHeight:1.5,whiteSpace:"pre-wrap",paddingRight:40}},p.notes),
+                          React.createElement("div",{style:{position:"absolute",top:5,right:5,display:"flex",gap:3}},
+                            React.createElement("button",{title:"Edit note",onClick:e=>{e.stopPropagation();setNoteEdit({type:"pf",id:p.id,val:p.notes||""});},style:{background:"rgba(29,78,216,.12)",border:"1px solid rgba(29,78,216,.25)",borderRadius:4,color:"#1d4ed8",cursor:"pointer",fontSize:10,padding:"2px 5px",lineHeight:1}},React.createElement(Icon,{n:"edit",size:14})),
+                            React.createElement("button",{title:"Delete note",onClick:e=>{e.stopPropagation();dispatch({type:"EDIT_PF",p:{id:p.id,notes:""}});},style:{background:"rgba(239,68,68,.1)",border:"1px solid rgba(239,68,68,.25)",borderRadius:4,color:"#ef4444",cursor:"pointer",fontSize:10,padding:"2px 5px",lineHeight:1}},"×")
+                          )
+                        )
+                      : React.createElement("div",{style:{fontSize:10,color:"var(--text6)",fontStyle:"italic",userSelect:"none"}},"Click to add a note…")
+                  ),
+              /* Edit / Delete */
+              React.createElement("div",{style:{display:"flex",gap:7,marginTop:10}},
+                React.createElement("button",{onClick:()=>setEditPf({...p}),style:{flex:1,padding:"6px 10px",borderRadius:7,border:"1px solid var(--border)",background:"var(--accentbg3)",color:"var(--text3)",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:500}},"Edit"),
+                React.createElement("button",{onClick:()=>{if(window.confirm('Delete "'+( p.type+(p.holder?" – "+p.holder:""))+'" account?'))dispatch({type:"DEL_PF",id:p.id});},style:{padding:"6px 10px",borderRadius:7,border:"1px solid rgba(239,68,68,.3)",background:"rgba(239,68,68,.07)",color:"#ef4444",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans',sans-serif",fontWeight:500}},"Delete")
+              )
+            );
+          })
+        )
+    ),
     /* ── Add RE modal */
     open&&tab==="re"&&React.createElement(Modal,{title:"Add Property",onClose:()=>setOpen(false),w:480},
       React.createElement(Field,{label:"Property Title *"},
@@ -13516,7 +13648,117 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],dispatch,defaultTab="mf",eod
     importFDOpen&&React.createElement(ImportFDModal,{
       onImport:items=>{dispatch({type:"IMPORT_BULK_FD",items});setImportFDOpen(false);},
       onClose:()=>setImportFDOpen(false)
-    })
+    }),
+    /* ── Add PF modal */
+    open&&tab==="pf"&&React.createElement(Modal,{title:"Add Provident Fund Account",onClose:()=>setOpen(false),w:500},
+      React.createElement("div",{className:"grid-2col"},
+        React.createElement(Field,{label:"PF Type *"},
+          React.createElement("select",{className:"inp",value:pfF.type,onChange:e=>setPfF(p=>({...p,type:e.target.value})),style:{cursor:"pointer"}},
+            ["PPF","EPF","VPF","NPS","GPF","Other"].map(t=>React.createElement("option",{key:t,value:t},t==="PPF"?"PPF – Public Provident Fund":t==="EPF"?"EPF – Employee Provident Fund":t==="VPF"?"VPF – Voluntary Provident Fund":t==="NPS"?"NPS – National Pension System":t==="GPF"?"GPF – General Provident Fund":t+" – Other",t))
+          )
+        ),
+        React.createElement(Field,{label:"Account / PRAN / UAN No."},
+          React.createElement("input",{className:"inp",placeholder:"e.g. 100123456789",value:pfF.accountNumber,onChange:e=>setPfF(p=>({...p,accountNumber:e.target.value}))})
+        )
+      ),
+      React.createElement("div",{className:"grid-2col"},
+        React.createElement(Field,{label:"Account Holder Name"},
+          React.createElement("input",{className:"inp",placeholder:"e.g. Ramesh Kumar",value:pfF.holder,onChange:e=>setPfF(p=>({...p,holder:e.target.value})),autoFocus:true})
+        ),
+        pfF.type==="EPF"&&React.createElement(Field,{label:"Employer Name"},
+          React.createElement("input",{className:"inp",placeholder:"e.g. Infosys Ltd",value:pfF.employer,onChange:e=>setPfF(p=>({...p,employer:e.target.value}))})
+        )
+      ),
+      React.createElement(Field,{label:"Current Balance (₹) *"},
+        React.createElement("input",{className:"inp",type:"number",placeholder:"0",value:pfF.balance,onChange:e=>setPfF(p=>({...p,balance:e.target.value}))})
+      ),
+      React.createElement("div",{className:"grid-2col"},
+        React.createElement(Field,{label:"Annual Employee Contribution (₹)"},
+          React.createElement("input",{className:"inp",type:"number",placeholder:"0",value:pfF.employeeContrib,onChange:e=>setPfF(p=>({...p,employeeContrib:e.target.value}))})
+        ),
+        (pfF.type==="EPF"||pfF.type==="VPF")&&React.createElement(Field,{label:"Annual Employer Contribution (₹)"},
+          React.createElement("input",{className:"inp",type:"number",placeholder:"0",value:pfF.employerContrib,onChange:e=>setPfF(p=>({...p,employerContrib:e.target.value}))})
+        )
+      ),
+      React.createElement("div",{className:"grid-2col"},
+        React.createElement(Field,{label:"Interest Rate (% p.a.)"},
+          React.createElement("input",{className:"inp",type:"number",step:"0.01",placeholder:pfF.type==="EPF"?"8.25":pfF.type==="PPF"?"7.1":"",value:pfF.rate,onChange:e=>setPfF(p=>({...p,rate:e.target.value}))}),
+          React.createElement("div",{style:{fontSize:10,color:"var(--text6)",marginTop:3}},pfF.type==="PPF"?"Current PPF rate: 7.1% p.a. (Q1 FY25-26)":pfF.type==="EPF"?"Current EPF rate: 8.25% p.a. (FY 2023-24)":pfF.type==="NPS"?"NPS returns vary by scheme (equity/debt mix)":"")
+        ),
+        React.createElement(Field,{label:"Account Opening Date"},
+          React.createElement("input",{className:"inp",type:"date",value:pfF.startDate,onChange:e=>setPfF(p=>({...p,startDate:e.target.value}))})
+        )
+      ),
+      pfF.type==="PPF"&&React.createElement(Field,{label:"Maturity Date (PPF: 15 years from opening)"},
+        React.createElement("input",{className:"inp",type:"date",value:pfF.maturityDate,onChange:e=>setPfF(p=>({...p,maturityDate:e.target.value})),placeholder:"e.g. 2038-04-01"})
+      ),
+      React.createElement(Field,{label:"Notes (optional)"},
+        React.createElement("textarea",{className:"inp",placeholder:"UAN, PRAN, nominee, branch, linked bank account…",value:pfF.notes,onChange:e=>setPfF(p=>({...p,notes:e.target.value})),style:{resize:"vertical",minHeight:60,lineHeight:1.6,fontSize:12}})
+      ),
+      React.createElement("div",{style:{display:"flex",flexWrap:"wrap",gap:8,marginTop:4}},
+        React.createElement(Btn,{onClick:()=>{
+          if(!pfF.balance)return;
+          dispatch({type:"ADD_PF",p:{id:uid(),...pfF,balance:+pfF.balance,employeeContrib:+pfF.employeeContrib||0,employerContrib:+pfF.employerContrib||0,rate:+pfF.rate||0}});
+          setPfF({type:"PPF",accountNumber:"",holder:"",employer:"",balance:"",employeeContrib:"",employerContrib:"",rate:"",startDate:TODAY(),maturityDate:"",notes:""});
+          setOpen(false);
+        },sx:{flex:"1 1 auto",justifyContent:"center"}},"Add PF Account"),
+        React.createElement(Btn,{v:"secondary",onClick:()=>setOpen(false)},"Cancel")
+      )
+    ),
+    /* ── Edit PF modal */
+    editPf&&React.createElement(Modal,{title:"Edit Provident Fund Account",onClose:()=>setEditPf(null),w:500},
+      React.createElement("div",{className:"grid-2col"},
+        React.createElement(Field,{label:"PF Type"},
+          React.createElement("select",{className:"inp",value:editPf.type,onChange:e=>setEditPf(p=>({...p,type:e.target.value})),style:{cursor:"pointer"}},
+            ["PPF","EPF","VPF","NPS","GPF","Other"].map(t=>React.createElement("option",{key:t,value:t},t==="PPF"?"PPF – Public Provident Fund":t==="EPF"?"EPF – Employee Provident Fund":t==="VPF"?"VPF – Voluntary Provident Fund":t==="NPS"?"NPS – National Pension System":t==="GPF"?"GPF – General Provident Fund":t+" – Other",t))
+          )
+        ),
+        React.createElement(Field,{label:"Account / PRAN / UAN No."},
+          React.createElement("input",{className:"inp",placeholder:"e.g. 100123456789",value:editPf.accountNumber||"",onChange:e=>setEditPf(p=>({...p,accountNumber:e.target.value}))})
+        )
+      ),
+      React.createElement("div",{className:"grid-2col"},
+        React.createElement(Field,{label:"Account Holder Name"},
+          React.createElement("input",{className:"inp",autoFocus:true,placeholder:"e.g. Ramesh Kumar",value:editPf.holder||"",onChange:e=>setEditPf(p=>({...p,holder:e.target.value}))})
+        ),
+        React.createElement(Field,{label:"Employer Name"},
+          React.createElement("input",{className:"inp",placeholder:"e.g. Infosys Ltd",value:editPf.employer||"",onChange:e=>setEditPf(p=>({...p,employer:e.target.value}))})
+        )
+      ),
+      React.createElement(Field,{label:"Current Balance (₹) *"},
+        React.createElement("input",{className:"inp",type:"number",placeholder:"0",value:editPf.balance,onChange:e=>setEditPf(p=>({...p,balance:e.target.value}))})
+      ),
+      React.createElement("div",{className:"grid-2col"},
+        React.createElement(Field,{label:"Annual Employee Contribution (₹)"},
+          React.createElement("input",{className:"inp",type:"number",placeholder:"0",value:editPf.employeeContrib||"",onChange:e=>setEditPf(p=>({...p,employeeContrib:e.target.value}))})
+        ),
+        React.createElement(Field,{label:"Annual Employer Contribution (₹)"},
+          React.createElement("input",{className:"inp",type:"number",placeholder:"0",value:editPf.employerContrib||"",onChange:e=>setEditPf(p=>({...p,employerContrib:e.target.value}))})
+        )
+      ),
+      React.createElement("div",{className:"grid-2col"},
+        React.createElement(Field,{label:"Interest Rate (% p.a.)"},
+          React.createElement("input",{className:"inp",type:"number",step:"0.01",placeholder:"e.g. 8.25",value:editPf.rate||"",onChange:e=>setEditPf(p=>({...p,rate:e.target.value}))})
+        ),
+        React.createElement(Field,{label:"Account Opening Date"},
+          React.createElement("input",{className:"inp",type:"date",value:editPf.startDate||"",onChange:e=>setEditPf(p=>({...p,startDate:e.target.value}))})
+        )
+      ),
+      React.createElement(Field,{label:"Maturity Date (if applicable)"},
+        React.createElement("input",{className:"inp",type:"date",value:editPf.maturityDate||"",onChange:e=>setEditPf(p=>({...p,maturityDate:e.target.value}))})
+      ),
+      React.createElement(Field,{label:"Notes (optional)"},
+        React.createElement("textarea",{className:"inp",placeholder:"UAN, PRAN, nominee, branch, linked bank account…",value:editPf.notes||"",onChange:e=>setEditPf(p=>({...p,notes:e.target.value})),style:{resize:"vertical",minHeight:60,lineHeight:1.6,fontSize:12}})
+      ),
+      React.createElement("div",{style:{display:"flex",flexWrap:"wrap",gap:8,marginTop:4}},
+        React.createElement(Btn,{onClick:()=>{
+          if(!editPf.balance)return;
+          dispatch({type:"EDIT_PF",p:{...editPf,balance:+editPf.balance,employeeContrib:+editPf.employeeContrib||0,employerContrib:+editPf.employerContrib||0,rate:+editPf.rate||0}});
+          setEditPf(null);
+        },sx:{flex:"1 1 auto",justifyContent:"center"}},"Save Changes"),
+        React.createElement(Btn,{v:"secondary",onClick:()=>setEditPf(null)},"Cancel")
+      )
+    )
   );
 });
 
@@ -20558,6 +20800,24 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
             ))
           )
         ),
+        /* PF */
+        React.createElement("div",{style:{marginTop:20}},
+          React.createElement("div",{style:{fontSize:13,color:"var(--text4)",fontWeight:600,marginBottom:10,display:"flex",alignItems:"center",gap:8}},React.createElement("span",null,React.createElement(Icon,{n:"inv_pf",size:18})),"Provident Funds (",(state.pf||[]).length,")"),
+          React.createElement(Card,{sx:{padding:0,overflow:"hidden",overflowX:"auto"}},
+            React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr auto",gap:12,padding:"9px 16px",borderBottom:"1px solid #1c3050",fontSize:11,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.5}},React.createElement("span",{style:{whiteSpace:"nowrap"}},"Type / Holder"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Balance"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Rate"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Account No."),React.createElement("span",{style:{whiteSpace:"nowrap"}},"")),
+            (state.pf||[]).length===0&&React.createElement(Empty,{icon:React.createElement(Icon,{n:"inv_pf",size:18}),text:"No provident fund accounts"}),
+            (state.pf||[]).map(p=>React.createElement("div",{key:p.id,style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr auto",gap:12,padding:"12px 16px",borderBottom:"1px solid #0a1828",alignItems:"center"},className:"tr"},
+              React.createElement("div",null,
+                React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"#0f766e"}},(p.type||"PF")),
+                p.holder&&React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},p.holder)
+              ),
+              React.createElement("div",{style:{fontSize:13,color:"#0f766e",fontWeight:600}},INR(+p.balance||0)),
+              React.createElement("div",null,React.createElement(Badge,{ch:(p.rate||"—")+"% p.a.",col:"#0f766e"})),
+              React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},(p.accountNumber||"—")),
+              React.createElement("button",{onClick:()=>askDelete(`Delete "${p.type+(p.holder?" – "+p.holder:"")}" PF account?`,()=>dispatch({type:"DEL_PF",id:p.id})),style:{background:"rgba(239,68,68,.1)",border:"1px solid rgba(239,68,68,.25)",borderRadius:7,color:"#ef4444",cursor:"pointer",fontSize:12,padding:"5px 11px",fontFamily:"'DM Sans',sans-serif"}},"×")
+            ))
+          )
+        ),
         editShare&&React.createElement(ShareEditModal,{sh:editShare,onClose:()=>setEditShare(null)})
       ),
 
@@ -20619,6 +20879,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
             {id:"inv_shares", label:"Shares",           icon:React.createElement(Icon,{n:"trenddown",size:34})},
             {id:"inv_fd",     label:"Fixed Deposits",   icon:React.createElement(Icon,{n:"bank",size:18})},
             {id:"inv_re",     label:"Real Estate",      icon:React.createElement(Icon,{n:"home",size:16})},
+            {id:"inv_pf",     label:"Provident Funds",  icon:React.createElement(Icon,{n:"inv_pf",size:17})},
           ]},
           {group:"More",items:[
             {id:"goals",      label:"Financial Goals",  icon:React.createElement(Icon,{n:"target",size:18})},
@@ -22133,6 +22394,7 @@ const loadState=()=>{
       payees:(parsed.payees||def.payees),
       scheduled:(parsed.scheduled||def.scheduled||[]),
       re:(parsed.re||def.re||[]),
+      pf:(parsed.pf||def.pf||[]),
       notes:(parsed.notes||def.notes||[]),
       goals:(parsed.goals||def.goals||[]),
       nwSnapshots:(parsed.nwSnapshots||def.nwSnapshots||{}),
@@ -22649,7 +22911,7 @@ const PinLockScreen=({onUnlock})=>{
 };
 
 /* ── HASH ROUTING ─────────────────────────────────────────────────────────── */
-const VALID_TABS=["dashboard","banks","cards","cash","inv_dash","inv_mf","inv_shares","inv_fd","inv_re","loans","scheduled","notes","calculator","reports","settings","goals","insights"];
+const VALID_TABS=["dashboard","banks","cards","cash","inv_dash","inv_mf","inv_shares","inv_fd","inv_re","inv_pf","loans","scheduled","notes","calculator","reports","settings","goals","insights"];
 
 const getTabFromHash=()=>{
   const h=window.location.hash.replace("#/","").replace("#","").toLowerCase();
@@ -22835,6 +23097,12 @@ const NavIcon=({id,size=16})=>{
       return React.createElement("svg",s,
         React.createElement("path",{d:"M1.5 8.5L8 2.5l6.5 6V14H10v-4H6v4H1.5z"}),
         React.createElement("line",{x1:1.5,y1:14,x2:14.5,y2:14})
+      );
+    /* ── Provident Fund: shield with ₹ — secure, government-backed savings ── */
+    case"inv_pf":
+      return React.createElement("svg",s,
+        React.createElement("path",{d:"M8 1.5L2 4v5c0 3.2 2.6 5.8 6 6.5 3.4-.7 6-3.3 6-6.5V4L8 1.5z"}),
+        React.createElement("text",{x:8,y:11,textAnchor:"middle",fontSize:6.5,fontWeight:700,fill:"currentColor",stroke:"none",fontFamily:"sans-serif"},"₹")
       );
     /* ── Calendar: grid with highlighted day ── */
     case"calendar":
@@ -27313,6 +27581,7 @@ const NAV=[
   {id:"inv_shares",label:"Shares"},
   {id:"inv_fd",    label:"Fixed Deposits"},
   {id:"inv_re",    label:"Real Estate"},
+  {id:"inv_pf",    label:"Provident Funds"},
   {id:"__sep_more__",label:"MORE",section:"header"},
   {id:"goals",      label:"Financial Goals"},
   {id:"insights",   label:"Insights"},
@@ -27339,6 +27608,7 @@ const NAV_COLORS={
   inv_shares:     "#facc15",  /* amber yellow    */
   inv_fd:         "#7dd3fc",  /* powder blue     */
   inv_re:         "#e879f9",  /* fuchsia         */
+  inv_pf:         "#34d399",  /* emerald green   */
   goals:          "#fb7185",  /* rose pink       */
   insights:       "#c084fc",  /* bright purple   */
   tax_est:        "#f97316",  /* saffron orange  */
@@ -28854,7 +29124,7 @@ function App(){
   /* ── Wrap dispatch: auto-snapshot before destructive actions for undo ── */
   const _undoPushRef=React.useRef(null);
   const dispatch=React.useCallback((action)=>{
-    const DESTRUCTIVE=new Set(["DEL_BANK_TX","DEL_CARD_TX","DEL_CASH_TX","MASS_DEL_BANK_TX","MASS_DEL_CARD_TX","MASS_DEL_CASH_TX","SPLIT_TX","DEL_BANK","DEL_CARD","DEL_LOAN","DEL_MF","DEL_SHARE","DEL_FD","DEL_RE","DEL_GOAL","DEL_NOTE","DEL_PAYEE","DEL_CAT","DEL_SUBCAT","PURGE_OLD_TRANSACTIONS","RESET_ALL"]);
+    const DESTRUCTIVE=new Set(["DEL_BANK_TX","DEL_CARD_TX","DEL_CASH_TX","MASS_DEL_BANK_TX","MASS_DEL_CARD_TX","MASS_DEL_CASH_TX","SPLIT_TX","DEL_BANK","DEL_CARD","DEL_LOAN","DEL_MF","DEL_SHARE","DEL_FD","DEL_RE","DEL_PF","DEL_GOAL","DEL_NOTE","DEL_PAYEE","DEL_CAT","DEL_SUBCAT","PURGE_OLD_TRANSACTIONS","RESET_ALL"]);
     if(DESTRUCTIVE.has(action.type)&&_undoPushRef.current){
       _undoPushRef.current(state);
     }
@@ -29758,10 +30028,11 @@ function App(){
       tab==="cards"&&React.createElement(CardSection,{cards:state.cards,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,cash:state.cash,loans:state.loans||[],isMobile,jumpAccId:txJump?.accType==="card"?txJump.accId:null,jumpTxId:txJump?.accType==="card"?txJump.txId:null,jumpSerial:txJump?.accType==="card"?txJump.serial:null,onClearAccountJump:onClearTxJump}),
       tab==="cash"&&React.createElement(CashSection,{cash:state.cash,dispatch,categories:state.categories,payees:state.payees,allBanks:state.banks,allCards:state.cards,loans:state.loans||[],isMobile,jumpTxId:txJump?.accType==="cash"?txJump.txId:null,jumpSerial:txJump?.accType==="cash"?txJump.serial:null}),
       tab==="inv_dash"&&React.createElement(InvestDashboard,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{}}),
-      tab==="inv_mf"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"mf",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
-      tab==="inv_shares"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"shares",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
-      tab==="inv_fd"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"fd",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
-      tab==="inv_re"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],dispatch,defaultTab:"re",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
+      tab==="inv_mf"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],pf:state.pf||[],dispatch,defaultTab:"mf",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
+      tab==="inv_shares"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],pf:state.pf||[],dispatch,defaultTab:"shares",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
+      tab==="inv_fd"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],pf:state.pf||[],dispatch,defaultTab:"fd",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
+      tab==="inv_re"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],pf:state.pf||[],dispatch,defaultTab:"re",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
+      tab==="inv_pf"&&React.createElement(InvestSection,{mf:state.mf,shares:state.shares,fd:state.fd,re:state.re||[],pf:state.pf||[],dispatch,defaultTab:"pf",isMobile,eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{}}),
       tab==="loans"&&React.createElement(LoanSection,{loans:state.loans,dispatch,allBanks:state.banks,allCards:state.cards,cash:state.cash,categories:state.categories,payees:state.payees,isMobile}),
       tab==="goals"&&React.createElement(GoalsSection,{goals:state.goals||[],dispatch,isMobile,scheduled:state.scheduled||[],banks:state.banks,cards:state.cards,cash:state.cash,mf:state.mf||[],shares:state.shares||[],fd:state.fd||[],re:state.re||[]}),
       tab==="insights"&&React.createElement(InsightsSection,{banks:state.banks,cards:state.cards,cash:state.cash,categories:state.categories,dispatch,isMobile,goals:state.goals,mf:state.mf,shares:state.shares,fd:state.fd,re:state.re,loans:state.loans,prefs:state.insightPrefs,onJumpToLedger,nwSnapshots:state.nwSnapshots||{}}),

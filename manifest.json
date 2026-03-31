@@ -1,7 +1,7 @@
 {
-  "name": "finsight — Personal Finance India",
+  "name": "finsight — Your Financial Companinon",
   "short_name": "finsight",
-  "description": "Offline personal finance manager for India — banks, cards, investments, loans, and more. 100% on-device, zero cloud.",
+  "description": "Offline personal finance management — banks, cards, investments, loans, and more. 100% on-device, zero cloud.",
   "id": "com.vivekhh.finsight",
   "start_url": "./",
   "scope": "./",

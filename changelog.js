@@ -1,7 +1,16 @@
-/* ArthaStack — Changelog bundle (lazy-loaded; not part of initial parse) */
+/* finsight — Changelog bundle (lazy-loaded; not part of initial parse) */
 /* Generated automatically — do not edit manually. */
 window.__MM_CHANGELOG =
 [
+  {version:"3.48.0",date:"2026-03-31",title:"Rebrand — ArthaStack renamed to finsight",changes:[
+    "App renamed from 'ArthaStack' to 'finsight' across all UI surfaces.",
+    "New tagline introduced: 'Financial Management Simplified !' — displayed in the sidebar beneath the app name in italic style.",
+    "Logo typography updated: app name now renders in Nunito (modern, rounded, geometric sans-serif) at weight 800 — bold, lowercase, elegant and sharp across splash screen, sidebar, and PIN lock screen.",
+    "Nunito font added to Google Fonts preload chain (weights 700/800/900) alongside existing Sora and DM Sans.",
+    "Updated: browser tab title, PWA meta tags (apple-mobile-web-app-title, application-name), loading splash logo, sidebar header logo, PIN lock screen app name, Info tab app/description rows, Settings export and share strings, PDF report headers and footers, Excel export filename and sheet header, HTML report title and header, Google Drive backup folder name ('finsight Backups'), file picker dialog descriptions, changelog header comment, and all in-app notification titles.",
+    "Service Worker cache key bumped to mm-v3-48-0 — clears all previous caches on activate.",
+    "Zero legacy 'ArthaStack' strings remain in any user-visible surface.",
+  ]},
   {version:"3.45.0",date:"2026-03-30",title:"Feature — Provident Fund (PF) tab for PPF, EPF, VPF, NPS, GPF tracking",changes:[
     "New 'Provident Funds' tab added to the Investments section in the sidebar (id: inv_pf, colour: emerald #34d399, shield-with-₹ icon).",
     "Supports all major Indian PF instruments: PPF (Public Provident Fund), EPF (Employee Provident Fund), VPF (Voluntary PF), NPS (National Pension System), GPF (General Provident Fund), and Other.",
@@ -19,8 +28,8 @@ window.__MM_CHANGELOG =
     "VALID_TABS, NAV array, NAV_COLORS, and NavIcon switch all updated with inv_pf entry.",
     "URL hash routing: #/inv_pf is a valid deep-link target (via VALID_TABS membership).",
   ]},
-  {version:"3.44.0",date:"2026-03-30",title:"Rebrand — Money Manager renamed to ArthaStack",changes:[
-    "App renamed from '₹ Money Manager' to 'ArthaStack' across all UI surfaces.",
+  {version:"3.44.0",date:"2026-03-30",title:"Rebrand — Money Manager renamed to finsight",changes:[
+    "App renamed from '₹ Money Manager' to 'finsight' across all UI surfaces.",
     "Updated: browser tab title, PWA app title (apple-mobile-web-app-title, application-name meta tags), loading screen logo, sidebar logo, PIN lock screen header, Info tab app name and description row, Settings export/share strings, PDF report headers and footers, Excel export filename and sheet header, HTML report title and header, Google Drive backup folder name, file picker dialog descriptions, and all in-app notification titles.",
     "36 occurrences replaced across the codebase — zero legacy 'Money Manager' strings remain in any user-visible text.",
   ]},
@@ -176,7 +185,7 @@ window.__MM_CHANGELOG =
   {version:"3.35.0",date:"2026-03-23",title:"Feature — PDF Export of Current Report View (all 17 reports × all views)",changes:[
     "New 'Export this View' button (📄) added to every report's RptCtrlBar toolbar — visible in Snapshot, Detailed and Heatmap views of all 17 reports (Cash Flow, Classification, Categories Monthly/Quarterly/Yearly/Summary, Where Money Goes, Where Money Comes From, Income vs Expenses, Forecast, My Usage, Payees, Summary of Accounts, Investment Portfolio, Reconciliation, Net Worth, GST & TDS).",
     "Clicking 'Export this View' generates a PDF of exactly what is currently visible on screen — the active view (Snapshot/Detailed/Heatmap), current date range, current account filter — ready for A4 print.",
-    "PDF header injected temporarily into the print area: shows 'ArthaStack — [Report Name]', the active date range, and the generation timestamp. Removed automatically after print dialog closes.",
+    "PDF header injected temporarily into the print area: shows 'finsight — [Report Name]', the active date range, and the generation timestamp. Removed automatically after print dialog closes.",
     "Print mode uses CSS custom property overrides on #rpt-print-area so all charts, cards and text render in a clean light palette (white background, dark text, blue accent) regardless of which dark/light theme is active in the app.",
     "Two-layer print block preserved: Ctrl+P / browser print is still blocked (beforeprint listener + @media print CSS). Only the 'Export this View' button path sets window.__mmPrintOK=true and html[data-mm-printing] attribute, bypassing both guards.",
     "RptCtrlBar upgraded: accepts optional onExportPDF prop; renders the Export button at the trailing edge of the toolbar only when the prop is provided. All 17 RptCtrlBar call sites pass {onExportPDF}.",
@@ -506,7 +515,7 @@ window.__MM_CHANGELOG =
     "Feature: XIRR on Share cards — each share's P&L box now shows an '📊 XIRR (annualised)' row using buyDate and current market value via Newton-Raphson. Displayed as e.g. '+14.52% p.a.'.",
     "Feature: XIRR on MF cards — each MF card shows a purple '📊 XIRR' badge computing annualised return from the fund's startDate (new optional field on Add Fund form) and current value.",
     "Feature: XIRR strip in Investment Dashboard — when share or FD data is available, a new row below the per-asset stat cards shows annualised XIRR for the Shares portfolio (aggregated using all buyDates) and for Fixed Deposits (using start/maturity dates). Labeled 'Annualised returns via XIRR'.",
-    "Feature: Google Drive Cloud Backup — new '☁ Cloud Backup' panel under Settings. User configures their own Google OAuth Client ID (one-time setup, stored in localStorage). OAuth2 implicit flow opens a popup; token stored in sessionStorage only. Backups are uploaded directly from the browser to a 'ArthaStack Backups' folder on the user's own Drive using the Drive API v3 multipart upload. Lists recent backups, auto-prunes to the 7 most recent. No proxy server — data goes directly browser → Google Drive.",
+    "Feature: Google Drive Cloud Backup — new '☁ Cloud Backup' panel under Settings. User configures their own Google OAuth Client ID (one-time setup, stored in localStorage). OAuth2 implicit flow opens a popup; token stored in sessionStorage only. Backups are uploaded directly from the browser to a 'finsight Backups' folder on the user's own Drive using the Drive API v3 multipart upload. Lists recent backups, auto-prunes to the 7 most recent. No proxy server — data goes directly browser → Google Drive.",
     "Feature: MF Add form — new optional 'First Investment Date' date field (stores as startDate) used by the XIRR badge on the card.",
     "Bug fix: DevTools window-size lock false positive — Method B heuristic (outerWidth/outerHeight delta) now requires the condition to persist across 2 consecutive poll cycles (~2–3 s) before triggering lockScreen. Threshold raised from 200 px to 250 px. Counter resets to 0 on any clean poll. Eliminates false triggers on Android split-screen multitasking, browser zoom changes, and OS on-screen keyboard appearance.",
     "Bug fix: Undo Toast stale closure — undoSnapRef (React.useRef) now mirrors undoSnap state. doUndo reads from the ref rather than the state closure, so it always has the latest snapshot even when the useCallback was captured before the last setUndoSnap settled. Timer cleanup also clears the ref. Toast label corrected from 'Action undone in 6 s' → 'Last action deleted • undo within 6 s'.",
@@ -617,9 +626,9 @@ window.__MM_CHANGELOG =
     "Reset All Data: localStorage.removeItem(TAX_LS_KEY) added to the reset handler — both the main state and the legacy tax key are cleared on full reset.",
     "Tab Management summary pill updated: description now correctly states Tax Estimator can be hidden.",
   ]},
-  {version:"3.28.2",date:"2026-03-18",title:"Tax Estimator: full ArthaStack theme integration",changes:[
-    "All 28 hardcoded --itr-* CSS variables remapped to ArthaStack theme tokens: --itr-bg→var(--bg), --itr-surface→var(--bg3), --itr-surface2→var(--bg5), --itr-border→var(--border), --itr-navy/navy-lt→var(--accent2)/var(--accentbg), --itr-text→var(--text), --itr-blue-lt→var(--accentbg2) etc. Tax Estimator now automatically follows all 16 themes.",
-    "Header: removed the standalone app's dark gradient hero banner. Replaced with a compact ArthaStack-style section header using Sora font, var(--text) for title, var(--accent) for emphasis, and var(--bg5)/var(--border2) chips — identical in structure to all other MM tabs.",
+  {version:"3.28.2",date:"2026-03-18",title:"Tax Estimator: full finsight theme integration",changes:[
+    "All 28 hardcoded --itr-* CSS variables remapped to finsight theme tokens: --itr-bg→var(--bg), --itr-surface→var(--bg3), --itr-surface2→var(--bg5), --itr-border→var(--border), --itr-navy/navy-lt→var(--accent2)/var(--accentbg), --itr-text→var(--text), --itr-blue-lt→var(--accentbg2) etc. Tax Estimator now automatically follows all 16 themes.",
+    "Header: removed the standalone app's dark gradient hero banner. Replaced with a compact finsight-style section header using Sora font, var(--text) for title, var(--accent) for emphasis, and var(--bg5)/var(--border2) chips — identical in structure to all other MM tabs.",
     "Budget banner: converted from hardcoded amber gradient to a themed info box using --itr-saffron-lt/bd (semantic amber kept) with var(--text4) body text.",
     "Cards: background changed from white surface to var(--card) gradient; borders use var(--border); card headers use var(--bg5) background — matches MM's Card component exactly.",
     "Inputs: all three input types (number, date, text) now use var(--inp-bg) background, var(--border), DM Sans font, and var(--accent)/var(--accentbg3) focus ring — identical to every other input in the app.",
@@ -633,7 +642,7 @@ window.__MM_CHANGELOG =
     "Collapsible section buttons: var(--accent2)/var(--accent) — matches all other MM expandable section toggles.",
     "Disclaimer, save bar, export card, comparison box: all use var(--card), var(--border), var(--text) hierarchy.",
     "Semantic colors (gain green #16a34a, loss red #dc2626, warning amber #d97706) kept as fixed values — these convey financial domain meaning that must remain consistent regardless of color theme.",
-    "DM Mono font references replaced with DM Sans throughout (ArthaStack does not load DM Mono; DM Sans is the app's body font).",
+    "DM Mono font references replaced with DM Sans throughout (finsight does not load DM Mono; DM Sans is the app's body font).",
   ]},
   {version:"3.28.1",date:"2026-03-18",title:"New Tab: Tax Estimator (ITR-3, AY 2026-27)",changes:[
     "Merged the standalone ITR-3 Income Tax Estimator app as a new Tax Estimator tab in the More section of the sidebar (🧾 icon).",
@@ -644,8 +653,8 @@ window.__MM_CHANGELOG =
     "TDS Credits: add multiple deductor rows (name, amount, date); total TDS credited live.",
     "Advance Tax: add multiple challans (amount, date, BSR ref); instalment-wise 234C analysis table shows shortfall and interest per due date (Jun/Sep/Dec/Mar); 234B interest estimated from 1 Apr 2026.",
     "Export: Excel (5 sheets: Tax Summary, Capital Gains, TDS Credits, Advance Tax & 234C, Regime Comparison) and PDF (A4 formatted report with all sections, disclaimer).",
-    "Auto-save to localStorage under key itr3_ay2627_v1 (separate from ArthaStack state); restores on next open.",
-    "CSS fully scoped under .tax-wrap to prevent any style conflicts with ArthaStack; all CSS variables renamed --itr-* to avoid clashing with ArthaStack's CSS variable set; @keyframes renamed itr-pulse/itr-spin.",
+    "Auto-save to localStorage under key itr3_ay2627_v1 (separate from finsight state); restores on next open.",
+    "CSS fully scoped under .tax-wrap to prevent any style conflicts with finsight; all CSS variables renamed --itr-* to avoid clashing with finsight's CSS variable set; @keyframes renamed itr-pulse/itr-spin.",
     "jsPDF and jspdf-autotable scripts added to the app head for PDF export support.",
   ]},
   {version:"3.28.0",date:"2026-03-18",title:"Reconciliation-Gated Balances — balance only reflects Reconciled transactions",changes:[
@@ -1224,7 +1233,7 @@ window.__MM_CHANGELOG =
     "New Settings → File Storage tab (📁) — save your data to any file on your computer: D: drive, Documents, Dropbox, OneDrive, USB drive, or anywhere you choose",
     "Uses the browser-native File System Access API (Chrome 86+ / Edge 86+ on desktop) — no extensions, no server, no installs required",
     "📁 Connect New Save File: opens a native 'Save As' dialog; current data is written to the chosen file immediately and auto-saved on every future change",
-    "📂 Load from Existing File: opens an existing ArthaStack JSON backup; restores all data and sets that file as the going-forward auto-save target",
+    "📂 Load from Existing File: opens an existing finsight JSON backup; restores all data and sets that file as the going-forward auto-save target",
     "Auto-save: every state change (transactions, edits, settings) triggers a write to the connected file within 400ms — identical timing to the existing localStorage save",
     "Dual-write architecture: localStorage remains the primary fast cache; the file on disk is a real-time copy the user fully controls",
     "File handle persistence: file handles are stored in IndexedDB (not localStorage) so they survive page reloads; the panel auto-reconnects on mount if permission was already granted",

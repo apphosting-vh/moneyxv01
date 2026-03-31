@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   ₹ Money Manager — Service Worker
+   finsight — Service Worker
    ══════════════════════════════════════════════════════════════════════════
    Strategy:
    • Cross-origin requests  → return immediately (browser handles CORS natively)
@@ -7,7 +7,7 @@
    • Same-origin assets     → cache-first, fallback to network
    ══════════════════════════════════════════════════════════════════════════ */
 
-const CACHE_NAME = 'mm-v3-47-0';
+const CACHE_NAME = 'mm-v3-48-1';
 
 /* Assets to precache on install */
 const PRECACHE_URLS = [
@@ -15,6 +15,18 @@ const PRECACHE_URLS = [
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './js/app-utils.js',
+  './js/app-state.js',
+  './js/app-ui-base.js',
+  './js/app-transactions.js',
+  './js/app-dashboard.js',
+  './js/app-accounts.js',
+  './js/app-invest.js',
+  './js/app-loans.js',
+  './js/app-reports.js',
+  './js/app-settings.js',
+  './js/app-sections.js',
+  './js/app-main.js',
 ];
 
 /* ── Install: precache shell assets ───────────────────────────────────── */

@@ -176,22 +176,11 @@ const _EA=Object.freeze([]);   /* stable empty-array fallback  */
 const _EO=Object.freeze({});   /* stable empty-object fallback */
 
 const THEMES=[
-  {id:"ocean",    name:"Ocean Teal",   desc:"Clean light blue",            dark:false, preview:["#f0f7ff","#0284c7","#c5ddf2","#0ea5e9"]},
-  {id:"sky",      name:"Sky Blue",     desc:"Airy light sky-blue",         dark:false, preview:["#f0f9ff","#0ea5e9","#bae6fd","#0284c7"]},
-  {id:"cobalt",   name:"Cobalt",       desc:"Vivid bright-blue cobalt",    dark:false, preview:["#eff6ff","#3b82f6","#60a5fa","#2563eb"]},
-  {id:"sand",     name:"Sand Dune",    desc:"Warm sandy beige minimal",    dark:false, preview:["#faf8f4","#9a6a20","#ddd0b4","#7e5518"]},
-  {id:"rose",     name:"Rose Quartz",  desc:"Soft dusty rose minimal",     dark:false, preview:["#fdf7f8","#b55070","#e8c4cc","#943d58"]},
-  {id:"sage",     name:"Sage",         desc:"Muted earthy sage green",     dark:false, preview:["#f5f8f5","#4e7a50","#c0d4c0","#3c6040"]},
-  {id:"lavender", name:"Lavender",     desc:"Soft calm lavender purple",   dark:false, preview:["#f8f6fc","#7c5cbf","#cec0e8","#6248a0"]},
-  {id:"slate",    name:"Slate",        desc:"Cool blue-grey minimal",      dark:false, preview:["#f4f6f8","#4a6888","#bcc8d8","#385470"]},
-  {id:"terra",    name:"Terracotta",   desc:"Warm earthy clay minimal",    dark:false, preview:["#faf7f4","#b05a38","#d8bfad","#8e4828"]},
-  {id:"mint",     name:"Mint",         desc:"Fresh cool emerald mint",     dark:false, preview:["#f2fbf8","#1a8a68","#a8d8c8","#147054"]},
-  {id:"blush",    name:"Blush",        desc:"Delicate warm pink minimal",  dark:false, preview:["#fef8fa","#c04878","#f0c4d4","#a03860"]},
-  {id:"graphite", name:"Graphite",     desc:"Clean neutral warm grey",     dark:false, preview:["#f7f7f6","#525250","#ccccc8","#3e3e3c"]},
-  {id:"mauve",    name:"Mauve",        desc:"Muted dusty violet minimal",  dark:false, preview:["#f9f6fa","#8a5ca0","#d8c8e4","#704888"]},
-  {id:"caramel",  name:"Caramel",      desc:"Warm golden caramel tone",    dark:false, preview:["#fdf9f4","#9a7020","#dcc898","#7e5a18"]},
-  {id:"nordic",   name:"Nordic",       desc:"Crisp cool steel blue",       dark:false, preview:["#f4f7f9","#3a6888","#b8ccdc","#2c5272"]},
-  {id:"moss",     name:"Moss",         desc:"Deep earthy olive moss",      dark:false, preview:["#f5f8f3","#526e3c","#bcd0b0","#3e5830"]},
+  {id:"sky",    name:"Sky Blue", desc:"Airy light sky-blue",    dark:false, preview:["#f0f9ff","#0ea5e9","#bae6fd","#0284c7"]},
+  {id:"slate",  name:"Slate",    desc:"Cool blue-grey minimal", dark:false, preview:["#f4f6f8","#4a6888","#bcc8d8","#385470"]},
+  {id:"nordic", name:"Nordic",   desc:"Crisp cool steel blue",  dark:false, preview:["#f4f7f9","#3a6888","#b8ccdc","#2c5272"]},
+  {id:"moss",   name:"Moss",     desc:"Deep earthy olive moss", dark:false, preview:["#f5f8f3","#526e3c","#bcd0b0","#3e5830"]},
+  {id:"mint",   name:"Mint",     desc:"Fresh cool emerald mint",dark:false, preview:["#f2fbf8","#1a8a68","#a8d8c8","#147054"]},
 ];
 const applyTheme=id=>{document.documentElement.setAttribute("data-theme",id);};
 

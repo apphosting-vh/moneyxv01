@@ -65,9 +65,9 @@ const INIT=()=>({
     {id:"ca6",date:"2025-03-03",desc:"Newspaper Monthly",amount:470,type:"debit",cat:"Others",status:"Reconciled",_sn:6},
   ]},
   mf:[
-    {id:"mf1",name:"Mirae Asset Large Cap Fund - Direct Growth",schemeCode:"118989",units:145.32,invested:50000,avgNav:344.06,nav:0,currentValue:0,navDate:""},
-    {id:"mf2",name:"Axis Bluechip Fund - Direct Growth",schemeCode:"120503",units:89.45,invested:35000,avgNav:391.28,nav:0,currentValue:0,navDate:""},
-    {id:"mf3",name:"Parag Parikh Flexi Cap Fund - Direct Growth",schemeCode:"122639",units:52.18,invested:40000,avgNav:766.58,nav:0,currentValue:0,navDate:""},
+    {id:"mf1",name:"Mirae Asset Large Cap Fund - Direct Growth",schemeCode:"118989",units:145.32,invested:50000,avgNav:344.06,nav:0,currentValue:0,navDate:"",startDate:"2023-06-15"},
+    {id:"mf2",name:"Axis Bluechip Fund - Direct Growth",schemeCode:"120503",units:89.45,invested:35000,avgNav:391.28,nav:0,currentValue:0,navDate:"",startDate:"2023-09-01"},
+    {id:"mf3",name:"Parag Parikh Flexi Cap Fund - Direct Growth",schemeCode:"122639",units:52.18,invested:40000,avgNav:766.58,nav:0,currentValue:0,navDate:"",startDate:"2022-12-10"},
   ],
   shares:[
     {id:"sh1",company:"Reliance Industries",ticker:"RELIANCE",qty:50,buyPrice:2250,currentPrice:2890,buyDate:"2023-04-15"},
@@ -79,6 +79,7 @@ const INIT=()=>({
     {id:"re1",title:"3BHK Apartment - Whitefield",acquisitionCost:7500000,acquisitionDate:"2019-06-15",currentValue:12500000,notes:"Residential flat in Prestige Shantiniketan, Whitefield. Rented out at ₹32,000/month."},
     {id:"re2",title:"Commercial Plot - Electronic City",acquisitionCost:3200000,acquisitionDate:"2021-11-20",currentValue:4800000,notes:"800 sq ft commercial plot. BBMP approved layout."},
   ],
+  pf:[],
   fd:[
     {id:"fd1",bank:"HDFC Bank",amount:200000,rate:7.25,startDate:"2024-06-01",maturityDate:"2025-06-01",maturityAmount:214928},
     {id:"fd2",bank:"State Bank of India",amount:100000,rate:6.8,startDate:"2024-09-01",maturityDate:"2025-09-01",maturityAmount:107013},
@@ -190,7 +191,7 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.48.2";
+const APP_VERSION="3.48.3";
 
 /* ── SVG Icon Library (replaces all emoji icons) ─────────────────────── */
 const SVGI=(path,opts={})=>React.createElement("svg",{

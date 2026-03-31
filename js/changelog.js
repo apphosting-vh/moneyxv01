@@ -2,6 +2,19 @@
 /* Generated automatically — do not edit manually. */
 window.__MM_CHANGELOG =
 [
+  {version:"3.48.3",date:"2026-04-01",title:"Fix — Tax, Loans, Dashboard, Capital Gains & UI bug fixes",changes:[
+    "Bug Fix (Critical) — Section 87A marginal relief calculation was wrong for incomes slightly above ₹12L under New Regime. The old code checked `netNorm <= 12L` inside an else-if, missing cases where gross total income exceeded ₹12L but net normal income was also above ₹12L. Fixed: marginal relief now correctly caps slab tax so that tax payable ≤ (grossTotal − ₹12,00,000) for all income ranges above the threshold.",
+    "Bug Fix (Critical) — Dashboard monthly cash flow chart showed only bank transactions, while the KPI strip (Income/Expenses/Savings Rate) used all sources (banks + cards + cash). This created a visible mismatch between the bar chart and the summary numbers. Fixed: monthlyFlow now aggregates from all three sources.",
+    "Bug Fix (High) — Mutual Fund sample data in INIT state was missing the `startDate` field, causing all three sample MFs to be silently skipped by `computeCapitalGains()`. The Capital Gains card showed '3 mutual funds excluded' on every fresh install. Fixed: added realistic start dates to all sample MF entries.",
+    "Bug Fix (High) — Prepayment Simulator ROI was shown as a raw total ratio (e.g. '250% effective return') without time adjustment, misleading users about the actual annualised return. Fixed: now shows annualised ROI p.a. alongside the total percentage.",
+    "Bug Fix (High) — `INIT()` state was missing the `pf` (Provident Fund) array, which could cause a crash if any code path accessed `state.pf` on sample-data installs. Fixed: added `pf:[]` to INIT.",
+    "Bug Fix (Medium) — Amortization schedule could leave a residual balance of ₹0.01–₹0.50 due to rounding at the loop threshold (`bal > 0.5`). The last EMI row might show a non-zero balance instead of '✓ Paid'. Fixed: loop threshold lowered to 0.01, and the final month now absorbs any rounding residual into the last principal payment.",
+    "Bug Fix (Medium) — CSS `@keyframes tx-flash` used `var(--accent)55` at the 85% keyframe, producing an invalid CSS color value (hex digits appended outside the var() function). The flash animation on new transactions was broken. Fixed: replaced with `var(--accentbg)` which is a valid CSS variable.",
+    "Bug Fix (Medium) — DevTools detection heuristic (outerWidth − innerWidth > 250px) triggered false positives on high-DPI displays, browser zoom >125%, and Android split-screen. Users got locked out with 'Access Restricted'. Fixed: threshold raised to 350px and consecutive-failure requirement increased from 2 to 3 polls (~6s).",
+    "Bug Fix (Medium) — Credit card billing cycle calculation used `new Date(year, month, billingDay)` without clamping the day value, causing month overflow for billingDay > 28 (e.g. day 31 in February rolled to March 3rd). Fixed: added `safeDate()` helper that clamps day to 28 and corrects month overflow.",
+    "Bug Fix (Low) — INIT state Provident Fund array was absent (EMPTY_STATE had `pf:[]` but INIT did not). Could crash on `.reduce()` / `.map()` if state.pf was accessed with sample data. Fixed: added `pf:[]` to INIT.",
+    "Service Worker cache key bumped to mm-v3-48-3 — clears mm-v3-48-2 and all prior caches on activate.",
+  ]},
   {version:"3.48.2",date:"2026-03-31",title:"Fix — Banking section attachment cards not opening in Chrome PWA app mode",changes:[
     "Bug Fix — Attachment files linked to Bank and Credit Card account cards (Banking section) failed to open when tapped/clicked while the app was running in Chrome's installed PWA (standalone) mode. Clicking the attachment button produced no response and no error.",
     "Root cause: all four attachment-open code paths used window.open(blobUrl, '_blank'), which Chrome's popup blocker silently suppresses inside standalone PWA windows — even when triggered directly by a user gesture.",

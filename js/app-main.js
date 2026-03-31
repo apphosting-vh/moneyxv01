@@ -587,19 +587,20 @@ function TaxEstimatorSection({taxData, dispatch}) {
       const normTax = slabTax(netNorm, slabs);
 
       // 87A rebate (applies only to slab tax, NOT to STCG/LTCG special rate tax)
+      // New Regime (FY 2025-26): Full rebate if gross total income ≤ ₹12,00,000.
+      // Marginal relief: if income slightly exceeds ₹12L, slab tax is capped so that
+      // tax payable ≤ (grossTotalIncome − ₹12,00,000). This ensures someone earning
+      // ₹12,01,000 never pays more than ₹1,000 in slab tax.
       let rebate = 0, marginalRelief = 0;
       if (regime === "new") {
         if (grossTotal <= REBATE_NEW_THRESHOLD) {
           rebate = Math.min(normTax, REBATE_NEW_MAX);
-        } else if (grossTotal > REBATE_NEW_THRESHOLD && netNorm <= REBATE_NEW_THRESHOLD) {
-          // Marginal relief: slab tax on normal income should not exceed (netNorm − 12L)
-          // but only applicable when normal income > 12L. In most ITR-3 cases with capital
-          // gains, grossTotal may exceed 12L while netNorm is lower.
-          // Standard marginal relief: effective tax on slab income ≤ (netNorm − 12L) if applicable
-          const taxAt12L = slabTax(REBATE_NEW_THRESHOLD, slabs);
-          if (normTax > taxAt12L) {
-            const cappedTax = taxAt12L + Math.max(0, netNorm - REBATE_NEW_THRESHOLD);
-            marginalRelief = Math.max(0, normTax - cappedTax);
+        } else {
+          // Income exceeds ₹12L — check for marginal relief
+          // Tax on normal slab income must not exceed (grossTotal − ₹12L)
+          const excess = grossTotal - REBATE_NEW_THRESHOLD;
+          if (normTax > excess) {
+            marginalRelief = normTax - excess;
           }
         }
       } else {

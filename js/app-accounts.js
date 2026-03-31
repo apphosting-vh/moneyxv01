@@ -314,9 +314,11 @@ const CardSection=React.memo(({cards,dispatch,categories,payees,allBanks,allCard
               React.createElement("span",null,"Avail: "+INR(c.limit-c.outstanding))
             ),
             c.billingDay&&(()=>{
-              const now=new Date();const bd=c.billingDay;const dd=c.dueDay;
+              const now=new Date();const bd=Math.min(c.billingDay,28);const dd=c.dueDay?Math.min(c.dueDay,28):null;
+              /* safeDate: clamp day to avoid month overflow (e.g. day 31 in Feb) */
+              const safeDate=(y,m,d)=>{const dt=new Date(y,m,Math.min(d,28));if(dt.getMonth()!==m){dt.setDate(0);}return dt;};
               /* Cycle start: last statement date (billingDay that has already passed) */
-              const cycleStart=new Date(now.getFullYear(),now.getMonth(),bd);
+              const cycleStart=safeDate(now.getFullYear(),now.getMonth(),bd);
               if(now.getDate()<=bd)cycleStart.setMonth(cycleStart.getMonth()-1);
               /* Cycle end: day before next statement */
               const cycleEnd=new Date(cycleStart);cycleEnd.setMonth(cycleEnd.getMonth()+1);cycleEnd.setDate(cycleEnd.getDate()-1);
@@ -326,8 +328,8 @@ const CardSection=React.memo(({cards,dispatch,categories,payees,allBanks,allCard
                  dueDay > billingDay  -> same month as statement  (e.g. bill=5, due=25 -> Apr 5 stmt, Apr 25 due)
                  dueDay <= billingDay -> next month after statement (e.g. bill=18, due=8 -> Mar 18 stmt, Apr 8 due) */
               const dueDate=dd?(dd>bd
-                ?new Date(nextStatement.getFullYear(),nextStatement.getMonth(),dd)
-                :new Date(nextStatement.getFullYear(),nextStatement.getMonth()+1,dd)
+                ?safeDate(nextStatement.getFullYear(),nextStatement.getMonth(),dd)
+                :safeDate(nextStatement.getFullYear(),nextStatement.getMonth()+1,dd)
               ):null;
               const daysUntilDue=dueDate?Math.ceil((dueDate-now)/(86400000)):null;
               const fmtD=d=>`${d.getDate()}/${d.getMonth()+1}`;

@@ -387,11 +387,15 @@ const Dashboard=React.memo(({data,isMobile})=>{
     ...data.cash.transactions.filter(t=>!isAnyTransfer(t,data.categories)).map(t=>({...t,_bid:"cash",_src:"Cash",_srcType:"cash",_col:"var(--accent)"})),
   ],[data.banks,data.cards,data.cash,data.categories]);
 
-  /* ━━ 3. MONTHLY CASH FLOW — bank txs only (no cards/cash) ━ */
+  /* ━━ 3. MONTHLY CASH FLOW — all sources (banks + cards + cash) ━ */
   const monthlyFlow=React.useMemo(()=>{
-    const bankOnlyTx=data.banks.flatMap(b=>b.transactions);
+    const allFlowTx=[
+      ...data.banks.flatMap(b=>b.transactions),
+      ...data.cards.flatMap(c=>c.transactions),
+      ...data.cash.transactions,
+    ];
     const flowMap={};
-    bankOnlyTx.forEach(t=>{
+    allFlowTx.forEach(t=>{
       const ct=catClassType(data.categories,t.cat||"Others");
       if(ct==="Transfer")return;
       const k=t.date.substr(0,7);
@@ -404,7 +408,7 @@ const Dashboard=React.memo(({data,isMobile})=>{
     return Object.entries(flowMap).sort().slice(-6).map(([k,v])=>({
       key:k,label:MNAMES[+k.slice(5)-1]+" '"+k.slice(2,4),inc:v.inc,exp:v.exp,inv:v.inv||0
     }));
-  },[data.banks,data.categories]);
+  },[data.banks,data.cards,data.cash,data.categories]);
 
   /* ━━ 4. THIS MONTH from ALL banking sources ━━━━━━━━━━━━━━ */
   const {curMD,incDelta,expDelta,invDelta,savingsRate}=React.useMemo(()=>{

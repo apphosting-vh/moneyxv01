@@ -61,7 +61,7 @@ const PrepaySimModal=({loan,onClose})=>{
       React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#16a34a",marginBottom:2}},
         "You save ",savedMonths," month"+(savedMonths===1?"":"s")+" and ",fmt(savedInterest)," in interest"
       ),
-      React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},"ROI on prepayment: "+((savedInterest/extra)*100).toFixed(1)+"% effective return")
+      React.createElement("div",{style:{fontSize:11,color:"var(--text5)"}},"Annualised ROI on prepayment: "+(savedMonths>0?((savedInterest/extra)*(12/savedMonths)*100).toFixed(1):((savedInterest/extra)*100).toFixed(1))+"% p.a. ("+((savedInterest/extra)*100).toFixed(1)+"% total)")
     ),
     extra>0&&loan.outstanding-extra<=0&&React.createElement("div",{style:{padding:"12px 16px",borderRadius:10,background:"rgba(22,163,74,.08)",border:"1px solid rgba(22,163,74,.25)",textAlign:"center",fontSize:13,fontWeight:700,color:"#16a34a"}},
       "✓ This amount fully pays off the loan! Save all "+fmt(origInterest)+" of remaining interest."
@@ -79,14 +79,18 @@ const calcAmortization=(principal,annualRate,emi)=>{
   const schedule=[];
   let bal=principal;
   let month=0;
-  while(bal>0.5&&month<600){
+  while(bal>0.01&&month<600){
     month++;
     const interest=Math.round(bal*r*100)/100;
-    const principal_part=Math.min(Math.round((emi-interest)*100)/100,bal);
+    const rawPrincipal=emi-interest;
+    /* Last month: absorb any rounding residual into the final principal payment */
+    const isLastMonth=rawPrincipal>=bal||bal-rawPrincipal<0.01;
+    const principal_part=isLastMonth?bal:Math.round(rawPrincipal*100)/100;
     if(principal_part<=0)break; /* safety: stop if principal part ever goes non-positive */
     const actualEmi=Math.round((interest+principal_part)*100)/100;
     bal=Math.round((bal-principal_part)*100)/100;
-    schedule.push({month,emi:actualEmi,interest,principal:principal_part,balance:Math.max(0,bal)});
+    if(bal<0)bal=0;
+    schedule.push({month,emi:actualEmi,interest,principal:principal_part,balance:bal});
     if(bal<=0)break;
   }
   return schedule;

@@ -1694,7 +1694,7 @@ const FSAStoragePanel=({state,dispatch})=>{
     })();
   },[]);
 
-  /* 📁 Connect new file — showSaveFilePicker, save current state, persist handle */
+  /* 📁 Connect new file — showSaveFilePicker, verify permission, save current state, persist handle */
   const handleConnect=async()=>{
     if(!fsaSupported()){say("File System Access API is not supported. Please use Chrome or Edge on desktop.",false);return;}
     setBusy(true);
@@ -1703,6 +1703,9 @@ const FSAStoragePanel=({state,dispatch})=>{
         suggestedName:"money-manager-data.json",
         types:[{description:"finsight Data",accept:{"application/json":[".json"]}}],
       });
+      /* ── Explicitly verify read-write permission before marking ready ── */
+      const perm=await fsaVerifyPermission(handle);
+      if(!perm){setPermNeeded(true);setBusy(false);say("Write permission was denied. Click 'Re-grant Permission' to enable auto-save.",false);return;}
       await fsaSetHandle(handle);
       window.__fsa.handle=handle;window.__fsa.filename=handle.name;window.__fsa.ready=true;
       setConnected(true);setFilename(handle.name);setPermNeeded(false);
@@ -2088,7 +2091,7 @@ const CloudBackupPanel=({state})=>{
 
   const saveCid=()=>{
     const v=cidInput.trim();
-    localStorage.setItem("mm_gdrive_cid",v);
+    try{localStorage.setItem("mm_gdrive_cid",v);}catch{}
     setClientId(v);setEditCid(false);
     say("Client ID saved. Click Connect Google Drive to authenticate.");
   };

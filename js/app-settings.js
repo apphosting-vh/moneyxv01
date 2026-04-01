@@ -2695,6 +2695,26 @@ const usePersistentReducer=(reducer,init)=>{
     },400);
     return()=>{if(timerRef.current)clearTimeout(timerRef.current);};
   },[state]);
+  /* ── beforeunload: flush pending save on tab close / reload ──
+     Without this, a state change followed by a quick tab close (< 400 ms debounce)
+     silently loses that change. pagehide is the modern equivalent; beforeunload is
+     the fallback for older browsers. Both fire synchronously so localStorage and
+     FSA writes complete before the page unloads. */
+  React.useEffect(()=>{
+    const flush=()=>{
+      stateRef.current=state;
+      saveState(state);
+      try{
+        const _ePJson=JSON.stringify(state.eodPrices||{});
+        const _eNJson=JSON.stringify(state.eodNavs||{});
+        if(Object.keys(state.eodPrices||{}).length>0)localStorage.setItem(LS_EOD_PRICES,_ePJson);
+        if(Object.keys(state.eodNavs||{}).length>0)localStorage.setItem(LS_EOD_NAVS,_eNJson);
+      }catch{}
+    };
+    window.addEventListener("beforeunload",flush);
+    window.addEventListener("pagehide",flush);
+    return()=>{window.removeEventListener("beforeunload",flush);window.removeEventListener("pagehide",flush);};
+  },[state]);
   return[state,dispatch];
 };
 

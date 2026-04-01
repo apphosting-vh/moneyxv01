@@ -138,8 +138,11 @@
 
         /* controllerchange fires after skipWaiting() activates new SW */
         navigator.serviceWorker.addEventListener('controllerchange', function(){
-          console.log('[SW] Controller changed — reloading for new version');
-          window.location.reload();
+          if (!window.__swReloaded) {
+            window.__swReloaded = true;
+            console.log('[SW] Controller changed — reloading for new version');
+            window.location.reload();
+          }
         });
       })
       .catch(function(err){

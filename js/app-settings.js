@@ -852,7 +852,8 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
                       if(!payload.data)throw new Error("Invalid backup file -- missing data field.");
                       const d=payload.data;
                       if(!d.banks||!d.categories)throw new Error("Backup file appears corrupted or from an incompatible version.");
-                      dispatch({type:"RESTORE_ALL",data:{
+                      /* ── Build the full restore object once ── */
+                      const _restoreData={
                         ...d,
                         notes:d.notes||[],
                         scheduled:d.scheduled||[],
@@ -867,7 +868,17 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
                         hiddenTabs:d.hiddenTabs||[],
                         catRules:d.catRules||[],
                         insightPrefs:{...EMPTY_STATE().insightPrefs,...(d.insightPrefs||{})},
-                      }});
+                      };
+                      /* ── Synchronously persist to localStorage BEFORE reload ── */
+                      saveState({...EMPTY_STATE(),..._restoreData});
+                      try{
+                        if(_restoreData.eodPrices&&Object.keys(_restoreData.eodPrices).length>0)
+                          localStorage.setItem(LS_EOD_PRICES,JSON.stringify(_restoreData.eodPrices));
+                        if(_restoreData.eodNavs&&Object.keys(_restoreData.eodNavs).length>0)
+                          localStorage.setItem(LS_EOD_NAVS,JSON.stringify(_restoreData.eodNavs));
+                      }catch{}
+                      /* ── Update in-memory React state for the 1.8s before reload ── */
+                      dispatch({type:"RESTORE_ALL",data:_restoreData});
                       if(payload.theme){saveTheme(payload.theme);}
                       const s=payload.summary;
                       const msg=s

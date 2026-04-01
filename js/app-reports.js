@@ -1713,7 +1713,7 @@ const FSAStoragePanel=({state,dispatch})=>{
     setBusy(false);
   };
 
-  /* 📂 Open existing — showOpenFilePicker, load data, dispatch RESTORE_ALL, set as save file */
+  /* 📂 Open existing — showOpenFilePicker, load data, synchronously persist, permission-gate ready, reload */
   const handleOpenFile=async()=>{
     if(!fsaSupported()){say("File System Access API is not supported in this browser.",false);return;}
     setBusy(true);
@@ -1724,11 +1724,46 @@ const FSAStoragePanel=({state,dispatch})=>{
       });
       const data=await fsaReadFile(handle);
       if(!data){say("Could not read the file or the file is empty.",false);setBusy(false);return;}
-      dispatch({type:"RESTORE_ALL",data});
-      await fsaSetHandle(handle);
-      window.__fsa.handle=handle;window.__fsa.filename=handle.name;window.__fsa.ready=true;
-      setConnected(true);setFilename(handle.name);setPermNeeded(false);
-      say("✓ Data loaded from "+handle.name+" and file set as auto-save location.");
+      /* ── Synchronously persist to localStorage BEFORE any reload ── */
+      const _restoreData={
+        ...data,
+        notes:data.notes||[],
+        scheduled:data.scheduled||[],
+        nwSnapshots:data.nwSnapshots||{},
+        eodPrices:data.eodPrices||{},
+        eodNavs:data.eodNavs||{},
+        historyCache:data.historyCache||{},
+        taxData:data.taxData||null,
+        re:data.re||[],
+        pf:data.pf||[],
+        goals:data.goals||[],
+        hiddenTabs:data.hiddenTabs||[],
+        catRules:data.catRules||[],
+        insightPrefs:{...EMPTY_STATE().insightPrefs,...(data.insightPrefs||{})},
+      };
+      saveState({...EMPTY_STATE(),..._restoreData});
+      try{
+        if(_restoreData.eodPrices&&Object.keys(_restoreData.eodPrices).length>0)
+          localStorage.setItem(LS_EOD_PRICES,JSON.stringify(_restoreData.eodPrices));
+        if(_restoreData.eodNavs&&Object.keys(_restoreData.eodNavs).length>0)
+          localStorage.setItem(LS_EOD_NAVS,JSON.stringify(_restoreData.eodNavs));
+      }catch{}
+      /* ── Update in-memory React state ── */
+      dispatch({type:"RESTORE_ALL",data:_restoreData});
+      /* ── Request read-write permission (we're inside a user-gesture chain) ── */
+      const permGranted=await fsaRequestPermission(handle);
+      if(permGranted==="granted"){
+        window.__fsa.handle=handle;window.__fsa.filename=handle.name;window.__fsa.ready=true;
+        await fsaSetHandle(handle);
+        setConnected(true);setFilename(handle.name);setPermNeeded(false);
+        say("✓ Data loaded from "+handle.name+". Refreshing…");
+      }else{
+        window.__fsa.handle=handle;window.__fsa.filename=handle.name;window.__fsa.ready=false;
+        await fsaSetHandle(handle);
+        setPermNeeded(true);setFilename(handle.name);
+        say("✓ Data loaded from "+handle.name+". Grant write permission to enable auto-save. Refreshing…");
+      }
+      setTimeout(()=>window.location.reload(),1800);
     }catch(e){if(e.name!=="AbortError")say("Could not open file: "+e.message,false);}
     setBusy(false);
   };

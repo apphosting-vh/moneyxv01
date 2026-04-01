@@ -2830,8 +2830,8 @@ function App(){
             const accId=tx.srcId;
             const acc=allAcc.find(a=>a.id===accId);
             if(!acc)return;
-            if(acc.accType==="bank"){dispatch({type:"ADD_BANK_TX",id:acc.id,tx});dispatch({type:"UPD_BANK_BAL",id:acc.id,tx});}
-            else if(acc.accType==="card"){dispatch({type:"ADD_CARD_TX",id:acc.id,tx});dispatch({type:"UPD_CARD_BAL",id:acc.id,tx});}
+            if(acc.accType==="bank"){dispatch({type:"ADD_BANK_TX",id:acc.id,tx});}
+            else if(acc.accType==="card"){dispatch({type:"ADD_CARD_TX",id:acc.id,tx});}
             else if(acc.accType==="cash"||acc.id==="__cash__"){dispatch({type:"ADD_CASH_TX",tx});}
           }
           setQuickAddOpen(false);

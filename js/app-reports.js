@@ -776,7 +776,7 @@ const RptGstTds=({data,from,to,onExportPDF})=>{
     React.createElement("div",{style:{display:"flex",gap:12,flexWrap:"wrap",marginBottom:16}},
       React.createElement(StatCard,{label:"Total GST Paid",val:INR(totGst),col:"var(--accent)",icon:React.createElement(Icon,{n:"building",size:18}),sub:gstCount+" transactions"}),
       React.createElement(StatCard,{label:"Total Base Amount",val:INR(totBase),col:"#0e7490",icon:React.createElement(Icon,{n:"money",size:15}),sub:"Pre-GST value"}),
-      React.createElement(StatCard,{label:"CGST + SGST",val:INR(totCgst)+" + "+INR(totCgst),col:"#16a34a",icon:React.createElement(Icon,{n:"balance",size:18}),sub:"Equal split (intra-state)"}),
+      React.createElement(StatCard,{label:"CGST + SGST",val:INR(totCgst)+" + "+INR(totGst-totCgst),col:"#16a34a",icon:React.createElement(Icon,{n:"balance",size:18}),sub:"Equal split (intra-state)"}),
       React.createElement(StatCard,{label:"Total TDS Deducted",val:INR(totTds),col:"#6d28d9",icon:React.createElement(Icon,{n:"edit",size:16}),sub:tdsCount+" transactions · Gross "+INR(totGross)})
     ),
 

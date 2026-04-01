@@ -191,7 +191,7 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="3.49.0";
+const APP_VERSION="3.49.1";
 
 /* ── SVG Icon Library (replaces all emoji icons) ─────────────────────── */
 const SVGI=(path,opts={})=>React.createElement("svg",{
@@ -493,9 +493,9 @@ const calcFDValueToday=(f)=>{
   const maturity=new Date(f.maturityDate);
   if(today>=maturity){
     /* Already matured — use stored maturityAmount if available (accounts for TDS),
-       otherwise compute from formula. Do NOT use Math.max — if the user entered a
-       lower maturityAmount (e.g. after TDS deduction), respect that value. BUG-7 fix. */
-    if(f.maturityAmount&&f.maturityAmount>0)return Math.max(f.maturityAmount,f.amount);
+       otherwise compute from formula. Respect user-entered maturityAmount directly
+       even if lower than principal (e.g. after TDS deduction). */
+    if(f.maturityAmount&&f.maturityAmount>0)return f.maturityAmount;
     return Math.max(calcFDMaturity(f.amount,f.rate,f.startDate,f.maturityDate),f.amount);
   }
   if(today<=start)return f.amount; /* not started yet */
@@ -536,7 +536,7 @@ const computeXIRR=(cashflows,dates,guess=0.1)=>{
    Returns % string like "14.52%" or null. */
 const xirrSingleBuy=(invested,currentValue,buyDate)=>{
   if(!invested||!currentValue||!buyDate||invested<=0||currentValue<=0)return null;
-  const today=TODAY();
+  const today=getISTDateStr();
   if(buyDate>=today)return null;
   return computeXIRR([-invested,currentValue],[buyDate,today]);
 };
@@ -791,7 +791,7 @@ const reducer=(s,a)=>{
   const nextSn=txs=>txs.reduce((m,t)=>Math.max(m,t._sn||0),0)+1;
   switch(a.type){
     case"ADD_BANK":return{...s,banks:[...s.banks,a.p]};
-    case"ADD_BANK_TX":{const b=s.banks.find(b=>b.id===a.id);const sn=b?nextSn(b.transactions):1;const _acr=applyCatRule(s.catRules||[],a.tx);const _upi=applyUpiEnrichment({...a.tx,...(_acr||{})});const _tx={...a.tx,...(_acr||{}),_sn:sn,...(_upi||{})};return{...s,banks:s.banks.map(b=>b.id===a.id?{...b,transactions:[...b.transactions,_tx]}:b)};}
+    case"ADD_BANK_TX":{const b=s.banks.find(b=>b.id===a.id);const sn=b?nextSn(b.transactions):1;const _acr=applyCatRule(s.catRules||[],a.tx);const _upi=applyUpiEnrichment({...a.tx,...(_acr||{})});const _tx={...a.tx,...(_acr||{}),_sn:sn,...(_upi||{})};return{...s,banks:s.banks.map(b=>b.id===a.id?{...b,balance:b.balance+(_tx.status==="Reconciled"?(_tx.type==="credit"?_tx.amount:-_tx.amount):0),transactions:[...b.transactions,_tx]}:b)};}
     case"UPD_BANK_BAL":return{...s,banks:s.banks.map(b=>b.id===a.id?(a.tx.status==="Reconciled"?{...b,balance:b.balance+(a.tx.type==="credit"?a.tx.amount:-a.tx.amount)}:b):b)};
     case"EDIT_BANK_TX":{const _bwas=a.old.status==="Reconciled";const _bis=a.tx.status==="Reconciled";const _bOld=_bwas?(a.old.type==="credit"?a.old.amount:-a.old.amount):0;const _bNew=_bis?(a.tx.type==="credit"?a.tx.amount:-a.tx.amount):0;return{...s,banks:s.banks.map(b=>b.id===a.accId?{...b,balance:b.balance+(_bNew-_bOld),transactions:b.transactions.map(t=>t.id===a.tx.id?a.tx:t)}:b)};}
     case"DEL_BANK_TX":return{...s,banks:s.banks.map(b=>b.id===a.accId?{...b,balance:b.balance-(a.tx.status==="Reconciled"?(a.tx.type==="credit"?a.tx.amount:-a.tx.amount):0),transactions:b.transactions.filter(t=>t.id!==a.tx.id)}:b)};
@@ -818,7 +818,19 @@ const reducer=(s,a)=>{
     case"REORDER_CARDS":{const cs=[...s.cards];const[mv]=cs.splice(a.from,1);cs.splice(a.to,0,mv);return{...s,cards:cs};}
     case"TOGGLE_BANK_HIDDEN":return{...s,banks:s.banks.map(b=>b.id===a.id?{...b,hidden:!b.hidden}:b)};
     case"TOGGLE_CARD_HIDDEN":return{...s,cards:s.cards.map(c=>c.id===a.id?{...c,hidden:!c.hidden}:c)};
-    case"EDIT_BANK":return{...s,banks:s.banks.map(b=>b.id===a.p.id?{...b,...a.p}:b)};
+    case"EDIT_BANK":return{...s,banks:s.banks.map(b=>{
+      if(b.id!==a.p.id)return b;
+      const upd={...b,...a.p};
+      /* If balance was provided, treat it as opening balance and recalculate
+         from reconciled transactions so balance stays in sync with txns */
+      if(a.p.balance!==undefined){
+        const _base=a.p.balance;
+        const _reconciled=b.transactions.filter(t=>t.status==="Reconciled")
+          .reduce((sum,t)=>sum+(t.type==="credit"?t.amount:-t.amount),0);
+        upd.balance=_base+_reconciled;
+      }
+      return upd;
+    })};
     case"DEL_BANK":return{...s,
       banks:s.banks.filter(b=>b.id!==a.id),
       /* Bug 8 fix: remove scheduled entries that target this bank account */
@@ -853,7 +865,7 @@ const reducer=(s,a)=>{
       return{...s,cash:{...s.cash,balance:_cashRec}};
     }
     case"ADD_CARD":return{...s,cards:[...s.cards,a.p]};
-    case"ADD_CARD_TX":{const c=s.cards.find(c=>c.id===a.id);const sn=c?nextSn(c.transactions):1;const _acr2=applyCatRule(s.catRules||[],a.tx);const _upi2=applyUpiEnrichment({...a.tx,...(_acr2||{})});const _tx2={...a.tx,...(_acr2||{}),_sn:sn,...(_upi2||{})};return{...s,cards:s.cards.map(c=>c.id===a.id?{...c,transactions:[...c.transactions,_tx2]}:c)};}
+    case"ADD_CARD_TX":{const c=s.cards.find(c=>c.id===a.id);const sn=c?nextSn(c.transactions):1;const _acr2=applyCatRule(s.catRules||[],a.tx);const _upi2=applyUpiEnrichment({...a.tx,...(_acr2||{})});const _tx2={...a.tx,...(_acr2||{}),_sn:sn,...(_upi2||{})};return{...s,cards:s.cards.map(c=>c.id===a.id?{...c,outstanding:Math.max(0,c.outstanding+(_tx2.status==="Reconciled"?(_tx2.type==="debit"?_tx2.amount:-_tx2.amount):0)),transactions:[...c.transactions,_tx2]}:c)};}
     case"UPD_CARD_BAL":return{...s,cards:s.cards.map(c=>c.id===a.id?(a.tx.status==="Reconciled"?{...c,outstanding:Math.max(0,c.outstanding+(a.tx.type==="debit"?a.tx.amount:-a.tx.amount))}:c):c)};
     case"EDIT_CARD_TX":{const _cwas=a.old.status==="Reconciled";const _cis=a.tx.status==="Reconciled";const _cOld=_cwas?(a.old.type==="debit"?a.old.amount:-a.old.amount):0;const _cNew=_cis?(a.tx.type==="debit"?a.tx.amount:-a.tx.amount):0;return{...s,cards:s.cards.map(c=>c.id===a.accId?{...c,outstanding:Math.max(0,c.outstanding+(_cNew-_cOld)),transactions:c.transactions.map(t=>t.id===a.tx.id?a.tx:t)}:c)};}
     case"DEL_CARD_TX":return{...s,cards:s.cards.map(c=>c.id===a.accId?{...c,outstanding:Math.max(0,c.outstanding-(a.tx.status==="Reconciled"?(a.tx.type==="debit"?a.tx.amount:-a.tx.amount):0)),transactions:c.transactions.filter(t=>t.id!==a.tx.id)}:c)};
@@ -1181,10 +1193,10 @@ const reducer=(s,a)=>{
       const isOnce=sc.frequency==="once";
       const newNext=isOnce?null:advance(sc.nextDate,sc.frequency);
       const expired=isOnce||(sc.endDate&&newNext>sc.endDate);
-      /* lastExecuted = TODAY (actual run date), not sc.nextDate (scheduled date).
+      /* lastExecuted = IST date (actual run date), not sc.nextDate (scheduled date).
          This ensures the lastExecuted !== today guard works correctly on the same day,
          and completed cards show when the transaction actually ran. */
-      const _runDate=new Date().toISOString().split("T")[0];
+      const _runDate=getISTDateStr();
       ns={...ns,scheduled:(ns.scheduled||[]).map(x=>x.id===sc.id?{...x,lastExecuted:_runDate,nextDate:expired?null:newNext,status:expired?"completed":"active"}:x)};
       return ns;
     }

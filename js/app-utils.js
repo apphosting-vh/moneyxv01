@@ -60,7 +60,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).substr(2,4);
    and incorrect scheduled execution timestamps. */
 const TODAY=()=>{const istMs=Date.now()+(5.5*60*60*1000);return new Date(istMs).toISOString().split("T")[0];};
 const pct=(v,b)=>b?(((v-b)/b)*100).toFixed(1):"0.0";
-const daysLeft=d=>Math.max(0,Math.ceil((new Date(d+"T00:00:00")-new Date())/86400000));
+const daysLeft=d=>{const istMs=Date.now()+(5.5*60*60*1000);const istToday=new Date(istMs).toISOString().split("T")[0];return Math.max(0,Math.ceil((new Date(d+"T00:00:00")-new Date(istToday+"T00:00:00"))/86400000));};
 
 /* ══════════════════════════════════════════════════════════════════════════
    IST DATE / MARKET HELPERS

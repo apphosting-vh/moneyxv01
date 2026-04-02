@@ -1795,6 +1795,1074 @@ function TaxEstimatorSection({taxData, dispatch}) {
 /* Wrap with React.memo so it skips re-renders when taxData/dispatch are unchanged */
 TaxEstimatorSection=React.memo(TaxEstimatorSection);
 
+/* ══════════════════════════════════════════════════════════════════════════
+   TAX ESTIMATOR — FY 2026-27 (AY 2027-28)
+   Budget 2026: No slab/rate/rebate changes vs FY 2025-26.
+   Income Tax Act 2025 effective from 1 Apr 2026.
+   Key additions: One-time LTCL vs STCG set-off (AY 2027-28 only),
+   Share buyback proceeds taxed as capital gains (Budget 2026).
+   Advance tax dates: Jun/Sep/Dec 2026 · Mar 2027. 234B from 1 Apr 2027.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const TAX_LS_KEY_27 = "itr3_ay2728_v1";
+
+const AT_INST_27 = [
+  { lbl:"1st Instalment", date:"2026-06-15", cum:0.15, mo:3 },
+  { lbl:"2nd Instalment", date:"2026-09-15", cum:0.45, mo:3 },
+  { lbl:"3rd Instalment", date:"2026-12-15", cum:0.75, mo:3 },
+  { lbl:"4th Instalment", date:"2027-03-15", cum:1.00, mo:1 },
+];
+
+const calc234C_27 = (netTaxAT, atEntries) => {
+  const pmts = atEntries
+    .map(e => ({ d:new Date(e.date), amt:pn(e.amount) }))
+    .filter(e => e.amt > 0 && !isNaN(e.d))
+    .sort((a, b) => a.d - b.d);
+  let total = 0;
+  const rows = AT_INST_27.map(inst => {
+    const due      = new Date(inst.date);
+    const req      = netTaxAT * inst.cum;
+    const paid     = pmts.filter(p => p.d <= due).reduce((s, p) => s + p.amt, 0);
+    const shortfall = Math.max(0, req - paid);
+    const intAmt   = shortfall * 0.01 * inst.mo;
+    total += intAmt;
+    return { ...inst, req, paid, shortfall, intAmt };
+  });
+  return { rows, total };
+};
+
+/* 234B for FY 2026-27: interest runs from 1 Apr 2027 onwards */
+const calc234B_27 = (liability, tds, atEntries) => {
+  const atPaid   = atEntries.reduce((s, e) => s + pn(e.amount), 0);
+  const credited = tds + atPaid;
+  if (credited >= liability * 0.9) return 0;
+  const shortfall = liability - credited;
+  const from      = new Date("2027-04-01");
+  const now       = new Date();
+  if (now < from) return 0;
+  const months = Math.max(1, Math.ceil((now - from) / (1000*60*60*24*30)));
+  return shortfall * 0.01 * months;
+};
+
+function TaxEstimatorSection2627({ taxData27, dispatch }) {
+  const loadSaved27 = () => {
+    try { const r = localStorage.getItem(TAX_LS_KEY_27); return r ? JSON.parse(r) : null; } catch { return null; }
+  };
+  const saveTo27 = (d) => { try { localStorage.setItem(TAX_LS_KEY_27, JSON.stringify(d)); } catch {} };
+
+  const saved = taxData27 || loadSaved27();
+
+  const [regime,    setRegime]    = useState(saved?.regime    ?? "new");
+  const [showSlabs, setShowSlabs] = useState(false);
+  const [show234,   setShow234]   = useState(true);
+  const [showComp,  setShowComp]  = useState(true);
+  const [saveStatus, setSaveStatus] = useState("idle");
+
+  const DEFAULT_F_27 = {
+    stcgGain:0, stcgLoss:0, ltcl_setoff:0,
+    ltcgGain:0, ltcgLoss:0, ltcgGF:0,
+    buyback:0,
+    presumptive:0,
+    savingsInt:0, depositInt:0, dividend:0,
+    ded80C:0, ded80D:0, dedOther:0,
+  };
+
+  const [f,       setF]   = useState({ ...DEFAULT_F_27, ...(saved?.f ?? {}) });
+  const [tdsRows, setTds] = useState(saved?.tdsRows?.length ? saved.tdsRows : [{ id:uid(), deductor:"", amount:"", date:"" }]);
+  const [atRows,  setAt]  = useState(saved?.atRows?.length  ? saved.atRows  : [{ id:uid(), amount:"", date:"", ref:"" }]);
+
+  /* Auto-save */
+  const isFirstRender = React.useRef(true);
+  React.useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
+    const payload = { regime, f, tdsRows, atRows };
+    saveTo27(payload);
+    setSaveStatus("saved");
+    const t = setTimeout(() => setSaveStatus("idle"), 1800);
+    return () => clearTimeout(t);
+  }, [regime, f, tdsRows, atRows]);
+
+  const handleClear = () => {
+    if (!window.confirm("Clear all FY 2026-27 data and reset the form?")) return;
+    try { localStorage.removeItem(TAX_LS_KEY_27); } catch {}
+    setRegime("new");
+    setF({ ...DEFAULT_F_27 });
+    setTds([{ id:uid(), deductor:"", amount:"", date:"" }]);
+    setAt([{ id:uid(), amount:"", date:"", ref:"" }]);
+    setSaveStatus("cleared");
+    setTimeout(() => setSaveStatus("idle"), 2000);
+  };
+
+  const set = React.useCallback((k, v) => setF(p => ({ ...p, [k]: pn(v) })), []);
+  const addTds = () => setTds(p => [...p, { id:uid(), deductor:"", amount:"", date:"" }]);
+  const delTds = id => setTds(p => p.filter(e => e.id !== id));
+  const upTds  = (id, k, v) => setTds(p => p.map(e => e.id === id ? {...e, [k]:v} : e));
+  const addAt  = () => setAt(p => [...p, { id:uid(), amount:"", date:"", ref:"" }]);
+  const delAt  = id => setAt(p => p.filter(e => e.id !== id));
+  const upAt   = (id, k, v) => setAt(p => p.map(e => e.id === id ? {...e, [k]:v} : e));
+
+  /* ── CORE COMPUTATIONS — same rates/slabs as FY 2025-26 per Budget 2026 ── */
+
+  /* STCG u/s 111A @ 20% — with one-time LTCL set-off (AY 2027-28 provision) */
+  const stcgGross   = Math.max(0, f.stcgGain - f.stcgLoss);
+  const ltcl_applied = Math.min(pn(f.ltcl_setoff), stcgGross);
+  const stcgNetFinal = Math.max(0, stcgGross - ltcl_applied);
+  const stcgTax      = stcgNetFinal * 0.20;
+
+  /* LTCG u/s 112A @ 12.5%, ₹1,25,000 exemption */
+  const ltcgNet      = Math.max(0, (f.ltcgGain - f.ltcgGF) - f.ltcgLoss);
+  const ltcgExempt   = Math.min(125000, ltcgNet);
+  const ltcgTaxable  = Math.max(0, ltcgNet - ltcgExempt);
+  const ltcgTax      = ltcgTaxable * 0.125;
+
+  /* Buyback proceeds as capital gains @ 20% (Budget 2026 — treated as STCG u/s 111A) */
+  const buybackAmt   = pn(f.buyback);
+  const buybackTax   = buybackAmt * 0.20;
+
+  /* Other Sources */
+  const savDed   = regime === "old" ? Math.min(f.savingsInt, 10000) : 0;
+  const otherSrc = (f.savingsInt - savDed) + f.depositInt + f.dividend;
+
+  /* Normal slab income */
+  const grossNorm  = f.presumptive + otherSrc;
+  const totDed     = regime === "old"
+    ? Math.min(f.ded80C, 150000) + Math.min(f.ded80D, 25000) + f.dedOther
+    : STD_DED_NEW;  /* ₹75,000 — unchanged for FY 2026-27 */
+  const netNorm    = Math.max(0, grossNorm - totDed);
+  const specialInc = stcgNetFinal + ltcgTaxable + buybackAmt;
+  const grossTotal = netNorm + specialInc;
+
+  /* Tax for any regime */
+  const computeTax27 = (reg) => {
+    const slabs = reg === "new" ? NEW_SLABS : OLD_SLABS;
+    const normTax = slabTax(netNorm, slabs);
+
+    let rebate = 0, marginalRelief = 0;
+    if (reg === "new") {
+      if (grossTotal <= REBATE_NEW_THRESHOLD) {
+        rebate = Math.min(normTax, REBATE_NEW_MAX);
+      } else {
+        const excess = grossTotal - REBATE_NEW_THRESHOLD;
+        if (normTax > excess) marginalRelief = normTax - excess;
+      }
+    } else {
+      if (grossTotal <= REBATE_OLD_THRESHOLD) {
+        rebate = Math.min(normTax, REBATE_OLD_MAX);
+      }
+    }
+
+    const normTaxAfterRebate = Math.max(0, normTax - rebate - marginalRelief);
+    /* 87A rebate does NOT apply to special-rate taxes */
+    const specialTax   = stcgTax + ltcgTax + buybackTax;
+    const taxBeforeSC  = normTaxAfterRebate + specialTax;
+    const sc           = taxBeforeSC * scRate(grossTotal);
+    const txsc         = taxBeforeSC + sc;
+    const cess         = txsc * 0.04;
+    return {
+      normTax, rebate, marginalRelief, normTaxAfterRebate,
+      stcgTax, ltcgTax, buybackTax, taxBeforeSC, sc, txsc, cess,
+      liability: txsc + cess,
+    };
+  };
+
+  const cur = React.useMemo(() => computeTax27(regime),
+    [regime, netNorm, grossTotal, stcgTax, ltcgTax, buybackTax]);
+  const alt = React.useMemo(() => computeTax27(regime === "new" ? "old" : "new"),
+    [regime, netNorm, grossTotal, stcgTax, ltcgTax, buybackTax]);
+
+  const { normTax, rebate, marginalRelief, stcgTax:s20t, ltcgTax:l125t,
+          taxBeforeSC, sc, cess, liability } = cur;
+
+  const totalTDS  = tdsRows.reduce((s, e) => s + pn(e.amount), 0);
+  const totalAT   = atRows.reduce((s, e)  => s + pn(e.amount), 0);
+  const netTaxAT  = Math.max(0, liability - totalTDS);
+
+  const { rows:instRows, total:int234C } = React.useMemo(
+    () => calc234C_27(netTaxAT, atRows),
+    [netTaxAT, JSON.stringify(atRows)]
+  );
+  const int234B = React.useMemo(
+    () => calc234B_27(liability, totalTDS, atRows),
+    [liability, totalTDS, JSON.stringify(atRows)]
+  );
+  const totPenalty = int234B + int234C;
+  const netPayable = Math.max(0, liability - totalTDS - totalAT);
+  const effRate    = grossTotal > 0 ? ((liability / grossTotal) * 100).toFixed(2) : "0.00";
+  const altLabel   = regime === "new" ? "Old Regime" : "New Regime";
+  const curLabel   = regime === "new" ? "New Regime" : "Old Regime";
+  const saving     = cur.liability - alt.liability;
+
+  const F = ({ label, fk, note }) =>
+    <TaxField label={label} fk={fk} note={note} vals={f} set={set} />;
+  const R = v => Math.round(v);
+  const fmtNum = v => R(v).toLocaleString("en-IN");
+
+  const [excelLoading, setExcelLoading] = useState(false);
+
+  const exportExcel = () => {
+    setExcelLoading(true);
+    window.__loadExportLibs().then(() => {
+      try {
+        const XLSX = window.XLSX;
+        const wb = XLSX.utils.book_new();
+        const AY = "AY 2027-28 (FY 2026-27)";
+
+        /* ══ Sheet 1: Tax Summary ══ */
+        const sumData = [
+          ["ITR-3 Income Tax Calculator — " + AY, "", "", ""],
+          ["Tax Regime: " + curLabel, "", "Generated: " + new Date().toLocaleString("en-IN"), ""],
+          ["", "", "", ""],
+          ["INCOME SUMMARY", "", "", ""],
+          ["Head of Income", "Gross Amount (₹)", "Deductions / Exempt (₹)", "Net Taxable (₹)"],
+          ["STCG u/s 111A @ 20%",     f.stcgGain,     f.stcgLoss + ltcl_applied, stcgNetFinal],
+          ["LTCG u/s 112A @ 12.5%",  f.ltcgGain,     ltcgExempt,                ltcgTaxable],
+          ...(buybackAmt > 0 ? [["Share Buyback Proceeds @ 20% (Budget 2026)", buybackAmt, "", buybackAmt]] : []),
+          ["Presumptive Income (44AD/44ADA)", f.presumptive, "", f.presumptive],
+          ["Savings Bank Interest",   f.savingsInt,   savDed,                   f.savingsInt - savDed],
+          ["Deposit Interest (FD/PO/Co-op)", f.depositInt, "", f.depositInt],
+          ["Dividend Income",         f.dividend, "", f.dividend],
+          ["", "", "", ""],
+          ["Gross Normal Income (before deductions)", "", "", grossNorm],
+          ["Less: Deductions (" + (regime === "new" ? "Std. Deduction ₹75,000" : "Chapter VI-A") + ")", "", "", -totDed],
+          ["Net Normal Income (slab taxed)", "", "", netNorm],
+          ["Special Rate Income (STCG + LTCG + Buyback)", "", "", specialInc],
+          ["GROSS TOTAL INCOME", "", "", grossTotal],
+          ["", "", "", ""],
+          ["TAX COMPUTATION", "", "", ""],
+          ["Particulars", "", "Amount (₹)", ""],
+          ["Slab Tax on Normal Income", "", normTax, ""],
+          ["Tax on STCG u/s 111A @ 20%", "", s20t, ""],
+          ["Tax on LTCG u/s 112A @ 12.5%", "", l125t, ""],
+          ...(buybackAmt > 0 ? [["Tax on Buyback Proceeds @ 20%", "", buybackTax, ""]] : []),
+          ["Tax Before Rebate", "", normTax + s20t + l125t + buybackTax, ""],
+          ...(rebate > 0 ? [["Less: Rebate u/s 87A", "", -rebate, ""]] : []),
+          ...(marginalRelief > 0 ? [["Less: Marginal Relief", "", -marginalRelief, ""]] : []),
+          ...(sc > 0 ? [["Add: Surcharge", "", sc, ""]] : []),
+          ["Add: Health & Education Cess @ 4%", "", cess, ""],
+          ["TOTAL TAX LIABILITY", "", liability, ""],
+          ["", "", "", ""],
+          ["TAX CREDITS & PAYMENTS", "", "", ""],
+          ["Less: Total TDS Deducted", "", -totalTDS, ""],
+          ["Less: Total Advance Tax Paid", "", -totalAT, ""],
+          ...(totPenalty > 0 ? [["Add: Interest u/s 234B + 234C (estimated)", "", R(totPenalty), ""]] : []),
+          ["NET TAX PAYABLE (self-assessment)", "", R(netPayable + totPenalty), ""],
+          ["Effective Tax Rate", "", effRate + "%", ""],
+          ["", "", "", ""],
+          ["REGIME COMPARISON", "", "", ""],
+          ["New Regime Tax Liability", "", regime === "new" ? R(cur.liability) : R(alt.liability), ""],
+          ["Old Regime Tax Liability", "", regime === "old" ? R(cur.liability) : R(alt.liability), ""],
+          ["Recommended Regime", "", (regime === "new" ? R(cur.liability) : R(alt.liability)) <= (regime === "old" ? R(cur.liability) : R(alt.liability)) ? "New Regime" : "Old Regime", ""],
+          ["", "", "", ""],
+          ["KEY FY 2026-27 NOTES", "", "", ""],
+          ["Income Tax Act 2025 in effect from 1 Apr 2026", "", "", ""],
+          ["Share buyback proceeds taxed as capital gains (Budget 2026)", "", "", ""],
+          ["One-time: LTCL up to 31 Mar 2026 can offset STCG in AY 2027-28", "", "", ""],
+          ...(ltcl_applied > 0 ? [["LTCL applied as one-time set-off this assessment year", "", ltcl_applied, ""]] : []),
+          ["Revised return deadline extended to 31 March (with fee if income > ₹5L)", "", "", ""],
+        ];
+        const ws1 = XLSX.utils.aoa_to_sheet(sumData);
+        ws1["!cols"] = [{wch:50}, {wch:22}, {wch:22}, {wch:22}];
+        XLSX.utils.book_append_sheet(wb, ws1, "Tax Summary");
+
+        /* ══ Sheet 2: TDS Credits ══ */
+        const tdsData = [
+          ["TDS CREDITS — " + AY, "", "", ""],
+          ["(Verify against Form 26AS / AIS before filing)", "", "", ""],
+          ["", "", "", ""],
+          ["#", "Deductor Name", "TDS Amount (₹)", "Date of Deduction"],
+          ...tdsRows.map((e, i) => [i + 1, e.deductor || "—", pn(e.amount), e.date || "—"]),
+          ["", "", "", ""],
+          ["TOTAL TDS CREDITED", "", totalTDS, ""],
+        ];
+        const ws2 = XLSX.utils.aoa_to_sheet(tdsData);
+        ws2["!cols"] = [{wch:5}, {wch:40}, {wch:22}, {wch:20}];
+        XLSX.utils.book_append_sheet(wb, ws2, "TDS Credits");
+
+        /* ══ Sheet 3: Advance Tax & 234C ══ */
+        const atData = [
+          ["ADVANCE TAX PAYMENTS — " + AY, "", "", ""],
+          ["Due dates: 15% by 15 Jun 2026 · 45% by 15 Sep 2026 · 75% by 15 Dec 2026 · 100% by 15 Mar 2027", "", "", ""],
+          ["", "", "", ""],
+          ["PAYMENT CHALLANS", "", "", ""],
+          ["#", "Amount (₹)", "Date of Payment", "Challan / BSR No."],
+          ...atRows.map((e, i) => [i + 1, pn(e.amount), e.date || "—", e.ref || "—"]),
+          ["", "", "", ""],
+          ["TOTAL ADVANCE TAX PAID", "", totalAT, ""],
+          ["", "", "", ""],
+          ["INSTALMENT-WISE 234C ANALYSIS", "", "", "", "", "", ""],
+          ["Instalment", "Due Date", "Required (₹)", "Paid by Date (₹)", "Shortfall (₹)", "234C Interest (₹)", "Status"],
+          ...instRows.map(r => [
+            r.lbl, r.date, R(r.req), R(r.paid), R(r.shortfall), R(r.intAmt),
+            r.shortfall <= 0 ? "On Time" : r.paid > 0 ? "Partial" : "Short"
+          ]),
+          ["", "", "", "", "", "", ""],
+          ["INTEREST SUMMARY", "", "", "", "", "", ""],
+          ["Interest u/s 234C (instalment shortfall)", "", R(int234C), "", "", "", ""],
+          ["Interest u/s 234B (from 1 Apr 2027, if < 90% advance tax paid)", "", R(int234B), "", "", "", ""],
+          ["TOTAL ESTIMATED INTEREST", "", R(totPenalty), "", "", "", ""],
+        ];
+        const ws3 = XLSX.utils.aoa_to_sheet(atData);
+        ws3["!cols"] = [{wch:24}, {wch:14}, {wch:18}, {wch:18}, {wch:16}, {wch:20}, {wch:12}];
+        XLSX.utils.book_append_sheet(wb, ws3, "Advance Tax & 234C");
+
+        XLSX.writeFile(wb, "ITR3_Tax_AY2027-28.xlsx");
+      } catch (e) { alert("Excel export failed: " + e.message); }
+      setExcelLoading(false);
+    }).catch(() => { alert("Could not load export library — check your connection."); setExcelLoading(false); });
+  };
+
+  return (
+    <div className="tax-wrap">
+      {/* ── HEADER ── */}
+      <div className="header">
+        <div className="h-inner">
+          <div>
+            <div className="h-badge">🇮🇳 Income Tax Calculator</div>
+            <h1>ITR-3 Tax <em>Estimator</em></h1>
+            <p className="h-sub">Presumptive Taxation · Capital Gains · AY 2027–28 (FY 2026–27)</p>
+          </div>
+          <div className="h-chips">
+            <span className="hchip">Form ITR-3</span>
+            <span className="hchip">§ 111A · 112A · 44AD/44ADA</span>
+            <span className="hchip new">AY 2027–28</span>
+            <span className="hchip">Income Tax Act 2025</span>
+            <span className="hchip">⚠️ 234B · 234C Interest</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── BUDGET BANNER ── */}
+      <div className="budget-banner">
+        <div className="bb-inner">
+          <span className="bb-tag">Budget 2026</span>
+          <span>
+            <strong>No slab changes for FY 2026-27:</strong> All tax rates, rebates &amp; exemption limits unchanged from FY 2025-26.
+            New Regime: Nil (0–4L) · 5% (4–8L) · 10% (8–12L) · 15% (12–16L) · 20% (16–20L) · 25% (20–24L) · 30% (above 24L).
+            &nbsp;87A rebate ₹60,000 (new regime, income ≤ ₹12L) · STCG 111A: <strong>20%</strong> · LTCG 112A: <strong>12.5%</strong> (₹1.25L exempt).
+            &nbsp;<strong>New for AY 2027-28:</strong> Share buyback proceeds taxed as capital gains @ 20%. One-time LTCL (up to 31 Mar 2026) may be set off against STCG.
+            &nbsp;<strong>Income Tax Act 2025</strong> replaces IT Act 1961 from 1 Apr 2026. Revised return deadline extended to 31 March (with fee).
+          </span>
+        </div>
+      </div>
+
+      <div className="main">
+        <div className="left-col">
+
+          {/* ── STCG u/s 111A @ 20% ── */}
+          <div className="card">
+            <div className="card-hdr">
+              <div className="cicon ci-saffron">↗</div>
+              <div>
+                <div className="c-ttl">Short Term Capital Gains (u/s 111A)</div>
+                <div className="c-sub">STT-paid Equity / Equity-oriented MF — 20% flat · entire FY 2026-27</div>
+              </div>
+              <span className="ctag ct-saffron">20% flat</span>
+            </div>
+            <div className="card-body">
+              <div className="nbox nb-blue">
+                <strong>FY 2026-27 rate: 20%</strong> flat on net STCG u/s 111A — unchanged from FY 2025-26.
+                STCG is <em>not</em> eligible for Section 87A rebate even if total income ≤ ₹12L.
+                <br/><strong>One-time AY 2027-28 provision:</strong> Long-term capital losses (LTCL) incurred
+                <em> up to 31 March 2026</em> may be set off against STCG in AY 2027-28 only (u/s 74).
+                Enter the carried LTCL below to apply this one-time relief.
+              </div>
+              <div className="fg fg3">
+                <F label="Gross STCG (Total Gains)" fk="stcgGain" />
+                <F label="STCG Losses for Set-off" fk="stcgLoss" />
+                <F label="LTCL Carried (up to 31 Mar 2026)" fk="ltcl_setoff" note="One-time u/s 74 — AY 2027-28 only" />
+              </div>
+              {ltcl_applied > 0 && (
+                <div className="nbox nb-green" style={{marginTop:8}}>
+                  ✓ One-time LTCL set-off of {fmt(ltcl_applied)} applied against STCG. Net taxable STCG: {fmt(stcgNetFinal)}.
+                </div>
+              )}
+              <div className="ibar">
+                <span className="pill p-navy">Net STCG: {fmt(stcgNetFinal)}</span>
+                <span className="pill p-red">Tax @ 20%: {fmt(stcgTax)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ── LTCG u/s 112A @ 12.5% ── */}
+          <div className="card">
+            <div className="card-hdr">
+              <div className="cicon ci-green">₹</div>
+              <div>
+                <div className="c-ttl">Long Term Capital Gains u/s 112A</div>
+                <div className="c-sub">STT-paid Equity / Equity-oriented MF — 12.5% flat, ₹1,25,000 exemption</div>
+              </div>
+              <span className="ctag ct-green">12.5% flat</span>
+            </div>
+            <div className="card-body">
+              <div className="nbox nb-blue">
+                <strong>FY 2026-27:</strong> LTCG u/s 112A taxed at <strong>12.5%</strong> on gains exceeding
+                <strong> ₹1,25,000</strong> (unchanged from FY 2025-26). No indexation. Grandfathering still applies —
+                enter FMV on 31 Jan 2018 as deemed cost for pre-Feb 2018 acquisitions.
+                LTCL from FY 2026-27 can only be set off against LTCG (not STCG). Surcharge on LTCG capped at 15%.
+              </div>
+              <div className="fg fg3">
+                <F label="Gross LTCG (Total Gains)" fk="ltcgGain" />
+                <F label="Grandfathered FMV" fk="ltcgGF" note="31 Jan 2018" />
+                <F label="LTCG Losses for Set-off" fk="ltcgLoss" />
+              </div>
+              <div className="ibar">
+                <span className="pill p-green">Net LTCG: {fmt(ltcgNet)}</span>
+                <span className="pill p-blue">Exempt (₹1.25L): {fmt(ltcgExempt)}</span>
+                <span className="pill p-saffron">Taxable: {fmt(ltcgTaxable)}</span>
+                <span className="pill p-red">Tax @ 12.5%: {fmt(ltcgTax)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ── SHARE BUYBACK CAPITAL GAINS (new for AY 2027-28) ── */}
+          <div className="card">
+            <div className="card-hdr">
+              <div className="cicon ci-red">↺</div>
+              <div>
+                <div className="c-ttl">Share Buyback Proceeds — Capital Gains</div>
+                <div className="c-sub">New for AY 2027-28 — buyback taxed in shareholder's hands @ 20% (Budget 2026)</div>
+              </div>
+              <span className="ctag ct-saffron">20% · New</span>
+            </div>
+            <div className="card-body">
+              <div className="nbox nb-blue">
+                <strong>Budget 2026 — effective FY 2026-27:</strong> Buyback proceeds from domestic listed companies
+                are now taxed as <strong>capital gains in the shareholder's hands</strong>.
+                These gains are classified as STCG (u/s 111A at 20%) if shares were listed and STT-paid.
+                The cost of acquisition can be claimed as a capital loss and carried forward for up to 8 assessment years.
+                Enter the net buyback consideration received (sale proceeds) below.
+              </div>
+              <div className="fg fg1">
+                <F label="Buyback Consideration Received (sale proceeds)" fk="buyback" />
+              </div>
+              {buybackAmt > 0 && (
+                <div className="ibar">
+                  <span className="pill p-saffron">Buyback Proceeds: {fmt(buybackAmt)}</span>
+                  <span className="pill p-red">Tax @ 20%: {fmt(buybackTax)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── PRESUMPTIVE INCOME ── */}
+          <div className="card">
+            <div className="card-hdr">
+              <div className="cicon ci-blue">B</div>
+              <div>
+                <div className="c-ttl">Presumptive Business / Professional Income</div>
+                <div className="c-sub">Section 44AD (Business) / 44ADA (Profession)</div>
+              </div>
+              <span className="ctag ct-blue">Slab rates</span>
+            </div>
+            <div className="card-body">
+              <div className="nbox nb-blue">
+                <strong>Sec 44AD:</strong> 8% of eligible turnover (6% for digital/banking receipts) for businesses
+                with turnover ≤ ₹3 Cr (if ≤ 5% cash receipts). Unchanged for FY 2026-27.
+                &nbsp;<strong>Sec 44ADA:</strong> 50% of gross receipts for eligible professionals with receipts ≤ ₹75L.
+                Enter the <em>net presumptive income</em> already computed at the applicable %.
+              </div>
+              <div className="fg fg1">
+                <F label="Net Presumptive Income (computed amount)" fk="presumptive" />
+              </div>
+            </div>
+          </div>
+
+          {/* ── OTHER SOURCES ── */}
+          <div className="card">
+            <div className="card-hdr">
+              <div className="cicon ci-saffron">₹</div>
+              <div>
+                <div className="c-ttl">Income from Other Sources</div>
+                <div className="c-sub">Interest &amp; Dividend — taxable at applicable slab rates</div>
+              </div>
+              <span className="ctag ct-saffron">Slab rates</span>
+            </div>
+            <div className="card-body">
+              <div className="fg fg3">
+                <F label="Savings Bank Interest" fk="savingsInt" note="80TTA upto ₹10K (Old)" />
+                <F label="Deposit Interest" fk="depositInt" note="FD / PO / Co-op" />
+                <F label="Dividend Income" fk="dividend" note="Equity / MF" />
+              </div>
+              {regime === "old" && f.savingsInt > 0 && (
+                <div className="ibar">
+                  <span className="pill p-green">80TTA Deduction: {fmt(savDed)}</span>
+                  <span className="pill p-navy">Net Savings Int: {fmt(f.savingsInt - savDed)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── DEDUCTIONS (Old Regime only) ── */}
+          {regime === "old" && (
+            <div className="card">
+              <div className="card-hdr">
+                <div className="cicon ci-green">✓</div>
+                <div>
+                  <div className="c-ttl">Chapter VI-A Deductions</div>
+                  <div className="c-sub">Available under Old Tax Regime only — limits unchanged for FY 2026-27</div>
+                </div>
+                <span className="ctag ct-green">Old Regime</span>
+              </div>
+              <div className="card-body">
+                <div className="fg fg3">
+                  <F label="80C — Max ₹1.5L" fk="ded80C" note="PPF/ELSS/LIC/EPF" />
+                  <F label="80D — Max ₹25K" fk="ded80D" note="Health Insurance" />
+                  <F label="Other — 80E/80G etc." fk="dedOther" />
+                </div>
+                <div className="ibar">
+                  <span className="pill p-green">Total Deductions: {fmt(totDed)}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── TDS ENTRIES ── */}
+          <div className="card">
+            <div className="card-hdr">
+              <div className="cicon ci-blue">T</div>
+              <div>
+                <div className="c-ttl">TDS Deducted at Source</div>
+                <div className="c-sub">Enter each credit with deductor name &amp; date — cross-check Form 26AS / AIS</div>
+              </div>
+              <span className="ctag ct-blue">Form 26AS / AIS</span>
+            </div>
+            <div className="card-body">
+              {tdsRows.map((e, i) => (
+                <div key={e.id} className="entry-row">
+                  <div className="entry-lbl">TDS Entry #{i+1}</div>
+                  <div className="egrid4">
+                    <div className="field">
+                      <label>Deductor Name</label>
+                      <input className="inp-text" type="text" placeholder="e.g. HDFC Bank Ltd"
+                        value={e.deductor} onChange={ev => upTds(e.id, "deductor", ev.target.value)} />
+                    </div>
+                    <div className="field">
+                      <label>TDS Amount</label>
+                      <div className="iw">
+                        <span className="ipfx">₹</span>
+                        <input className="inp" type="number" placeholder="0"
+                          value={e.amount} onChange={ev => upTds(e.id, "amount", ev.target.value)} />
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label>Date of Deduction</label>
+                      <input className="inp-date" type="date" min="2026-04-01" max="2027-03-31"
+                        value={e.date} onChange={ev => upTds(e.id, "date", ev.target.value)} />
+                    </div>
+                    {tdsRows.length > 1 && (
+                      <button className="del-btn" onClick={() => delTds(e.id)}>✕</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <button className="add-btn" onClick={addTds}>＋ Add TDS Entry</button>
+              {totalTDS > 0 && (
+                <div className="ibar">
+                  <span className="pill p-green">Total TDS Credited: {fmt(totalTDS)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── ADVANCE TAX ENTRIES ── */}
+          <div className="card">
+            <div className="card-hdr">
+              <div className="cicon ci-orange">₹</div>
+              <div>
+                <div className="c-ttl">Advance Tax Payments</div>
+                <div className="c-sub">Each challan date is used to compute Sec 234B &amp; 234C interest</div>
+              </div>
+              <span className="ctag ct-saffron">234B · 234C</span>
+            </div>
+            <div className="card-body">
+              <div className="nbox nb-warn">
+                <strong>Advance Tax Due Dates — FY 2026-27:</strong><br />
+                &nbsp;• ≥ 15% by <strong>15 Jun 2026</strong>&nbsp;&nbsp;·&nbsp;&nbsp;≥ 45% by <strong>15 Sep 2026</strong><br />
+                &nbsp;• ≥ 75% by <strong>15 Dec 2026</strong>&nbsp;&nbsp;·&nbsp;&nbsp;100% by <strong>15 Mar 2027</strong><br />
+                Short / late payment attracts <strong>1% per month</strong> u/s 234C.
+                Failing to pay ≥ 90% of assessed tax as advance tax attracts 234B interest from <strong>1 Apr 2027</strong>.
+              </div>
+              {atRows.map((e, i) => (
+                <div key={e.id} className="entry-row">
+                  <div className="entry-lbl">Advance Tax Challan #{i+1}</div>
+                  <div className="egrid4">
+                    <div className="field">
+                      <label>Payment Amount</label>
+                      <div className="iw">
+                        <span className="ipfx">₹</span>
+                        <input className="inp" type="number" placeholder="0"
+                          value={e.amount} onChange={ev => upAt(e.id, "amount", ev.target.value)} />
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label>Date of Payment</label>
+                      <input className="inp-date" type="date" min="2026-04-01" max="2027-03-31"
+                        value={e.date} onChange={ev => upAt(e.id, "date", ev.target.value)} />
+                    </div>
+                    <div className="field">
+                      <label>Challan / BSR No. <em>optional</em></label>
+                      <input className="inp-text" type="text" placeholder="BSR / Challan no."
+                        value={e.ref} onChange={ev => upAt(e.id, "ref", ev.target.value)} />
+                    </div>
+                    {atRows.length > 1 && (
+                      <button className="del-btn" onClick={() => delAt(e.id)}>✕</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <button className="add-btn" onClick={addAt}>＋ Add Advance Tax Challan</button>
+              {totalAT > 0 && (
+                <div className="ibar">
+                  <span className="pill p-green">Total AT Paid: {fmt(totalAT)}</span>
+                  <span className="pill p-navy">Total Credited (TDS+AT): {fmt(totalTDS + totalAT)}</span>
+                </div>
+              )}
+
+              {/* ── 234C analysis table ── */}
+              {liability > 0 && (
+                <div style={{marginTop:16}}>
+                  <button className="coll-btn" onClick={() => setShow234(!show234)}>
+                    <span className={`chevron${show234 ? " open" : ""}`}>▶</span>
+                    Instalment-wise 234C Analysis — FY 2026-27
+                  </button>
+                  {show234 && (
+                    <>
+                      <table className="inst-tbl">
+                        <thead>
+                          <tr>
+                            <th>Instalment</th><th>Due Date</th><th>Required</th>
+                            <th>Paid by Date</th><th>Shortfall</th><th>234C Int.</th><th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {instRows.map((r, i) => {
+                            const st = r.shortfall <= 0 ? "ok" : r.paid > 0 ? "partial" : "bad";
+                            return (
+                              <tr key={i}>
+                                <td style={{color:"var(--itr-text)",fontFamily:"'DM Sans',sans-serif",fontWeight:500}}>{r.lbl}</td>
+                                <td style={{color:"var(--itr-text2)"}}>{r.date}</td>
+                                <td style={{color:"var(--itr-navy)"}}>{fmt(r.req)}</td>
+                                <td style={{color: r.paid >= r.req ? "var(--itr-green)" : "var(--itr-text2)"}}>{fmt(r.paid)}</td>
+                                <td style={{color: r.shortfall > 0 ? "var(--itr-red)" : "var(--itr-text3)"}}>
+                                  {r.shortfall > 0 ? fmt(r.shortfall) : "—"}
+                                </td>
+                                <td style={{color: r.intAmt > 0 ? "var(--itr-red)" : "var(--itr-text3)", fontWeight: r.intAmt > 0 ? 600 : 400}}>
+                                  {r.intAmt > 0 ? fmt(r.intAmt) : "—"}
+                                </td>
+                                <td>
+                                  {st==="ok"      && <span className="ibadge ib-ok">✓ On Time</span>}
+                                  {st==="partial" && <span className="ibadge ib-partial">⚠ Partial</span>}
+                                  {st==="bad" && r.req > 0  && <span className="ibadge ib-late">✗ Short</span>}
+                                  {st==="bad" && r.req <= 0 && <span className="ibadge ib-na">N/A</span>}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      {totPenalty > 0 && (
+                        <div className="pen-box">
+                          <div className="pen-title">⚠️ Estimated Interest / Penalty</div>
+                          {int234C > 0 && (
+                            <div className="pen-row">
+                              <span className="pl">Interest u/s 234C — Instalment shortfall (1% × months × deficit)</span>
+                              <span className="pv">{fmt(R(int234C))}</span>
+                            </div>
+                          )}
+                          {int234B > 0 && (
+                            <div className="pen-row">
+                              <span className="pl">Interest u/s 234B — Default in advance tax (from 1 Apr 2027)</span>
+                              <span className="pv">{fmt(R(int234B))}</span>
+                            </div>
+                          )}
+                          <div className="pen-row">
+                            <span className="pl">Total Estimated Interest</span>
+                            <span className="pv">{fmt(R(totPenalty))}</span>
+                          </div>
+                        </div>
+                      )}
+                      {totPenalty <= 0 && (totalAT > 0 || totalTDS > 0) && (
+                        <div className="nbox nb-green" style={{marginTop:10,marginBottom:0}}>
+                          <strong>✓ No 234B / 234C interest</strong> — Advance tax is on schedule and sufficient.
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+        </div>{/* end left-col */}
+
+        {/* ══ RIGHT PANEL ══ */}
+        <div className="right-col">
+          <div className="sum-card">
+            <div className="sum-hdr">
+              <h2>Tax Summary <span className="ay-tag">AY 2027–28</span></h2>
+            </div>
+            <div className="sum-body">
+
+              <div className="rtoggle">
+                <button className={`rbtn${regime === "new" ? " on" : ""}`} onClick={() => setRegime("new")}>New Regime</button>
+                <button className={`rbtn${regime === "old" ? " on" : ""}`} onClick={() => setRegime("old")}>Old Regime</button>
+              </div>
+
+              {/* Income Summary */}
+              <div className="btitle">Income Summary</div>
+              {stcgNetFinal > 0 && (
+                <div className="brow">
+                  <span className="bl">STCG u/s 111A <span className="brate">20%</span></span>
+                  <span className="bv">{fmt(stcgNetFinal)}</span>
+                </div>
+              )}
+              {ltcl_applied > 0 && (
+                <div className="brow">
+                  <span className="bl" style={{color:"var(--itr-green)"}}>(-) LTCL One-time Set-off</span>
+                  <span className="bv" style={{color:"var(--itr-green)"}}>-{fmt(ltcl_applied)}</span>
+                </div>
+              )}
+              {ltcgTaxable > 0 && (
+                <div className="brow">
+                  <span className="bl">LTCG u/s 112A <span className="brate">12.5%</span></span>
+                  <span className="bv">{fmt(ltcgTaxable)}</span>
+                </div>
+              )}
+              {ltcgExempt > 0 && (
+                <div className="brow">
+                  <span className="bl" style={{color:"var(--itr-green)"}}>LTCG Exempt (₹1.25L)</span>
+                  <span className="bv" style={{color:"var(--itr-green)"}}>-{fmt(ltcgExempt)}</span>
+                </div>
+              )}
+              {buybackAmt > 0 && (
+                <div className="brow">
+                  <span className="bl">Buyback Proceeds <span className="brate">20%</span></span>
+                  <span className="bv">{fmt(buybackAmt)}</span>
+                </div>
+              )}
+              {f.presumptive > 0 && (
+                <div className="brow">
+                  <span className="bl">Presumptive 44AD/44ADA</span>
+                  <span className="bv">{fmt(f.presumptive)}</span>
+                </div>
+              )}
+              {otherSrc > 0 && (
+                <div className="brow">
+                  <span className="bl">Other Sources</span>
+                  <span className="bv">{fmt(otherSrc)}</span>
+                </div>
+              )}
+              {totDed > 0 && (
+                <div className="brow">
+                  <span className="bl" style={{color:"var(--itr-green)"}}>
+                    (-) {regime === "new" ? "Std. Deduction (₹75K)" : "Ch. VI-A Deductions"}
+                  </span>
+                  <span className="bv" style={{color:"var(--itr-green)"}}>-{fmt(totDed)}</span>
+                </div>
+              )}
+
+              <div className="divider" />
+              <div className="srow">
+                <span className="sl">Gross Total Income</span>
+                <span className="sv">{fmt(grossTotal)}</span>
+              </div>
+              <div className="srow">
+                <span className="sl">Normal Slab Income<small>after deductions</small></span>
+                <span className="sv">{fmt(netNorm)}</span>
+              </div>
+              <div className="divider" />
+
+              {/* Tax Computation */}
+              <div className="btitle">Tax Computation</div>
+              {normTax > 0 && (
+                <div className="brow">
+                  <span className="bl">Slab Tax (normal income)</span>
+                  <span className="bv">{fmt(normTax)}</span>
+                </div>
+              )}
+              {s20t > 0 && (
+                <div className="brow">
+                  <span className="bl">STCG Tax <span className="brate">20%</span></span>
+                  <span className="bv">{fmt(s20t)}</span>
+                </div>
+              )}
+              {l125t > 0 && (
+                <div className="brow">
+                  <span className="bl">LTCG Tax <span className="brate">12.5%</span></span>
+                  <span className="bv">{fmt(l125t)}</span>
+                </div>
+              )}
+              {buybackTax > 0 && (
+                <div className="brow">
+                  <span className="bl">Buyback Tax <span className="brate">20%</span></span>
+                  <span className="bv">{fmt(buybackTax)}</span>
+                </div>
+              )}
+
+              <div className="srow" style={{marginTop:5}}>
+                <span className="sl">Tax Before Rebate / Relief</span>
+                <span className="sv">{fmt(normTax + s20t + l125t + buybackTax)}</span>
+              </div>
+
+              {rebate > 0 && (
+                <div className="srow s-green">
+                  <span className="sl">(-) Rebate u/s 87A<small>{regime === "new" ? "Max ₹60K if income ≤ ₹12L" : "Max ₹12.5K if income ≤ ₹5L"}</small></span>
+                  <span className="sv">-{fmt(rebate)}</span>
+                </div>
+              )}
+              {marginalRelief > 0 && (
+                <div className="srow s-green">
+                  <span className="sl">(-) Marginal Relief</span>
+                  <span className="sv">-{fmt(marginalRelief)}</span>
+                </div>
+              )}
+              {sc > 0 && (
+                <div className="srow">
+                  <span className="sl">(+) Surcharge</span>
+                  <span className="sv">{fmt(sc)}</span>
+                </div>
+              )}
+              <div className="srow">
+                <span className="sl">(+) H&amp;E Cess<small>4% on tax + surcharge</small></span>
+                <span className="sv">{fmt(cess)}</span>
+              </div>
+
+              <div className="srow s-total">
+                <span className="sl">Total Tax Liability</span>
+                <span className="sv">{fmt(R(liability))}</span>
+              </div>
+
+              {totalTDS > 0 && (
+                <div className="srow s-green" style={{marginTop:4}}>
+                  <span className="sl">(-) TDS Deducted</span>
+                  <span className="sv">-{fmt(totalTDS)}</span>
+                </div>
+              )}
+              {totalAT > 0 && (
+                <div className="srow s-green">
+                  <span className="sl">(-) Advance Tax Paid</span>
+                  <span className="sv">-{fmt(totalAT)}</span>
+                </div>
+              )}
+              {totPenalty > 0 && (
+                <div className="srow s-red">
+                  <span className="sl">(+) Interest 234B/234C<small>estimated</small></span>
+                  <span className="sv">+{fmt(R(totPenalty))}</span>
+                </div>
+              )}
+
+              <div className="big-tax">
+                <div className="bt-lbl">Net Tax Payable</div>
+                <div className="bt-amt">{fmt(R(netPayable + totPenalty))}</div>
+                <div className="bt-eff">Effective Rate: {effRate}%</div>
+              </div>
+
+              {rebate > 0 && grossTotal <= REBATE_NEW_THRESHOLD && regime === "new" && (
+                <div className="rebate-note">
+                  ✓ Full 87A Rebate (₹60K) — Zero slab tax · Income ≤ ₹12L
+                </div>
+              )}
+              {rebate > 0 && regime === "old" && (
+                <div className="rebate-note">
+                  ✓ Rebate u/s 87A — Income ≤ ₹5L
+                </div>
+              )}
+              {marginalRelief > 0 && (
+                <div className="marginal-note">
+                  Marginal Relief applied — Income slightly above ₹12L threshold
+                </div>
+              )}
+              <div className="cess-note">* Rounded · 234B/C interest estimated · 234B from 1 Apr 2027</div>
+
+              {/* Slab Reference */}
+              <div className="coll-sec">
+                <button className="coll-btn" onClick={() => setShowSlabs(!showSlabs)}>
+                  <span className={`chevron${showSlabs ? " open" : ""}`}>▶</span>
+                  {regime === "new" ? "New" : "Old"} Regime Slab Table (FY 2026-27)
+                </button>
+                {showSlabs && (
+                  <table className="slab-tbl">
+                    <thead><tr><th>Income Range</th><th>Rate</th></tr></thead>
+                    <tbody>
+                      {(regime === "new" ? NEW_SLABS : OLD_SLABS).map((s, i, arr) => (
+                        <tr key={i}>
+                          <td>
+                            {i === 0 ? "₹0" : fmt(arr[i-1].limit + 1)}
+                            {" – "}
+                            {s.limit === Infinity ? "Above" : fmt(s.limit)}
+                          </td>
+                          <td>{s.rate}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+            </div>
+          </div>
+
+          {/* REGIME COMPARISON BOX */}
+          {grossTotal > 0 && (
+            <div className="comp-box">
+              <div className="comp-hdr">
+                Regime Comparison
+                <button className="coll-btn" style={{marginLeft:"auto",padding:0,fontSize:11}} onClick={() => setShowComp(!showComp)}>
+                  <span className={`chevron${showComp ? " open" : ""}`}>▶</span>
+                </button>
+              </div>
+              {showComp && (
+                <>
+                  <div className="comp-body">
+                    <div className={`comp-item${saving <= 0 ? " better" : ""}`}>
+                      <div className="ci-lbl">{curLabel} {saving <= 0 ? "↑ Better" : ""}</div>
+                      <div className="ci-amt">{fmt(R(cur.liability))}</div>
+                      {saving < 0 && <div className="ci-save">Save {fmt(R(-saving))} vs {altLabel}</div>}
+                    </div>
+                    <div className={`comp-item${saving > 0 ? " better" : ""}`}>
+                      <div className="ci-lbl">{altLabel} {saving > 0 ? "↑ Better" : ""}</div>
+                      <div className="ci-amt">{fmt(R(alt.liability))}</div>
+                      {saving > 0 && <div className="ci-save">Save {fmt(R(saving))} vs {curLabel}</div>}
+                    </div>
+                  </div>
+                  <div className="comp-footer">
+                    {saving === 0 ? "Both regimes result in the same tax liability" :
+                     `${saving < 0 ? curLabel : altLabel} saves ${fmt(Math.abs(R(saving)))}`}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── EXPORT CARD ── */}
+          <div className="exp-card">
+            <div className="exp-card-hdr">Export Report</div>
+            <div className="export-bar">
+              <button className="exp-btn exp-excel" onClick={exportExcel} disabled={excelLoading}>
+                {excelLoading
+                  ? <><span className="exp-spinner"/><span className="exp-text">Exporting…</span></>
+                  : <>
+                      <span className="exp-icon">↗</span>
+                      <span className="exp-text">
+                        Export Excel
+                        <span className="exp-sub">3 sheets · AY 2027-28</span>
+                      </span>
+                    </>
+                }
+              </button>
+            </div>
+            <div style={{fontSize:10,color:"var(--itr-text3)",marginTop:9,lineHeight:1.5}}>
+              <strong style={{color:"var(--itr-text2)"}}>Excel</strong> — 3 sheets: Tax Summary (with FY 2026-27 notes), TDS Credits, Advance Tax &amp; 234C Analysis.
+            </div>
+          </div>
+
+          <div className="save-bar">
+            <div className="save-indicator">
+              <span className={`save-dot ${saveStatus === "saved" ? "sd-saved" : saveStatus === "cleared" ? "sd-cleared" : "sd-idle"}`}/>
+              {saveStatus === "saved"   && <span style={{color:"var(--itr-green)",fontWeight:600}}>✓ Saved to browser</span>}
+              {saveStatus === "cleared" && <span style={{color:"var(--itr-saffron)",fontWeight:600}}>Form cleared</span>}
+              {saveStatus === "idle"    && <span>Auto-saved · reopens with your data</span>}
+            </div>
+            <button className="clear-btn" onClick={handleClear}>Clear All</button>
+          </div>
+
+          <div className="disc">
+            <strong>⚠️ Disclaimer:</strong> Estimation tool for FY 2026-27 (AY 2027-28) under Income Tax Act 2025.
+            234B interest estimated from 1 Apr 2027 to current date.
+            Buyback tax classification (STCG vs other) may depend on specific transaction terms — consult your CA.
+            The one-time LTCL vs STCG set-off (u/s 74) applies only to losses incurred up to 31 Mar 2026 — verify eligibility of specific holdings with your CA.
+            Revised return can be filed up to 31 March 2028, with a fee of ₹5,000 (income &gt; ₹5L) or ₹1,000 (income ≤ ₹5L).
+            Not tax advice — consult a qualified CA / tax advisor before filing.
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+TaxEstimatorSection2627 = React.memo(TaxEstimatorSection2627);
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TAX ESTIMATOR WRAPPER — FY tab switcher: FY 2025-26 ↔ FY 2026-27
+   ══════════════════════════════════════════════════════════════════════════ */
+const TaxEstimatorWrapper = ({ taxData, dispatch }) => {
+  const [fyTab, setFyTab] = useState(() => {
+    try { return localStorage.getItem("itr_fy_tab") || "fy2526"; } catch { return "fy2526"; }
+  });
+  const switchTab = (t) => {
+    setFyTab(t);
+    try { localStorage.setItem("itr_fy_tab", t); } catch {}
+  };
+
+  const tabs = [
+    {
+      id: "fy2526",
+      label: "FY 2025-26",
+      sub: "AY 2026-27 · Current Filing",
+      badge: "Current",
+      badgeColor: "var(--accent)",
+      badgeBg: "var(--accentbg)",
+      badgeBd: "var(--accent)44",
+    },
+    {
+      id: "fy2627",
+      label: "FY 2026-27",
+      sub: "AY 2027-28 · Plan Ahead",
+      badge: "New",
+      badgeColor: "#6d28d9",
+      badgeBg: "rgba(109,40,217,.12)",
+      badgeBd: "rgba(109,40,217,.28)",
+    },
+  ];
+
+  return (
+    <div>
+      {/* ── FY Tab Switcher ── */}
+      <div style={{
+        display:"flex",gap:6,marginBottom:16,
+        background:"var(--bg4)",borderRadius:12,padding:"6px 8px",
+        border:"1px solid var(--border2)",flexWrap:"wrap",
+      }}>
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            onClick={() => switchTab(t.id)}
+            style={{
+              flex:"1 1 180px", padding:"11px 16px", borderRadius:9,
+              border:"none", cursor:"pointer", textAlign:"left",
+              fontFamily:"'DM Sans',sans-serif", transition:"all .18s",
+              background: fyTab === t.id ? "var(--card)" : "transparent",
+              boxShadow: fyTab === t.id ? "0 2px 14px rgba(0,0,0,0.09)" : "none",
+              borderBottom: `3px solid ${fyTab === t.id ? "var(--accent)" : "transparent"}`,
+            }}
+          >
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{
+                fontSize:14, fontWeight:700,
+                color: fyTab === t.id ? "var(--accent)" : "var(--text4)",
+              }}>{t.label}</span>
+              <span style={{
+                fontSize:9, fontWeight:700, padding:"2px 8px", borderRadius:5,
+                background: t.badgeBg, color: t.badgeColor,
+                border:`1px solid ${t.badgeBd}`,
+              }}>{t.badge}</span>
+            </div>
+            <div style={{fontSize:10,color:"var(--text5)",marginTop:3}}>{t.sub}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* ── Content panes ── */}
+      {fyTab === "fy2526" && (
+        <TaxEstimatorSection taxData={taxData} dispatch={dispatch} />
+      )}
+      {fyTab === "fy2627" && (
+        <TaxEstimatorSection2627 taxData27={null} dispatch={dispatch} />
+      )}
+    </div>
+  );
+};
+
 
 function App(){
   const[state,rawDispatch]=usePersistentReducer(reducer,INIT);
@@ -2762,7 +3830,7 @@ function App(){
       React.createElement("div",{style:{display:tab==="info"?"contents":"none"}},
         React.createElement(InfoSection,{isMobile})),
       React.createElement("div",{style:{display:tab==="tax_est"?"contents":"none"}},
-        React.createElement(TaxEstimatorSection,{taxData:state.taxData||null,dispatch}))
+        React.createElement(TaxEstimatorWrapper,{taxData:state.taxData||null,dispatch}))
     )
   ),
     FsaPermCard,

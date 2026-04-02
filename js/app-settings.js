@@ -743,7 +743,9 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
                 const pw2=window.prompt("Confirm password:");
                 if(pw!==pw2){alert("Passwords do not match.");return;}
                 try{
+                  const attachmentBlobs=await rcptGetAllBlobEntries();
                   const payload={version:8,exportedAt:new Date().toISOString(),theme:loadTheme(),
+                    attachmentBlobs:attachmentBlobs.filter(e=>e.b64),
                     summary:{bankAccounts:state.banks.length,bankTxns:state.banks.reduce((s,b)=>s+b.transactions.length,0),cardAccounts:state.cards.length,cardTxns:state.cards.reduce((s,c)=>s+c.transactions.length,0),cashTxns:state.cash.transactions.length,loans:state.loans.length,mf:state.mf.length,shares:state.shares.length,fd:state.fd.length,categories:state.categories.length,payees:state.payees.length,scheduled:(state.scheduled||[]).length,notes:(state.notes||[]).length,nwSnapshots:Object.keys(state.nwSnapshots||{}).length,hasTaxData:!!(state.taxData),hasYearlyBudget:Object.values((state.insightPrefs||{}).yearlyBudgetPlans||{}).some(v=>v>0)},
                     data:{...state,notes:state.notes||[],scheduled:state.scheduled||[],nwSnapshots:state.nwSnapshots||{},eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{},taxData:state.taxData||null,re:state.re||[],pf:state.pf||[],goals:state.goals||[],hiddenTabs:state.hiddenTabs||[],catRules:state.catRules||[],insightPrefs:{...EMPTY_STATE().insightPrefs,...(state.insightPrefs||{})}}
                   };
@@ -758,12 +760,14 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
               },
               style:{display:"inline-flex",alignItems:"center",gap:8,padding:"9px 17px",fontSize:14,background:"rgba(109,40,217,.13)",border:"1px solid rgba(109,40,217,.35)",color:"#6d28d9",borderRadius:8,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:500,transition:"all .2s"}
             },"Encrypted Backup"),
-            React.createElement(Btn,{onClick:()=>{
+            React.createElement(Btn,{onClick:async()=>{
               try{
+                const attachmentBlobs=await rcptGetAllBlobEntries();
                 const payload={
                   version:8,
                   exportedAt:new Date().toISOString(),
                   theme:loadTheme(),
+                  attachmentBlobs:attachmentBlobs.filter(e=>e.b64),
                   summary:{
                     bankAccounts:state.banks.length,
                     bankTxns:state.banks.reduce((s,b)=>s+b.transactions.length,0),
@@ -877,6 +881,10 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
                         if(_restoreData.eodNavs&&Object.keys(_restoreData.eodNavs).length>0)
                           localStorage.setItem(LS_EOD_NAVS,JSON.stringify(_restoreData.eodNavs));
                       }catch{}
+                      /* ── Restore attachment blobs to IDB so files survive cache-clear ── */
+                      if(payload.attachmentBlobs&&payload.attachmentBlobs.length>0){
+                        try{await rcptRestoreAllBlobEntries(payload.attachmentBlobs);}catch{}
+                      }
                       /* ── Update in-memory React state for the 1.8s before reload ── */
                       dispatch({type:"RESTORE_ALL",data:_restoreData});
                       if(payload.theme){saveTheme(payload.theme);}
@@ -2295,6 +2303,7 @@ const FSA_IDB_NAME ="mm_fsa_db";
 const FSA_IDB_STORE="handles";
 const FSA_IDB_KEY  ="saveFileHandle";
 const RCPT_IDB_STORE="receipts"; /* keyed by "txId:filename" */
+const RCPT_BLOB_STORE="receipt_blobs"; /* keyed same way; stores {b64,mimeType} objects */
 
 /* Is the API available AND usable in this browser?
    showSaveFilePicker exists on Android Chrome 120+ but createWritable() for
@@ -2314,13 +2323,14 @@ const fsaSupported=()=>{
   return !/Android|iPhone|iPad|iPod|IEMobile|Opera Mini/i.test(navigator.userAgent);
 };
 
-/* ── IndexedDB open — version 2 adds the receipts object store ── */
+/* ── IndexedDB open — version 3 adds the receipt_blobs object store ── */
 const _fsaDbOpen=()=>new Promise((res,rej)=>{
-  const req=indexedDB.open(FSA_IDB_NAME,2); /* v2: adds receipts store */
+  const req=indexedDB.open(FSA_IDB_NAME,3); /* v3: adds receipt_blobs store */
   req.onupgradeneeded=e=>{
     const db=e.target.result;
     if(!db.objectStoreNames.contains(FSA_IDB_STORE))db.createObjectStore(FSA_IDB_STORE);
     if(!db.objectStoreNames.contains(RCPT_IDB_STORE))db.createObjectStore(RCPT_IDB_STORE);
+    if(!db.objectStoreNames.contains(RCPT_BLOB_STORE))db.createObjectStore(RCPT_BLOB_STORE);
   };
   req.onsuccess=e=>res(e.target.result);
   req.onerror=e=>rej(e.target.error);
@@ -2345,6 +2355,68 @@ const rcptDelAllForTx=async(txId)=>{
     if(!toDelete.length)return;
     await new Promise((res,rej)=>{const tx=db.transaction(RCPT_IDB_STORE,"readwrite");const store=tx.objectStore(RCPT_IDB_STORE);toDelete.forEach(k=>store.delete(k));tx.oncomplete=()=>res();tx.onerror=e=>rej(e.target.error);});
   }catch{}
+  /* Also remove stored blob content */
+  await rcptDelAllBlobsForTx(txId);
+};
+
+/* ── Receipt BLOB helpers (cache-clear resilience) ──
+   Stores raw file content as {b64, mimeType} in RCPT_BLOB_STORE.
+   Same key format as RCPT_IDB_STORE so handles and blobs stay in sync. */
+const _rcptReadFileAsB64=file=>new Promise((res,rej)=>{
+  const reader=new FileReader();
+  reader.onload=()=>res(reader.result.split(",")[1]);
+  reader.onerror=e=>rej(e.target.error);
+  reader.readAsDataURL(file);
+});
+const rcptSaveBlobData=async(txId,name,file)=>{
+  try{
+    const b64=await _rcptReadFileAsB64(file);
+    const db=await _fsaDbOpen();
+    await new Promise((res,rej)=>{const tx=db.transaction(RCPT_BLOB_STORE,"readwrite");const r=tx.objectStore(RCPT_BLOB_STORE).put({b64,mimeType:file.type},rcptKey(txId,name));r.onsuccess=()=>res();r.onerror=e=>rej(e.target.error);});
+  }catch{}
+};
+const rcptGetBlobData=async(txId,name)=>{
+  try{const db=await _fsaDbOpen();return await new Promise((res,rej)=>{const tx=db.transaction(RCPT_BLOB_STORE,"readonly");const r=tx.objectStore(RCPT_BLOB_STORE).get(rcptKey(txId,name));r.onsuccess=e=>res(e.target.result||null);r.onerror=e=>rej(e.target.error);});}catch{return null;}
+};
+const rcptDelBlobData=async(txId,name)=>{
+  try{const db=await _fsaDbOpen();await new Promise((res,rej)=>{const tx=db.transaction(RCPT_BLOB_STORE,"readwrite");const r=tx.objectStore(RCPT_BLOB_STORE).delete(rcptKey(txId,name));r.onsuccess=()=>res();r.onerror=e=>rej(e.target.error);});}catch{}
+};
+const rcptDelAllBlobsForTx=async(txId)=>{
+  try{
+    const db=await _fsaDbOpen();
+    const keys=await new Promise((res,rej)=>{const tx=db.transaction(RCPT_BLOB_STORE,"readonly");const r=tx.objectStore(RCPT_BLOB_STORE).getAllKeys();r.onsuccess=e=>res(e.target.result);r.onerror=e=>rej(e.target.error);});
+    const toDelete=keys.filter(k=>k.startsWith(txId+":"));
+    if(!toDelete.length)return;
+    await new Promise((res,rej)=>{const tx=db.transaction(RCPT_BLOB_STORE,"readwrite");const store=tx.objectStore(RCPT_BLOB_STORE);toDelete.forEach(k=>store.delete(k));tx.oncomplete=()=>res();tx.onerror=e=>rej(e.target.error);});
+  }catch{}
+};
+/* Gather ALL blob entries — used by backup export */
+const rcptGetAllBlobEntries=async()=>{
+  try{
+    const db=await _fsaDbOpen();
+    const keys=await new Promise((res,rej)=>{const tx=db.transaction(RCPT_BLOB_STORE,"readonly");const r=tx.objectStore(RCPT_BLOB_STORE).getAllKeys();r.onsuccess=e=>res(e.target.result);r.onerror=e=>rej(e.target.error);});
+    return await Promise.all(keys.map(async k=>{
+      const data=await rcptGetBlobData_byKey(k);
+      return{key:k,...(data||{})};
+    }));
+  }catch{return[];}
+};
+/* Internal key-based getter (used by rcptGetAllBlobEntries) */
+const rcptGetBlobData_byKey=async(key)=>{
+  try{const db=await _fsaDbOpen();return await new Promise((res,rej)=>{const tx=db.transaction(RCPT_BLOB_STORE,"readonly");const r=tx.objectStore(RCPT_BLOB_STORE).get(key);r.onsuccess=e=>res(e.target.result||null);r.onerror=e=>rej(e.target.error);});}catch{return null;}
+};
+/* Restore blob entries from a backup (array of {key,b64,mimeType}) */
+const rcptRestoreAllBlobEntries=async(entries)=>{
+  if(!entries||!entries.length)return;
+  try{
+    const db=await _fsaDbOpen();
+    await new Promise((res,rej)=>{
+      const tx=db.transaction(RCPT_BLOB_STORE,"readwrite");
+      const store=tx.objectStore(RCPT_BLOB_STORE);
+      entries.forEach(e=>{if(e.key&&e.b64)store.put({b64:e.b64,mimeType:e.mimeType||""},e.key);});
+      tx.oncomplete=()=>res();tx.onerror=e=>rej(e.target.error);
+    });
+  }catch{}
 };
 /* ══════════════════════════════════════════════════════════════════════════
    ACCOUNT-LEVEL ATTACHMENT IDB HELPERS
@@ -2368,6 +2440,32 @@ const accRcptDelAllForAcc=async(accId)=>{
     const toDelete=keys.filter(k=>k.startsWith("acc:"+accId+":"));
     if(!toDelete.length)return;
     await new Promise((res,rej)=>{const tx=db.transaction(RCPT_IDB_STORE,"readwrite");const store=tx.objectStore(RCPT_IDB_STORE);toDelete.forEach(k=>store.delete(k));tx.oncomplete=()=>res();tx.onerror=e=>rej(e.target.error);});
+  }catch{}
+  /* Also remove stored blob content */
+  await accRcptDelAllBlobsForAcc(accId);
+};
+
+/* ── Account attachment BLOB helpers (cache-clear resilience) ── */
+const accRcptSaveBlobData=async(accId,name,file)=>{
+  try{
+    const b64=await _rcptReadFileAsB64(file);
+    const db=await _fsaDbOpen();
+    await new Promise((res,rej)=>{const tx=db.transaction(RCPT_BLOB_STORE,"readwrite");const r=tx.objectStore(RCPT_BLOB_STORE).put({b64,mimeType:file.type},accRcptKey(accId,name));r.onsuccess=()=>res();r.onerror=e=>rej(e.target.error);});
+  }catch{}
+};
+const accRcptGetBlobData=async(accId,name)=>{
+  try{const db=await _fsaDbOpen();return await new Promise((res,rej)=>{const tx=db.transaction(RCPT_BLOB_STORE,"readonly");const r=tx.objectStore(RCPT_BLOB_STORE).get(accRcptKey(accId,name));r.onsuccess=e=>res(e.target.result||null);r.onerror=e=>rej(e.target.error);});}catch{return null;}
+};
+const accRcptDelBlobData=async(accId,name)=>{
+  try{const db=await _fsaDbOpen();await new Promise((res,rej)=>{const tx=db.transaction(RCPT_BLOB_STORE,"readwrite");const r=tx.objectStore(RCPT_BLOB_STORE).delete(accRcptKey(accId,name));r.onsuccess=()=>res();r.onerror=e=>rej(e.target.error);});}catch{}
+};
+const accRcptDelAllBlobsForAcc=async(accId)=>{
+  try{
+    const db=await _fsaDbOpen();
+    const keys=await new Promise((res,rej)=>{const tx=db.transaction(RCPT_BLOB_STORE,"readonly");const r=tx.objectStore(RCPT_BLOB_STORE).getAllKeys();r.onsuccess=e=>res(e.target.result);r.onerror=e=>rej(e.target.error);});
+    const toDelete=keys.filter(k=>k.startsWith("acc:"+accId+":"));
+    if(!toDelete.length)return;
+    await new Promise((res,rej)=>{const tx=db.transaction(RCPT_BLOB_STORE,"readwrite");const store=tx.objectStore(RCPT_BLOB_STORE);toDelete.forEach(k=>store.delete(k));tx.oncomplete=()=>res();tx.onerror=e=>rej(e.target.error);});
   }catch{}
 };
 

@@ -386,6 +386,8 @@ const ReceiptAttachPanel=({txId,receipts=[],onChange})=>{
       /* Check for duplicate */
       if(receipts.some(r=>r.name===file.name)){showMsg("A file with this name is already attached.",true);setBusy(false);return;}
       await rcptSaveHandle(txId,file.name,handle);
+      /* Also persist raw file content — survives cache/IDB wipe, included in backup */
+      await rcptSaveBlobData(txId,file.name,file);
       const newRcpt={name:file.name,type:file.type,size:file.size,attachedAt:new Date().toISOString()};
       onChange([...receipts,newRcpt]);
       showMsg(file.name+" attached.");
@@ -395,7 +397,24 @@ const ReceiptAttachPanel=({txId,receipts=[],onChange})=>{
 
   const preview=async(r)=>{
     const handle=await rcptGetHandle(txId,r.name);
-    if(!handle){showMsg("File handle lost — please re-attach the file.",true);return;}
+    /* ── Blob fallback: if handle is gone (cache cleared), use stored file content ── */
+    if(!handle){
+      const blobData=await rcptGetBlobData(txId,r.name);
+      if(!blobData){showMsg("File handle lost — please re-attach the file.",true);return;}
+      try{
+        const bytes=Uint8Array.from(atob(blobData.b64),c=>c.charCodeAt(0));
+        const blob=new Blob([bytes],{type:blobData.mimeType||r.type});
+        const url=URL.createObjectURL(blob);
+        if(r.type&&r.type.includes("image")){
+          setLightbox({url,name:r.name});
+        }else{
+          const a=document.createElement("a");a.href=url;a.download=r.name;
+          document.body.appendChild(a);a.click();document.body.removeChild(a);
+          setTimeout(()=>URL.revokeObjectURL(url),5000);
+        }
+      }catch(e){showMsg("Cannot open file: "+e.message,true);}
+      return;
+    }
     try{
       const perm=await handle.queryPermission({mode:"read"});
       if(perm!=="granted"){
@@ -416,6 +435,7 @@ const ReceiptAttachPanel=({txId,receipts=[],onChange})=>{
 
   const remove=async(r)=>{
     await rcptDelHandle(txId,r.name);
+    await rcptDelBlobData(txId,r.name);
     onChange(receipts.filter(x=>x.name!==r.name));
     showMsg("Removed "+r.name+".");
   };
@@ -471,6 +491,8 @@ const AccAttachPanel=({accId,attachments=[],onSave})=>{
       const file=await handle.getFile();
       if(list.some(r=>r.name===file.name)){showMsg("A file with this name is already attached.",true);setBusy(false);return;}
       await accRcptSaveHandle(accId,file.name,handle);
+      /* Also persist raw file content — survives cache/IDB wipe, included in backup */
+      await accRcptSaveBlobData(accId,file.name,file);
       const newList=[...list,{name:file.name,type:file.type,size:file.size,attachedAt:new Date().toISOString()}];
       setList(newList);
       onSave(newList);
@@ -481,7 +503,24 @@ const AccAttachPanel=({accId,attachments=[],onSave})=>{
 
   const preview=async(r)=>{
     const handle=await accRcptGetHandle(accId,r.name);
-    if(!handle){showMsg("File handle lost — please re-attach the file.",true);return;}
+    /* ── Blob fallback: if handle is gone (cache cleared), use stored file content ── */
+    if(!handle){
+      const blobData=await accRcptGetBlobData(accId,r.name);
+      if(!blobData){showMsg("File handle lost — please re-attach the file.",true);return;}
+      try{
+        const bytes=Uint8Array.from(atob(blobData.b64),c=>c.charCodeAt(0));
+        const blob=new Blob([bytes],{type:blobData.mimeType||r.type});
+        const url=URL.createObjectURL(blob);
+        if(r.type&&r.type.includes("image")){
+          setLightbox({url,name:r.name});
+        }else{
+          const a=document.createElement("a");a.href=url;a.download=r.name;
+          document.body.appendChild(a);a.click();document.body.removeChild(a);
+          setTimeout(()=>URL.revokeObjectURL(url),5000);
+        }
+      }catch(e){showMsg("Cannot open file: "+e.message,true);}
+      return;
+    }
     try{
       const perm=await handle.queryPermission({mode:"read"});
       if(perm!=="granted"){
@@ -502,6 +541,7 @@ const AccAttachPanel=({accId,attachments=[],onSave})=>{
 
   const remove=async(r)=>{
     await accRcptDelHandle(accId,r.name);
+    await accRcptDelBlobData(accId,r.name);
     const newList=list.filter(x=>x.name!==r.name);
     setList(newList);
     onSave(newList);

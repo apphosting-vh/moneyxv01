@@ -2,6 +2,10 @@
 /* Generated automatically — do not edit manually. */
 window.__MM_CHANGELOG =
 [
+  {version:"3.50.3",date:"2026-04-03",title:"Fix — Auto-Categorise 'Also Set Payee' now shows payee dropdown instead of free text",changes:[
+    "Bug Fix — In Settings → Auto-Categorise, the 'Also Set Payee' field was rendered as a free-text input, requiring users to type a payee name manually. It now renders as a <select> dropdown populated from the user's saved payee list, making it consistent with all other payee fields in the app and preventing typos / mismatches against existing payee records. The stored payeeValue is still a plain name string — no schema change.",
+    "Service Worker cache key bumped to finsight-v3-50-03 — clears all prior caches on activate.",
+  ]},
   {version:"3.50.2",date:"2026-04-03",title:"Fix — fetchNAV drops navDateISO + mfNavDateToISO fails on DD-MM-YYYY AMFI dates",changes:[
     "Bug Fix (Critical) — fetchNAV in InvestSection dropped navDateISO from the updated fund object. fetchOneNav returns {nav, navDate, navDateISO}, but the returned spread only kept nav and navDate — navDateISO was silently discarded. This meant upd objects passed to SET_EOD_NAVS lacked the ISO-formatted date, so eodNavs entries could be keyed by raw DD-MMM-YYYY strings instead of YYYY-MM-DD, breaking chronological sorting and _latestNavDate resolution. Fix: added navDateISO:res.navDateISO to the returned fund object in fetchNAV.",
     "Bug Fix (Critical) — mfNavDateToISO could not parse AMFI's DD-MM-YYYY (numeric month) date format. When all mfapi.in proxies fail, fetchNavFromAMFI is used as fallback. AMFI's NAVAll.txt sometimes returns dates as '03-04-2026' (DD-MM-YYYY, numeric months) instead of '03-Apr-2026' (DD-MMM-YYYY with 3-letter abbreviation). mfNavDateToISO only recognised 3-letter month strings via _MON_MAP, so numeric-month dates passed through unchanged — not converted to ISO. This broke eodNavs chronological sorting whenever AMFI was the data source. Fix: added a DD-MM-YYYY branch that detects 2-digit month + 4-digit year and converts to YYYY-MM-DD.",

@@ -2714,7 +2714,7 @@ function checkAndFireNotifications(state){
 
 
 const CatRulesPanel=({state,dispatch})=>{
-  const{catRules=[],categories=[]}=state;
+  const{catRules=[],categories=[],payees=[]}=state;
   const[form,setForm]=useState({keyword:"",field:"desc",matchType:"contains",cat:"",applyToPayee:false,payeeValue:"",caseSensitive:false});
   const[editId,setEditId]=useState(null);
   const[bulkMsg,setBulkMsg]=useState("");
@@ -2861,7 +2861,10 @@ const CatRulesPanel=({state,dispatch})=>{
         ),
         React.createElement("div",null,
           React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginBottom:4}},"Also set payee"),
-          React.createElement("input",{style:{...inpSty,width:"100%"},placeholder:"Leave blank to keep original",value:form.payeeValue,onChange:e=>setForm(p=>({...p,payeeValue:e.target.value,applyToPayee:!!e.target.value}))})
+          React.createElement("select",{style:{...selSty,width:"100%"},value:form.payeeValue,onChange:e=>setForm(p=>({...p,payeeValue:e.target.value,applyToPayee:!!e.target.value}))},
+            React.createElement("option",{value:""},"— leave unchanged —"),
+            payees.map(py=>React.createElement("option",{key:py.id,value:py.name},py.name))
+          )
         )
       ),
       React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:14}},

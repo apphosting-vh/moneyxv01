@@ -1847,47 +1847,82 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],pf=[],dispatch,defaultTab="m
         const overallGain=mfTotalNow-mfCoANow;
         const showHero=chartPts.length>=1||latestDate;
         if(!showHero||!mf.length)return null;
+        /* ── Format a date label: "03 Apr 2026" from ISO string ── */
+        const fmtDateLabel=(iso)=>{if(!iso)return"--";const p=iso.split("-");const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];return p.length===3?p[2]+" "+MON[parseInt(p[1],10)-1]+" "+p[0]:iso;};
         return React.createElement("div",{style:{marginBottom:16}},
-          /* Hero card */
+          /* ── Hero card ── */
           React.createElement(Card,{sx:{marginBottom:12,background:"linear-gradient(135deg,var(--card2),var(--card))",position:"relative",overflow:"hidden"}},
-            React.createElement("div",{style:{position:"absolute",right:-20,top:-20,width:130,height:130,borderRadius:"50%",background:"rgba(109,40,217,.07)"}}),
-            React.createElement("div",{style:{marginBottom:14}},
-              React.createElement("div",{style:{fontSize:10,color:"var(--text5)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}},"Mutual Fund Portfolio · Day Change"),
-              React.createElement("div",{style:{display:"flex",alignItems:"baseline",gap:14,flexWrap:"wrap"}},
-                React.createElement("div",{style:{fontSize:32,fontFamily:"'Sora',sans-serif",fontWeight:800,color:"#6d28d9"}},INR(mfTotalNow)),
-                dayChgPct!==null&&React.createElement("div",{style:{
-                  display:"flex",alignItems:"center",gap:6,
-                  background:dayChgPct>=0?"rgba(22,163,74,.12)":"rgba(239,68,68,.12)",
-                  border:"1px solid "+(dayChgPct>=0?"rgba(22,163,74,.3)":"rgba(239,68,68,.3)"),
-                  borderRadius:20,padding:"4px 12px",
-                }},
-                  React.createElement("span",{style:{fontSize:14,fontWeight:800,color:dayChgPct>=0?"#16a34a":"#ef4444"}},
-                    (dayChgPct>=0?"▲ +":"▼ ")+Math.abs(dayChgPct).toFixed(2)+"%"
-                  ),
-                  React.createElement("span",{style:{fontSize:12,color:dayChgPct>=0?"#16a34a":"#ef4444",opacity:.85}},
-                    (dayChgAbs>=0?"+":"")+INR(dayChgAbs)
-                  )
+            /* decorative glow blob */
+            React.createElement("div",{style:{position:"absolute",right:-30,top:-30,width:160,height:160,borderRadius:"50%",background:"rgba(109,40,217,.07)",pointerEvents:"none"}}),
+            /* ── Label ── */
+            React.createElement("div",{style:{fontSize:10,color:"var(--text5)",textTransform:"uppercase",letterSpacing:1.2,marginBottom:10}},"Mutual Fund Portfolio"),
+            /* ── Big bold current value ── */
+            React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontWeight:800,fontSize:36,color:"#6d28d9",lineHeight:1.1,marginBottom:16}},INR(mfTotalNow)),
+            /* ── Day-change pill: Today vs Yesterday ── */
+            (latestDate||prevDate)&&React.createElement("div",{style:{
+              display:"grid",
+              gridTemplateColumns:prevDate?"1fr auto 1fr":"1fr",
+              alignItems:"stretch",
+              background:"rgba(109,40,217,.07)",
+              border:"1px solid rgba(109,40,217,.18)",
+              borderRadius:14,
+              overflow:"hidden",
+              marginBottom:16,
+            }},
+              /* TODAY column */
+              React.createElement("div",{style:{padding:"12px 16px"}},
+                React.createElement("div",{style:{fontSize:9,fontWeight:700,color:"#6d28d9",textTransform:"uppercase",letterSpacing:1.1,marginBottom:4}},"Today"+(latestDate?" · "+fmtDateLabel(latestDate):"")),
+                React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontWeight:800,fontSize:20,color:"#6d28d9"}},latestTotal!==null?INR(latestTotal):"--"),
+                dayChgAbs!==null&&React.createElement("div",{style:{fontSize:11,color:dayChgAbs>=0?"#16a34a":"#ef4444",marginTop:3,fontWeight:600}},
+                  (dayChgAbs>=0?"▲ +":"▼ ")+INR(Math.abs(dayChgAbs))+" vs prev"
                 )
+              ),
+              /* Centre badge — only when both dates exist */
+              prevDate&&React.createElement("div",{style:{
+                display:"flex",alignItems:"center",justifyContent:"center",
+                padding:"0 4px",
+                borderLeft:"1px solid rgba(109,40,217,.15)",
+                borderRight:"1px solid rgba(109,40,217,.15)",
+                background:dayChgPct===null?"transparent":dayChgPct>=0?"rgba(22,163,74,.10)":"rgba(239,68,68,.10)",
+              }},
+                dayChgPct!==null
+                  ?React.createElement("div",{style:{textAlign:"center",padding:"10px 12px"}},
+                      React.createElement("div",{style:{fontSize:16,fontWeight:800,color:dayChgPct>=0?"#16a34a":"#ef4444",lineHeight:1}},(dayChgPct>=0?"▲":""+(dayChgPct<0?"▼":""))+" "+(dayChgPct>=0?"+":"")+Math.abs(dayChgPct).toFixed(2)+"%"),
+                      React.createElement("div",{style:{fontSize:9,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.8,marginTop:3}},dayChgPct>=0?"Day gain":"Day loss")
+                  )
+                  :React.createElement("div",{style:{padding:"10px 8px",fontSize:11,color:"var(--text5)"}},"–")
+              ),
+              /* YESTERDAY column */
+              prevDate&&React.createElement("div",{style:{padding:"12px 16px",opacity:.85}},
+                React.createElement("div",{style:{fontSize:9,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:1.1,marginBottom:4}},"Yesterday · "+fmtDateLabel(prevDate)),
+                React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:20,color:"var(--text3)"}},prevTotal!==null?INR(prevTotal):"--"),
+                React.createElement("div",{style:{fontSize:11,color:"var(--text6)",marginTop:3}},prevDate?"Prev snapshot":"")
               )
             ),
-            /* Three quick-stat pills */
-            React.createElement("div",{style:{display:"flex",gap:20,flexWrap:"wrap"}},
-              React.createElement("div",null,
-                React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.6,marginBottom:2}},latestDate?"Value as of "+latestDate:"Latest NAV Value"),
-                React.createElement("div",{style:{fontSize:15,fontWeight:700,color:"#6d28d9",fontFamily:"'Sora',sans-serif"}},INR(mfTotalNow))
+            /* ── Bottom stats: CoA + Total Gain/Loss ── */
+            React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
+              React.createElement("div",{style:{
+                padding:"10px 14px",
+                background:"var(--bg4)",
+                borderRadius:10,
+                border:"1px solid var(--border2)",
+              }},
+                React.createElement("div",{style:{fontSize:9,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:1,marginBottom:4}},"Cost of Acquisition"),
+                React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:16,color:"var(--text3)"}},INR(mfCoANow))
               ),
-              React.createElement("div",null,
-                React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.6,marginBottom:2}},"Cost of Acquisition"),
-                React.createElement("div",{style:{fontSize:15,fontWeight:700,color:"var(--text4)",fontFamily:"'Sora',sans-serif"}},INR(mfCoANow))
-              ),
-              React.createElement("div",null,
-                React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.6,marginBottom:2}},"Total Gain / Loss"),
-                React.createElement("div",{style:{fontSize:15,fontWeight:700,color:overallGain>=0?"#16a34a":"#ef4444",fontFamily:"'Sora',sans-serif"}},
-                  (overallGain>=0?"+":"")+INR(overallGain)+" ("+(mfCoANow>0?((overallGain/mfCoANow*100).toFixed(2)):"0.00")+"%)")
-              ),
-              prevDate&&React.createElement("div",null,
-                React.createElement("div",{style:{fontSize:10,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.6,marginBottom:2}},"Prev Snapshot"),
-                React.createElement("div",{style:{fontSize:13,color:"var(--text5)"}},prevDate+" · "+INR(prevTotal))
+              React.createElement("div",{style:{
+                padding:"10px 14px",
+                background:overallGain>=0?"rgba(22,163,74,.08)":"rgba(239,68,68,.08)",
+                borderRadius:10,
+                border:"1px solid "+(overallGain>=0?"rgba(22,163,74,.2)":"rgba(239,68,68,.2)"),
+              }},
+                React.createElement("div",{style:{fontSize:9,fontWeight:700,color:overallGain>=0?"#16a34a":"#ef4444",textTransform:"uppercase",letterSpacing:1,marginBottom:4}},"Total Gain / Loss"),
+                React.createElement("div",{style:{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:16,color:overallGain>=0?"#16a34a":"#ef4444"}},
+                  (overallGain>=0?"+":"")+INR(overallGain)
+                ),
+                React.createElement("div",{style:{fontSize:11,color:overallGain>=0?"#16a34a":"#ef4444",opacity:.8,marginTop:2}},
+                  (mfCoANow>0?((overallGain/mfCoANow*100).toFixed(2)):"0.00")+"% on CoA"
+                )
               )
             )
           ),

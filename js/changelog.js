@@ -2,6 +2,11 @@
 /* Generated automatically — do not edit manually. */
 window.__MM_CHANGELOG =
 [
+  {version:"3.50.06",date:"2026-04-07",title:"Fix — Monthly date filter presets off by one day in non-UTC timezones",changes:[
+    "Bug Fix (Critical) — All monthly date filter presets (This Month, 3 Months, 6 Months) and the initial 6-month default range in Reports produced dates off by one day in any timezone with a positive UTC offset (e.g. UTC+5:30 IST, UTC+8 CST). Root cause: the preset helper used Date.toISOString().split('T')[0] to format dates, which converts local midnight to UTC — shifting the date backward. For example, midnight April 1 in UTC+8 becomes 4pm March 31 in UTC, so the filter showed '31 Mar → 29 Apr' instead of '01 Apr → 30 Apr'. Fix: replaced all toISOString()-based date formatting in the Reports date-range logic with a local-date formatter using getFullYear()/getMonth()+1/getDate(), matching the correct pattern already used in the transaction ledger filter panel (app-ui-base.js).",
+    "Bug Fix — Export modal month selector default also used toISOString() for YYYY-MM, causing the wrong month to be pre-selected in non-UTC timezones. Fixed with the same local-date approach.",
+    "Service Worker cache key bumped to finsight-v3-50-06 — clears all prior caches on activate.",
+  ]},
   {version:"3.50.3",date:"2026-04-03",title:"Fix — Auto-Categorise 'Also Set Payee' now shows payee dropdown instead of free text",changes:[
     "Bug Fix — In Settings → Auto-Categorise, the 'Also Set Payee' field was rendered as a free-text input, requiring users to type a payee name manually. It now renders as a <select> dropdown populated from the user's saved payee list, making it consistent with all other payee fields in the app and preventing typos / mismatches against existing payee records. The stored payeeValue is still a plain name string — no schema change.",
     "Service Worker cache key bumped to finsight-v3-50-03 — clears all prior caches on activate.",

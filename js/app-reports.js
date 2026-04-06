@@ -1,7 +1,7 @@
 /* ── ExportReportModal, ReportsSection ── */
 const ExportReportModal=({data,onClose})=>{
   const[periodType,setPeriodType]=useState("monthly"); /* monthly | yearly */
-  const[selMonth,setSelMonth]=useState(()=>new Date().toISOString().substr(0,7));
+  const[selMonth,setSelMonth]=useState(()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;});
   const[selYear,setSelYear]=useState(()=>String(getCurrentIndianFY()));
   const[exporting,setExporting]=useState(false);
   const[status,setStatus]=useState(null);
@@ -1080,11 +1080,13 @@ const ReportsSection=React.memo(({data,isMobile,onJumpToLedger})=>{
   const[expanded,setExpanded]=useState({categories:true});
   const[exportOpen,setExportOpen]=useState(false);
   /* Memoize so the "6 Months active" check is stable across re-renders */
+  /* Local-date formatter — avoids toISOString() UTC shift bug */
+  const fmtD=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   const{firstDay,lastDay}=React.useMemo(()=>{
     const now=new Date();
     return{
-      firstDay:new Date(now.getFullYear(),now.getMonth()-5,1).toISOString().split("T")[0],
-      lastDay:new Date(now.getFullYear(),now.getMonth()+1,0).toISOString().split("T")[0],
+      firstDay:fmtD(new Date(now.getFullYear(),now.getMonth()-5,1)),
+      lastDay:fmtD(new Date(now.getFullYear(),now.getMonth()+1,0)),
     };
   },[]);
   const now=new Date();
@@ -1093,15 +1095,15 @@ const ReportsSection=React.memo(({data,isMobile,onJumpToLedger})=>{
 
   const setPreset=(months)=>{
     const t=new Date();
-    setFrom(new Date(t.getFullYear(),t.getMonth()-(months-1),1).toISOString().split("T")[0]);
-    setTo(new Date(t.getFullYear(),t.getMonth()+1,0).toISOString().split("T")[0]);
+    setFrom(fmtD(new Date(t.getFullYear(),t.getMonth()-(months-1),1)));
+    setTo(fmtD(new Date(t.getFullYear(),t.getMonth()+1,0)));
   };
 
   const toggle=id=>setExpanded(e=>({...e,[id]:!e[id]}));
 
   const presets=[
-    {label:"This Month",onClick:()=>setPreset(1),active:from===new Date(now.getFullYear(),now.getMonth(),1).toISOString().split("T")[0]&&to===lastDay},
-    {label:"3 Months",  onClick:()=>setPreset(3),active:from===new Date(now.getFullYear(),now.getMonth()-2,1).toISOString().split("T")[0]&&to===lastDay},
+    {label:"This Month",onClick:()=>setPreset(1),active:from===fmtD(new Date(now.getFullYear(),now.getMonth(),1))&&to===lastDay},
+    {label:"3 Months",  onClick:()=>setPreset(3),active:from===fmtD(new Date(now.getFullYear(),now.getMonth()-2,1))&&to===lastDay},
     {label:"6 Months",  onClick:()=>setPreset(6),active:from===firstDay&&to===lastDay},
     {label:"This Year", onClick:()=>{const fy=getIndianFYDates(getCurrentIndianFY());setFrom(fy.from);setTo(fy.to);},active:from===getIndianFYDates(getCurrentIndianFY()).from&&to===getIndianFYDates(getCurrentIndianFY()).to},
     {label:"Previous Year", onClick:()=>{const fy=getIndianFYDates(getCurrentIndianFY()-1);setFrom(fy.from);setTo(fy.to);},active:from===getIndianFYDates(getCurrentIndianFY()-1).from&&to===getIndianFYDates(getCurrentIndianFY()-1).to},

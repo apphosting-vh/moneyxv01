@@ -416,6 +416,34 @@ const InvestDashboard=React.memo(({mf,shares,fd,re=[],dispatch,isMobile,eodPrice
     return computeXIRR(cfs,dts);
   })();
 
+  /* ── MF XIRR — aggregate via cashflows when startDate known, else weighted avg of manual XIRRs ── */
+  const mfXirr=(()=>{
+    if(!mf.length)return null;
+    /* Prefer full cashflow XIRR for funds with startDate */
+    const withDate=mf.filter(m=>m.startDate&&m.units>0&&(m.avgNav>0||m.invested>0)&&(m.currentValue||m.invested)>0);
+    if(withDate.length>=1){
+      const cfs=[],dts=[],_today=TODAY();
+      withDate.forEach(m=>{
+        const cost=m.avgNav&&m.avgNav>0?m.units*m.avgNav:m.invested;
+        cfs.push(-cost); dts.push(m.startDate);
+      });
+      const totalCurr=withDate.reduce((s,m)=>s+(m.currentValue||m.invested),0);
+      cfs.push(totalCurr); dts.push(_today);
+      const xirr=computeXIRR(cfs,dts);
+      if(xirr!==null)return{xirr,isManual:false,partial:withDate.length<mf.length};
+    }
+    /* Fallback: value-weighted average of manual XIRRs */
+    const withManual=mf.filter(m=>m.manualXirr!=null&&m.manualXirr!=="");
+    if(!withManual.length)return null;
+    const totalVal=withManual.reduce((s,m)=>s+(m.currentValue||m.invested),0);
+    if(totalVal<=0)return null;
+    const wtdXirr=withManual.reduce((s,m)=>{
+      const v=m.currentValue||m.invested;
+      return s+(+m.manualXirr*(v/totalVal));
+    },0);
+    return{xirr:wtdXirr,isManual:true,partial:withManual.length<mf.length};
+  })();
+
   /* ── Allocation donut — liquid investments only (RE is illiquid, shown separately) ── */
   const allocData=[
     {name:"Mutual Funds",  value:mfVal,      col:"#6d28d9"},
@@ -640,13 +668,27 @@ const InvestDashboard=React.memo(({mf,shares,fd,re=[],dispatch,isMobile,eodPrice
     })(),
 
     /* ── XIRR summary strip (shows only when data is available) */
-    (sharesXirr!==null||fdXirr!==null)&&React.createElement("div",{style:{
+    (mfXirr!==null||sharesXirr!==null||fdXirr!==null)&&React.createElement("div",{style:{
       display:"flex",gap:10,flexWrap:"wrap",marginBottom:16,
       padding:"12px 16px",borderRadius:12,
       background:"linear-gradient(135deg,rgba(109,40,217,.07),rgba(22,163,74,.06))",
       border:"1px solid rgba(109,40,217,.18)"
     }},
       React.createElement("div",{style:{fontSize:10,fontWeight:700,color:"#6d28d9",textTransform:"uppercase",letterSpacing:1,alignSelf:"center",marginRight:6}},"XIRR"),
+      mfXirr!==null&&React.createElement("div",{style:{
+        padding:"6px 14px",borderRadius:8,
+        background:mfXirr.xirr>=0?"rgba(109,40,217,.1)":"rgba(239,68,68,.1)",
+        border:"1px solid "+(mfXirr.xirr>=0?"rgba(109,40,217,.25)":"rgba(239,68,68,.25)")
+      }},
+        React.createElement("div",{style:{display:"flex",alignItems:"center",gap:5,marginBottom:2}},
+          React.createElement("div",{style:{fontSize:10,color:"var(--text6)"}},"Mutual Funds"),
+          React.createElement("span",{style:{fontSize:8,padding:"1px 4px",borderRadius:4,background:mfXirr.isManual?"rgba(180,83,9,.18)":"rgba(22,163,74,.15)",color:mfXirr.isManual?"#b45309":"#16a34a",fontWeight:700,border:"1px solid "+(mfXirr.isManual?"rgba(180,83,9,.3)":"rgba(22,163,74,.3)")}},mfXirr.isManual?"Manual":"Auto"),
+          mfXirr.partial&&React.createElement("span",{style:{fontSize:8,color:"var(--text6)",fontStyle:"italic"}},"partial")
+        ),
+        React.createElement("div",{style:{fontSize:15,fontWeight:700,color:mfXirr.xirr>=0?"#6d28d9":"#ef4444"}},
+          (mfXirr.xirr>=0?"+":"")+mfXirr.xirr.toFixed(2)+"% p.a."
+        )
+      ),
       sharesXirr!==null&&React.createElement("div",{style:{
         padding:"6px 14px",borderRadius:8,
         background:sharesXirr>=0?"rgba(22,163,74,.1)":"rgba(239,68,68,.1)",
@@ -655,6 +697,7 @@ const InvestDashboard=React.memo(({mf,shares,fd,re=[],dispatch,isMobile,eodPrice
         React.createElement("div",{style:{fontSize:10,color:"var(--text6)",marginBottom:2}},"Shares Portfolio"),
         React.createElement("div",{style:{fontSize:15,fontWeight:700,color:sharesXirr>=0?"#16a34a":"#ef4444"}},
           (sharesXirr>=0?"+":"")+sharesXirr.toFixed(2)+"% p.a."
+
         )
       ),
       fdXirr!==null&&React.createElement("div",{style:{
@@ -2114,19 +2157,31 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],pf=[],dispatch,defaultTab="m
               React.createElement("span",null,(gain>=0?"▲ Gain":"▼ Loss")+" "+INR(Math.abs(gain))),
               React.createElement("span",{style:{fontSize:12,opacity:.85}},Math.abs(gp)+"%")
             ),
-            /* XIRR / CAGR badge */
+            /* XIRR badge — auto from startDate, else manual override, else prompt */
             (()=>{
               const startDate=m.startDate||(m.notes&&m.notes.match&&m.notes.match(/\b(\d{4}-\d{2}-\d{2})\b/)&&m.notes.match(/\b(\d{4}-\d{2}-\d{2})\b/)[1]);
-              const xirr=startDate&&trueCoA>0&&currentVal>0?xirrSingleBuy(trueCoA,currentVal,startDate):null;
+              const autoXirr=startDate&&trueCoA>0&&currentVal>0?xirrSingleBuy(trueCoA,currentVal,startDate):null;
+              const manualXirrVal=m.manualXirr!=null&&m.manualXirr!==""?+m.manualXirr:null;
+              const xirr=autoXirr!==null?autoXirr:manualXirrVal;
+              const isManual=autoXirr===null&&manualXirrVal!==null;
               if(xirr!==null){
                 const col=xirr>=0?"#6d28d9":"#ef4444";
                 return React.createElement("div",{style:{marginTop:6,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 11px",borderRadius:7,background:"rgba(109,40,217,.07)",border:"1px solid rgba(109,40,217,.18)"}},
-                  React.createElement("span",{style:{fontSize:11,color:"#6d28d9",fontWeight:600}},"XIRR"),
+                  React.createElement("div",{style:{display:"flex",alignItems:"center",gap:5}},
+                    React.createElement("span",{style:{fontSize:11,color:"#6d28d9",fontWeight:700}},"XIRR"),
+                    React.createElement("span",{style:{fontSize:9,padding:"1px 5px",borderRadius:5,background:isManual?"rgba(180,83,9,.15)":"rgba(22,163,74,.13)",color:isManual?"#b45309":"#16a34a",fontWeight:700,border:"1px solid "+(isManual?"rgba(180,83,9,.3)":"rgba(22,163,74,.3)")}},isManual?"Manual":"Auto")
+                  ),
                   React.createElement("span",{style:{fontSize:13,fontWeight:700,color:col}},(xirr>=0?"+":"")+xirr.toFixed(2)+"% p.a.")
                 );
               }
-              /* No startDate — show a subtle hint */
-              return null;
+              /* Neither startDate nor manualXirr — show a prompt */
+              return React.createElement("div",{style:{marginTop:6,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 11px",borderRadius:7,background:"rgba(109,40,217,.04)",border:"1px dashed rgba(109,40,217,.25)"}},
+                React.createElement("span",{style:{fontSize:11,color:"var(--text6)",fontStyle:"italic"}},"XIRR not set"),
+                React.createElement("button",{
+                  onClick:()=>setEditMf({...m,units:String(m.units||""),avgNav:String(m.avgNav||""),invested:String(m.invested||""),nav:String(m.nav||""),currentValue:String(m.currentValue||""),startDate:m.startDate||"",manualXirr:m.manualXirr!=null?String(m.manualXirr):""}),
+                  style:{fontSize:10,padding:"2px 8px",borderRadius:5,border:"1px solid rgba(109,40,217,.35)",background:"rgba(109,40,217,.08)",color:"#6d28d9",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600}
+                },"+ Set XIRR")
+              );
             })(),
             React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}},
               React.createElement("div",{style:{fontSize:11,color:"var(--text6)"}},"Scheme Code: "+m.schemeCode),
@@ -2138,6 +2193,7 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],pf=[],dispatch,defaultTab="m
                   nav:String(m.nav||""),
                   currentValue:String(m.currentValue||""),
                   startDate:m.startDate||"",
+                  manualXirr:m.manualXirr!=null?String(m.manualXirr):"",
                 }),
                 style:{padding:"3px 10px",borderRadius:7,border:"1px solid rgba(109,40,217,.35)",
                   background:"rgba(109,40,217,.08)",color:"#6d28d9",cursor:"pointer",
@@ -2754,6 +2810,17 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],pf=[],dispatch,defaultTab="m
             value:editMf.startDate||"",
             onChange:e=>setEditMf(p=>({...p,startDate:e.target.value}))})
         ),
+        React.createElement(Field,{label:"Manual XIRR Override (% p.a.) — optional"},
+          React.createElement("input",{className:"inp",type:"number",step:"0.01",
+            value:editMf.manualXirr!=null?editMf.manualXirr:"",
+            onChange:e=>setEditMf(p=>({...p,manualXirr:e.target.value})),
+            placeholder:"e.g. 14.5"}),
+          React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginTop:5,lineHeight:1.5}},
+            editMf.startDate
+              ?"Start date is set — XIRR will be auto-calculated. Manual override is ignored when start date exists."
+              :"No start date set — this manual XIRR will be displayed on the fund card. Auto-calculation kicks in once you add a start date."
+          )
+        ),
         React.createElement(Field,{label:"Current NAV (₹)"},
           React.createElement("input",{className:"inp",type:"number",step:"0.01",min:"0",
             value:editMf.nav,
@@ -2793,6 +2860,7 @@ const InvestSection=React.memo(({mf,shares,fd,re=[],pf=[],dispatch,defaultTab="m
               currentValue:parseFloat(editMf.currentValue)||null,
               startDate:editMf.startDate||null,
               notes:editMf.notes||"",
+              manualXirr:editMf.manualXirr!==""&&editMf.manualXirr!=null?parseFloat(editMf.manualXirr):null,
             }});
             setEditMf(null);
           },

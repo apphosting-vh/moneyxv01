@@ -997,7 +997,7 @@ const TxModal=({onAdd,onClose,categories,payees,txTypes,allAccounts,currentAccou
       if(!f.srcId||!f.tgtId||f.srcId===f.tgtId)return;
       const srcAcc=allAccounts.find(a=>a.id===f.srcId);
       const tgtAcc=allAccounts.find(a=>a.id===f.tgtId);
-      onAdd({isTransfer:true,srcType:srcAcc.accType,srcId:f.srcId,tgtType:tgtAcc.accType,tgtId:f.tgtId,tx:{...f,amount:+f.amount,cat:"Transfer",type:"debit",id:usedId,_addedAt,...(_rcpts?{_receipts:_rcpts}:{})}});
+      onAdd({isTransfer:true,srcType:srcAcc.accType,srcId:f.srcId,tgtType:tgtAcc.accType,tgtId:f.tgtId,tx:{...f,amount:+f.amount,cat:f.cat||"Transfer",type:"debit",id:usedId,_addedAt,...(_rcpts?{_receipts:_rcpts}:{})}});
     } else {
       onAdd({...f,amount:+f.amount,type:typeToLedger(f.txType),id:usedId,_addedAt,...(_rcpts?{_receipts:_rcpts}:{})});
     }

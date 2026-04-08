@@ -2094,7 +2094,7 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
       if(isCurrent){const nowMonth=now.getMonth();monthsElapsed=nowMonth>=3?(nowMonth-3+1):(nowMonth+9+1);}
       return {year:getIndianFYLabel(fyStartYear),fyStartYear,isCurrent,catRows,totalPlanned,totalActual,income,invCatRows,actualInvest,plannedInvest,monthsElapsed,dateFrom:yS,dateTo:yE};
     };
-    const yearsBudget=[buildYearlyBudgetData(currentFY-2),buildYearlyBudgetData(currentFY-1),buildYearlyBudgetData(currentFY)];
+    const yearsBudget=[buildYearlyBudgetData(currentFY-4),buildYearlyBudgetData(currentFY-3),buildYearlyBudgetData(currentFY-2),buildYearlyBudgetData(currentFY-1),buildYearlyBudgetData(currentFY)];
     return {hasBudgets,hasYearlyBudgets,months,years,yearsBudget};
   },[allTxns,categories,P.budgetPlans,P.yearlyBudgetPlans]);
 
@@ -2617,7 +2617,7 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
                     )
                   )
                 :React.createElement(React.Fragment,null,
-                    React.createElement(SHead,{t:"Last 3 Financial Years — Yearly Budget",s:"Direct annual targets (not derived from monthly) · current FY expanded · click to expand or collapse"}),
+                    React.createElement(SHead,{t:"Last 5 Financial Years — Yearly Budget",s:"Direct annual targets (not derived from monthly) · current FY expanded · click to expand or collapse"}),
                     React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:12}},
                       [...budgetTrackData.yearsBudget].reverse().map(y=>React.createElement(BudgetYearCard,{
                         key:y.year+"_yb",year:y.year,isCurrent:y.isCurrent,

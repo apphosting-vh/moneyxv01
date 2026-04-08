@@ -1432,7 +1432,7 @@ const Dashboard=React.memo(({data,isMobile})=>{
         {label:"Banks",val:bV,col:"#0ea5e9",icon:React.createElement(Icon,{n:"bank",size:18})},
         {label:"Cash",val:cV,col:"#22c55e",icon:React.createElement(Icon,{n:"cash",size:18})},
         {label:"Mutual Funds",val:mfV,col:"#a78bfa",icon:React.createElement(Icon,{n:"invest",size:18})},
-        {label:"Stocks",val:shV,col:"#f59e0b",icon:React.createElement(Icon,{n:"trenddown",size:34})},
+        {label:"Stocks",val:shV,col:"#f59e0b",icon:React.createElement(Icon,{n:"stocks",size:34})},
         {label:"Fixed Deposits",val:fdV,col:"#06b6d4",icon:React.createElement(Icon,{n:"building",size:18})},
         {label:"Real Estate",val:reV,col:"#f97316",icon:React.createElement(Icon,{n:"home",size:18})},
       ].filter(s=>s.val>0);

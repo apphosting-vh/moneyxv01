@@ -231,6 +231,7 @@ const Icon=({n,size=16,col,style={}})=>{
     case"invest":return svg(pl("2 18 9 11 13 15 22 6"),pl("17 6 22 6 22 11"));
     case"chart":return svg(l(18,21,18,9),l(12,21,12,3),l(6,21,6,13),r(2,21,20,1,0.5));
     case"pie":return svg(p("M21.21 15.89A10 10 0 118 2.83"),p("M22 12A10 10 0 0012 2v10z"));
+    case"stocks":return svg(pl("2 17 7 12 12 14 17 9 22 6"),pl("18 6 22 6 22 10"),r(4,18,3,4,0.8),r(9,15,3,7,0.8),r(14,12,3,10,0.8));
     case"money":return svg(l(12,1,12,23),p("M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"));
     case"spend":return svg(c(12,12,10),p("M8.5 12.5l2.5 2.5 4.5-5"));
     case"income":return svg(c(12,12,10),l(12,17,12,7),pl("8 11 12 7 16 11"));

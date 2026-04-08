@@ -1643,7 +1643,7 @@ const NetWorthInsightTab=({banks,cards,cash,mf,shares,fd,re,loans,categories,pre
           {icon:React.createElement(Icon,{n:"bank",size:18}),label:"Bank Balances",  val:bankBal,   col:"#0ea5e9"},
           {icon:React.createElement(Icon,{n:"cash",size:18}),label:"Cash",            val:cashBal,   col:"#22c55e"},
           {icon:React.createElement(Icon,{n:"invest",size:18}),label:"Mutual Funds",    val:mfVal,     col:"#a78bfa"},
-          {icon:React.createElement(Icon,{n:"trenddown",size:34}),label:"Stocks",          val:sharesVal, col:"#f59e0b"},
+          {icon:React.createElement(Icon,{n:"stocks",size:34}),label:"Stocks",          val:sharesVal, col:"#f59e0b"},
           {icon:React.createElement(Icon,{n:"building",size:18}),label:"Fixed Deposits",  val:fdVal,     col:"#06b6d4"},
           {icon:React.createElement(Icon,{n:"home",size:18}),label:"Real Estate",     val:reVal,     col:"#f97316"},
         ].filter(r=>r.val>0).map(r=>{

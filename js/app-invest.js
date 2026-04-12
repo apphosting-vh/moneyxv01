@@ -751,13 +751,43 @@ const InvestDashboard=React.memo(({mf,mfTxns=[],shares,fd,re=[],dispatch,isMobil
     return computeXIRR(cfs,dts);
   })();
 
-  /* ── MF XIRR — aggregate via cashflows when startDate known, else weighted avg of manual XIRRs ── */
+  /* ── MF XIRR — priority: full txn cashflows > startDate > weighted manual ── */
   const mfXirr=(()=>{
     if(!mf.length)return null;
-    /* Prefer full cashflow XIRR for funds with startDate */
+    const _today=TODAY();
+    const activeMfD=mf.filter(m=>m.units>0);
+
+    /* TIER 1: Full cashflow XIRR from imported transaction history (most accurate) */
+    if((mfTxns||[]).length>=2){
+      const cfs=[],dts=[];
+      /* Aggregate all buy/sell txns across all active funds */
+      const txnFunds=new Set((mfTxns||[]).map(t=>t.fundName));
+      /* Only use txns for funds that still have active holdings */
+      const activeFundNames=new Set(activeMfD.map(m=>m.name));
+      let hasTxnData=false;
+      (mfTxns||[]).forEach(t=>{
+        if(!t.date)return;
+        const nav=+t.nav||0;
+        const units=+t.units>0?+t.units:(nav>0&&+t.amount>0?+t.amount/nav:0);
+        const amount=+t.amount>0?+t.amount:units*nav;
+        if(!amount)return;
+        if(t.orderType==="buy"){cfs.push(-amount);dts.push(t.date);hasTxnData=true;}
+        else{cfs.push(+amount);dts.push(t.date);hasTxnData=true;}
+      });
+      if(hasTxnData&&cfs.length>=1){
+        const totalCurr=activeMfD.reduce((s,m)=>s+(m.currentValue&&m.currentValue>0?m.currentValue:m.invested),0);
+        if(totalCurr>0){
+          cfs.push(totalCurr);dts.push(_today);
+          const xirr=computeXIRR(cfs,dts);
+          if(xirr!==null)return{xirr,isManual:false,source:"Txns",partial:false};
+        }
+      }
+    }
+
+    /* TIER 2: Cashflow XIRR from startDate per fund */
     const withDate=mf.filter(m=>m.startDate&&m.units>0&&(m.avgNav>0||m.invested>0)&&(m.currentValue||m.invested)>0);
     if(withDate.length>=1){
-      const cfs=[],dts=[],_today=TODAY();
+      const cfs=[],dts=[];
       withDate.forEach(m=>{
         const cost=m.avgNav&&m.avgNav>0?m.units*m.avgNav:m.invested;
         cfs.push(-cost); dts.push(m.startDate);
@@ -765,9 +795,10 @@ const InvestDashboard=React.memo(({mf,mfTxns=[],shares,fd,re=[],dispatch,isMobil
       const totalCurr=withDate.reduce((s,m)=>s+(m.currentValue||m.invested),0);
       cfs.push(totalCurr); dts.push(_today);
       const xirr=computeXIRR(cfs,dts);
-      if(xirr!==null)return{xirr,isManual:false,partial:withDate.length<mf.length};
+      if(xirr!==null)return{xirr,isManual:false,source:"Auto",partial:withDate.length<mf.length};
     }
-    /* Fallback: value-weighted average of manual XIRRs */
+
+    /* TIER 3: Weighted average of manual XIRRs */
     const withManual=mf.filter(m=>m.manualXirr!=null&&m.manualXirr!=="");
     if(!withManual.length)return null;
     const totalVal=withManual.reduce((s,m)=>s+(m.currentValue||m.invested),0);
@@ -776,7 +807,7 @@ const InvestDashboard=React.memo(({mf,mfTxns=[],shares,fd,re=[],dispatch,isMobil
       const v=m.currentValue||m.invested;
       return s+(+m.manualXirr*(v/totalVal));
     },0);
-    return{xirr:wtdXirr,isManual:true,partial:withManual.length<mf.length};
+    return{xirr:wtdXirr,isManual:true,source:"Manual",partial:withManual.length<mf.length};
   })();
 
   /* ── Allocation donut — liquid investments only (RE is illiquid, shown separately) ── */
@@ -1017,7 +1048,7 @@ const InvestDashboard=React.memo(({mf,mfTxns=[],shares,fd,re=[],dispatch,isMobil
       }},
         React.createElement("div",{style:{display:"flex",alignItems:"center",gap:5,marginBottom:2}},
           React.createElement("div",{style:{fontSize:10,color:"var(--text6)"}},"Mutual Funds"),
-          React.createElement("span",{style:{fontSize:8,padding:"1px 4px",borderRadius:4,background:mfXirr.isManual?"rgba(180,83,9,.18)":"rgba(22,163,74,.15)",color:mfXirr.isManual?"#b45309":"#16a34a",fontWeight:700,border:"1px solid "+(mfXirr.isManual?"rgba(180,83,9,.3)":"rgba(22,163,74,.3)")}},mfXirr.isManual?"Manual":"Auto"),
+          React.createElement("span",{style:{fontSize:8,padding:"1px 4px",borderRadius:4,background:mfXirr.source==="Manual"?"rgba(180,83,9,.18)":mfXirr.source==="Txns"?"rgba(22,163,74,.15)":"rgba(22,163,74,.15)",color:mfXirr.source==="Manual"?"#b45309":"#16a34a",fontWeight:700,border:"1px solid "+(mfXirr.source==="Manual"?"rgba(180,83,9,.3)":"rgba(22,163,74,.3)")}},mfXirr.source||"Auto"),
           mfXirr.partial&&React.createElement("span",{style:{fontSize:8,color:"var(--text6)",fontStyle:"italic"}},"partial")
         ),
         React.createElement("div",{style:{fontSize:15,fontWeight:700,color:mfXirr.xirr>=0?"#6d28d9":"#ef4444"}},
@@ -1051,10 +1082,9 @@ const InvestDashboard=React.memo(({mf,mfTxns=[],shares,fd,re=[],dispatch,isMobil
     /* ── Capital Gains Summary card */
     React.createElement(CapitalGainsCard,{shares,mf,dispatch}),
 
-    /* ── Middle row: allocation + MF performance */
-    React.createElement("div",{style:{display:"grid",gridTemplateColumns:isMobile?"1fr":"280px 1fr",gap:14,marginBottom:14}},
-      /* Allocation donut */
-      React.createElement(Card,null,
+    /* ── Allocation donut (standalone — MF performance chart removed) */
+    React.createElement("div",{style:{marginBottom:14}},
+      React.createElement(Card,{sx:{maxWidth:360}},
         React.createElement(SecHead,{title:"Liquid Asset Allocation"}),
         React.createElement(DonutChart,{data:allocData,size:160}),
         React.createElement("div",{style:{marginTop:14}},
@@ -1081,33 +1111,6 @@ const InvestDashboard=React.memo(({mf,mfTxns=[],shares,fd,re=[],dispatch,isMobil
               )
             )
           )
-        )
-      ),
-      /* MF performance table */
-      React.createElement(Card,null,
-        React.createElement(SecHead,{title:"Mutual Fund Performance",color:"#6d28d9"}),
-        mf.length===0&&React.createElement(Empty,{icon:React.createElement(Icon,{n:"chart",size:18}),text:"No mutual funds added yet"}),
-        mfPerf.length>0&&React.createElement("div",null,
-          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 90px",fontSize:10,color:"var(--text6)",fontWeight:700,textTransform:"uppercase",letterSpacing:.4,padding:"0 0 6px",borderBottom:"1px solid var(--border2)",marginBottom:8}},React.createElement("span",{style:{whiteSpace:"nowrap"}},"Fund"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Invested"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Current"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"P&L"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Return")),
-          mfPerf.map(m=>{
-            const cost=m.avgNav&&m.avgNav>0?m.units*m.avgNav:m.invested;
-            const cur=m.currentValue||m.invested;
-            return React.createElement("div",{key:m.id,style:{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 90px",padding:"9px 0",borderBottom:"1px solid var(--border2)",alignItems:"center"}},
-              React.createElement("div",null,
-                React.createElement("div",{style:{fontSize:12,color:"var(--text2)",fontWeight:500,lineHeight:1.4}},m.name),
-                m.navDate&&React.createElement("div",{style:{fontSize:10,color:"var(--text6)"}},"NAV: ₹"+(m.nav||"--")+" · "+m.navDate)
-              ),
-              React.createElement("div",{style:{fontSize:12,color:"var(--text4)"}},INR(cost)),
-              React.createElement("div",{style:{fontSize:12,fontWeight:600,color:"#6d28d9"}},INR(cur)),
-              React.createElement("div",{style:{fontSize:12,fontWeight:700,color:m.pnl>=0?"#16a34a":"#ef4444"}},(m.pnl>=0?"+":"")+INR(m.pnl)),
-              React.createElement("div",{style:{display:"flex",alignItems:"center",gap:5}},
-                React.createElement("div",{style:{flex:1,height:5,background:"var(--bg5)",borderRadius:3,overflow:"hidden"}},
-                  React.createElement("div",{style:{height:"100%",width:Math.min(100,Math.abs(m.pnlPct))+"%",background:m.pnlPct>=0?"#16a34a":"#ef4444",borderRadius:3}})
-                ),
-                React.createElement("span",{style:{fontSize:10,color:m.pnlPct>=0?"#16a34a":"#ef4444",fontWeight:600,minWidth:36,textAlign:"right"}},(m.pnlPct>=0?"+":"")+m.pnlPct.toFixed(1)+"%")
-              )
-            );
-          })
         )
       )
     ),
@@ -2257,8 +2260,9 @@ const MFPortfolioEvolutionChart=React.memo(({mfTxns,mf})=>{
       dataPoints.map((d,i)=>{
         const isLast=i===dataPoints.length-1;
         if(i%stride!==0&&!isLast)return null;
-        /* Show only DD-Mon to save horizontal space */
-        const shortDate=d.date.split("-").slice(0,2).join("-");
+        /* Show MMM-YY (e.g. Apr-26) on x-axis */
+        const _dp=d.date.split("-"); /* [DD, Mon, YYYY] */
+        const shortDate=_dp.length===3?_dp[1]+"-"+_dp[2].slice(2):d.date;
         return React.createElement("text",{key:"pev_xl"+i,
           x:padL+i*xStep,y:svgH-8,
           textAnchor:isLast?"end":"middle",
@@ -2817,24 +2821,49 @@ const InvestSection=React.memo(({mf,mfTxns=[],shares,fd,re=[],pf=[],dispatch,def
               React.createElement("span",null,(gain>=0?"▲ Gain":"▼ Loss")+" "+INR(Math.abs(gain))),
               React.createElement("span",{style:{fontSize:12,opacity:.85}},Math.abs(gp)+"%")
             ),
-            /* XIRR badge — auto from startDate, else manual override, else prompt */
+            /* XIRR badge — priority: txn cashflows > startDate single-buy > manual override */
             (()=>{
+              /* ── TIER 1: Full cashflow XIRR from imported transaction history ── */
+              const fundTxns=(mfTxns||[]).filter(t=>t.fundName===m.name&&t.date&&(+t.amount>0||+t.units>0));
+              let txnXirr=null;
+              if(fundTxns.length>=1&&currentVal>0){
+                const cfs=[],dts=[];
+                fundTxns.forEach(t=>{
+                  const nav=+t.nav||0;
+                  const units=+t.units>0?+t.units:(nav>0&&+t.amount>0?+t.amount/nav:0);
+                  const amount=+t.amount>0?+t.amount:units*nav;
+                  if(!amount||!t.date)return;
+                  if(t.orderType==="buy"){cfs.push(-amount);dts.push(t.date);}
+                  else{cfs.push(+amount);dts.push(t.date);}
+                });
+                if(cfs.length>=1){
+                  cfs.push(currentVal);dts.push(TODAY());
+                  txnXirr=computeXIRR(cfs,dts);
+                }
+              }
+              /* ── TIER 2: Single-buy XIRR from startDate ── */
               const startDate=m.startDate||(m.notes&&m.notes.match&&m.notes.match(/\b(\d{4}-\d{2}-\d{2})\b/)&&m.notes.match(/\b(\d{4}-\d{2}-\d{2})\b/)[1]);
-              const autoXirr=startDate&&trueCoA>0&&currentVal>0?xirrSingleBuy(trueCoA,currentVal,startDate):null;
-              const manualXirrVal=m.manualXirr!=null&&m.manualXirr!==""?+m.manualXirr:null;
-              const xirr=autoXirr!==null?autoXirr:manualXirrVal;
-              const isManual=autoXirr===null&&manualXirrVal!==null;
+              const autoXirr=txnXirr===null&&startDate&&trueCoA>0&&currentVal>0?xirrSingleBuy(trueCoA,currentVal,startDate):null;
+              /* ── TIER 3: Manual override ── */
+              const manualXirrVal=txnXirr===null&&autoXirr===null&&m.manualXirr!=null&&m.manualXirr!==""?+m.manualXirr:null;
+
+              const xirr=txnXirr!==null?txnXirr:autoXirr!==null?autoXirr:manualXirrVal;
+              const xirrSource=txnXirr!==null?"Txns":autoXirr!==null?"Auto":"Manual";
+
               if(xirr!==null){
                 const col=xirr>=0?"#6d28d9":"#ef4444";
+                const srcBg=xirrSource==="Txns"?"rgba(22,163,74,.13)":xirrSource==="Manual"?"rgba(180,83,9,.15)":"rgba(22,163,74,.13)";
+                const srcCol=xirrSource==="Txns"?"#16a34a":xirrSource==="Manual"?"#b45309":"#16a34a";
+                const srcBorder=xirrSource==="Txns"?"rgba(22,163,74,.3)":xirrSource==="Manual"?"rgba(180,83,9,.3)":"rgba(22,163,74,.3)";
                 return React.createElement("div",{style:{marginTop:6,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 11px",borderRadius:7,background:"rgba(109,40,217,.07)",border:"1px solid rgba(109,40,217,.18)"}},
                   React.createElement("div",{style:{display:"flex",alignItems:"center",gap:5}},
                     React.createElement("span",{style:{fontSize:11,color:"#6d28d9",fontWeight:700}},"XIRR"),
-                    React.createElement("span",{style:{fontSize:9,padding:"1px 5px",borderRadius:5,background:isManual?"rgba(180,83,9,.15)":"rgba(22,163,74,.13)",color:isManual?"#b45309":"#16a34a",fontWeight:700,border:"1px solid "+(isManual?"rgba(180,83,9,.3)":"rgba(22,163,74,.3)")}},isManual?"Manual":"Auto")
+                    React.createElement("span",{style:{fontSize:9,padding:"1px 5px",borderRadius:5,background:srcBg,color:srcCol,fontWeight:700,border:"1px solid "+srcBorder}},xirrSource)
                   ),
                   React.createElement("span",{style:{fontSize:13,fontWeight:700,color:col}},(xirr>=0?"+":"")+xirr.toFixed(2)+"% p.a.")
                 );
               }
-              /* Neither startDate nor manualXirr — show a prompt */
+              /* No data at all — show prompt */
               return React.createElement("div",{style:{marginTop:6,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 11px",borderRadius:7,background:"rgba(109,40,217,.04)",border:"1px dashed rgba(109,40,217,.25)"}},
                 React.createElement("span",{style:{fontSize:11,color:"var(--text6)",fontStyle:"italic"}},"XIRR not set"),
                 React.createElement("button",{

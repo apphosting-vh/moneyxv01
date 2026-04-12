@@ -2165,7 +2165,7 @@ const MFPortfolioEvolutionChart=React.memo(({mfTxns,mf})=>{
   const hx=hoverIdx!==null?padL+hoverIdx*xStep:null;
   const hyV=hoverIdx!==null?yFn(dataPoints[hoverIdx].value):null;
   const hyC=hoverIdx!==null?yFn(dataPoints[hoverIdx].cost):null;
-  const tipW=195,tipH=68;
+  const tipW=210,tipH=92;
   const tipX=hx!==null?(hx+tipW+padR+4>W?hx-tipW-12:hx+12):0;
   const tipY=hyV!==null?Math.max(padT,Math.min(padT+chartH-tipH,hyV-tipH/2)):0;
 
@@ -2291,18 +2291,27 @@ const MFPortfolioEvolutionChart=React.memo(({mfTxns,mf})=>{
         React.createElement("rect",{x:tipX,y:tipY+2,width:tipW,height:5,fill:"#6d28d9"}),
         /* Date label */
         React.createElement("text",{x:tipX+14,y:tipY+21,fill:"var(--text4)",fontSize:10,fontWeight:600,letterSpacing:.3},hp.date),
-        /* CoA */
-        React.createElement("text",{x:tipX+14,y:tipY+40,fill:"#b45309",fontSize:13,fontWeight:700},
-          "CoA  "+INRfmt(Math.round(hp.cost))
-        ),
-        /* Holding value + % */
+        /* Holding value + % — now on top */
         (()=>{
           const diff=hp.value-hp.cost;
           const pct=hp.cost>0?((diff/hp.cost)*100).toFixed(2):"0.00";
           const col=diff>=0?"#16a34a":"#ef4444";
           const sign=diff>=0?"▲ +":"▼ ";
-          return React.createElement("text",{x:tipX+14,y:tipY+60,fill:col,fontSize:13,fontWeight:700},
+          return React.createElement("text",{x:tipX+14,y:tipY+40,fill:col,fontSize:13,fontWeight:700},
             "Val  "+INRfmt(Math.round(hp.value))+"  ("+sign+pct+"%)"
+          );
+        })(),
+        /* CoA — now below Val */
+        React.createElement("text",{x:tipX+14,y:tipY+60,fill:"#b45309",fontSize:13,fontWeight:700},
+          "CoA  "+INRfmt(Math.round(hp.cost))
+        ),
+        /* Net Change */
+        (()=>{
+          const netDiff=hp.value-hp.cost;
+          const col=netDiff>=0?"#16a34a":"#ef4444";
+          const sign=netDiff>=0?"+":"";
+          return React.createElement("text",{x:tipX+14,y:tipY+80,fill:col,fontSize:11,fontWeight:600},
+            "Net  "+sign+INRfmt(Math.round(netDiff))
           );
         })()
       )

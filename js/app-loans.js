@@ -1287,11 +1287,11 @@ const collectTx=(data,from,to,accFilter="all",includeTransfers=false)=>{
   let rows=[];
   data.banks.forEach(b=>{
     if(accFilter!=="all"&&accFilter!==b.id)return;
-    b.transactions.forEach(t=>{if(t.date>=from&&t.date<=to&&(includeTransfers||!isAnyTransfer(t,data.categories)))rows.push({...t,accName:b.name,accId:b.id,accType:"bank"});});
+    (b.transactions||[]).forEach(t=>{if(t.date>=from&&t.date<=to&&(includeTransfers||!isAnyTransfer(t,data.categories)))rows.push({...t,accName:b.name,accId:b.id,accType:"bank"});});
   });
   data.cards.forEach(c=>{
     if(accFilter!=="all"&&accFilter!==c.id)return;
-    c.transactions.forEach(t=>{if(t.date>=from&&t.date<=to&&(includeTransfers||!isAnyTransfer(t,data.categories)))rows.push({...t,accName:c.name,accId:c.id,accType:"card"});});
+    (c.transactions||[]).forEach(t=>{if(t.date>=from&&t.date<=to&&(includeTransfers||!isAnyTransfer(t,data.categories)))rows.push({...t,accName:c.name,accId:c.id,accType:"card"});});
   });
   if(accFilter==="all"||accFilter==="__cash__"){
     data.cash.transactions.forEach(t=>{if(t.date>=from&&t.date<=to&&(includeTransfers||!isAnyTransfer(t,data.categories)))rows.push({...t,accName:"Cash",accId:"__cash__",accType:"cash"});});
@@ -2921,7 +2921,7 @@ const RptIncVsExp=({data,from,to,onExportPDF})=>{
 /* ══ 8. FORECAST ════════════════════════════════════════════════════════════ */
 const RptForecast=({data,onExportPDF})=>{
   const[view,setView]=useState("snapshot");
-  const allTx=[...data.banks.flatMap(b=>b.transactions),...data.cards.flatMap(c=>c.transactions),...data.cash.transactions]
+  const allTx=[...data.banks.flatMap(b=>b.transactions||[]),...data.cards.flatMap(c=>c.transactions||[]),...data.cash.transactions]
     .filter(t=>!isAnyTransfer(t,data.categories));
   const monthly={};
   allTx.forEach(t=>{
@@ -2975,8 +2975,8 @@ const RptForecast=({data,onExportPDF})=>{
 /* ══ 9. MY USAGE ════════════════════════════════════════════════════════════ */
 const RptMyUsage=({data,from,to,onExportPDF})=>{
   const[view,setView]=useState("snapshot");
-  const bankTx=data.banks.flatMap(b=>b.transactions.filter(t=>t.date>=from&&t.date<=to).map(t=>({...t,accName:b.name,accType:"Bank",accId:b.id})));
-  const cardTx=data.cards.flatMap(c=>c.transactions.filter(t=>t.date>=from&&t.date<=to).map(t=>({...t,accName:c.name,accType:"Card",accId:c.id})));
+  const bankTx=data.banks.flatMap(b=>(b.transactions||[]).filter(t=>t.date>=from&&t.date<=to).map(t=>({...t,accName:b.name,accType:"Bank",accId:b.id})));
+  const cardTx=data.cards.flatMap(c=>(c.transactions||[]).filter(t=>t.date>=from&&t.date<=to).map(t=>({...t,accName:c.name,accType:"Card",accId:c.id})));
   const cashTx=data.cash.transactions.filter(t=>t.date>=from&&t.date<=to).map(t=>({...t,accName:"Cash",accType:"Cash",accId:"__cash__"}));
   const allTx=[...bankTx,...cardTx,...cashTx];
   const byAcc={};
@@ -3095,7 +3095,7 @@ const RptMyUsage=({data,from,to,onExportPDF})=>{
 /* ══ 10. PAYEES ══════════════════════════════════════════════════════════════ */
 const RptPayees=({data,from,to,onJumpToLedger,onExportPDF})=>{
   const[view,setView]=useState("snapshot");
-  const allTx=[...data.banks.flatMap(b=>b.transactions),...data.cards.flatMap(c=>c.transactions),...data.cash.transactions]
+  const allTx=[...data.banks.flatMap(b=>b.transactions||[]),...data.cards.flatMap(c=>c.transactions||[]),...data.cash.transactions]
     .filter(t=>t.date>=from&&t.date<=to&&!isAnyTransfer(t,data.categories));
   const byPayee={};
   allTx.forEach(t=>{
@@ -3203,9 +3203,9 @@ const RptSummary=({data,onExportPDF})=>{
   const totalLiab=cDebt+lTotal;
   const netW=totalAssets-totalLiab;
   const sections=[
-    {title:"Bank Accounts",rows:data.banks.map(b=>({name:b.name,sub:b.bank+" · "+b.type,val:b.balance,col:"#0e7490",txns:b.transactions.length})),total:bTotal,colTotal:"#0e7490"},
+    {title:"Bank Accounts",rows:data.banks.map(b=>({name:b.name,sub:b.bank+" · "+b.type,val:b.balance,col:"#0e7490",txns:(b.transactions||[]).length})),total:bTotal,colTotal:"#0e7490"},
     {title:"Cash",rows:[{name:"Cash Account",sub:"Physical cash",val:data.cash.balance,col:"var(--accent)",txns:data.cash.transactions.length}],total:data.cash.balance,colTotal:"var(--accent)"},
-    {title:"Credit Cards",rows:data.cards.map(c=>({name:c.name,sub:c.bank+" · Limit "+INR(c.limit),val:c.outstanding,col:"#c2410c",txns:c.transactions.length,neg:true})),total:cDebt,colTotal:"#c2410c"},
+    {title:"Credit Cards",rows:data.cards.map(c=>({name:c.name,sub:c.bank+" · Limit "+INR(c.limit),val:c.outstanding,col:"#c2410c",txns:(c.transactions||[]).length,neg:true})),total:cDebt,colTotal:"#c2410c"},
     {title:"Loans",rows:data.loans.map(l=>({name:l.name,sub:l.bank+" · "+l.rate+"% · EMI "+INR(l.emi),val:l.outstanding,col:"#ef4444",neg:true})),total:lTotal,colTotal:"#ef4444"},
     {title:"Investments",rows:[...data.mf.map(m=>({name:m.name,sub:"Mutual Fund",val:m.currentValue||m.invested,col:"#6d28d9"})),...data.shares.map(s=>({name:s.company,sub:s.ticker+" · "+s.qty+" shares",val:s.qty*s.currentPrice,col:"#16a34a"})),...data.fd.map(f=>({name:f.bank+" FD",sub:f.rate+"% · "+f.maturityDate,val:calcFDValueToday(f),col:"var(--accent)"}))],total:fdTotal+shVal+mfVal,colTotal:"#16a34a"}
   ];
@@ -3347,8 +3347,8 @@ const RptInvestments=({data,onExportPDF})=>{
 /* ══ 13. RECONCILIATION ══════════════════════════════════════════════════════ */
 const RptReconciliation=({data,from,to,onExportPDF})=>{
   const[view,setView]=useState("snapshot");
-  const allTx=[...data.banks.flatMap(b=>b.transactions.map(t=>({...t,accName:b.name,accType:"Bank"}))),
-    ...data.cards.flatMap(c=>c.transactions.map(t=>({...t,accName:c.name,accType:"Card"}))),
+  const allTx=[...data.banks.flatMap(b=>(b.transactions||[]).map(t=>({...t,accName:b.name,accType:"Bank"}))),
+    ...data.cards.flatMap(c=>(c.transactions||[]).map(t=>({...t,accName:c.name,accType:"Card"}))),
     ...data.cash.transactions.map(t=>({...t,accName:"Cash",accType:"Cash"}))
   ].filter(t=>t.date>=from&&t.date<=to);
   const bySt={Reconciled:0,Unreconciled:0,Void:0,Duplicate:0,"Follow Up":0};
@@ -3448,7 +3448,7 @@ const RptNetWorth=({data,onExportPDF})=>{
   const cDebt=data.cards.reduce((s,c)=>s+c.outstanding,0);
   const lDebt=data.loans.reduce((s,l)=>s+l.outstanding,0);
   const curNW=bankBal+cashBal+shVal+mfVal+fdVal+reVal-cDebt-lDebt;
-  const allTx=[...data.banks.flatMap(b=>b.transactions),...data.cards.flatMap(c=>c.transactions),...data.cash.transactions]
+  const allTx=[...data.banks.flatMap(b=>b.transactions||[]),...data.cards.flatMap(c=>c.transactions||[]),...data.cash.transactions]
     .filter(t=>t.status==="Reconciled"&&!isAnyTransfer(t,data.categories));
   const byMonth={};
   allTx.forEach(t=>{

@@ -193,7 +193,7 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
-const APP_VERSION="4.0.0";
+const APP_VERSION="4.0.1";
 
 /* ── SVG Icon Library (replaces all emoji icons) ─────────────────────── */
 const SVGI=(path,opts={})=>React.createElement("svg",{
@@ -844,21 +844,21 @@ const reducer=(s,a)=>{
     case"ADD_BANK":return{...s,banks:[...s.banks,a.p]};
     case"ADD_BANK_TX":{const b=s.banks.find(b=>b.id===a.id);const sn=b?nextSn(b.transactions):1;const _acr=applyCatRule(s.catRules||[],a.tx);const _upi=applyUpiEnrichment({...a.tx,...(_acr||{})});const _tx={...a.tx,...(_acr||{}),_sn:sn,...(_upi||{})};return{...s,banks:s.banks.map(b=>b.id===a.id?{...b,balance:b.balance+(_tx.status==="Reconciled"?(_tx.type==="credit"?_tx.amount:-_tx.amount):0),transactions:[...b.transactions,_tx]}:b)};}
     case"UPD_BANK_BAL":return{...s,banks:s.banks.map(b=>b.id===a.id?(a.tx.status==="Reconciled"?{...b,balance:b.balance+(a.tx.type==="credit"?a.tx.amount:-a.tx.amount)}:b):b)};
-    case"EDIT_BANK_TX":{const _bwas=a.old.status==="Reconciled";const _bis=a.tx.status==="Reconciled";const _bOld=_bwas?(a.old.type==="credit"?a.old.amount:-a.old.amount):0;const _bNew=_bis?(a.tx.type==="credit"?a.tx.amount:-a.tx.amount):0;return{...s,banks:s.banks.map(b=>b.id===a.accId?{...b,balance:b.balance+(_bNew-_bOld),transactions:b.transactions.map(t=>t.id===a.tx.id?a.tx:t)}:b)};}
-    case"DEL_BANK_TX":return{...s,banks:s.banks.map(b=>b.id===a.accId?{...b,balance:b.balance-(a.tx.status==="Reconciled"?(a.tx.type==="credit"?a.tx.amount:-a.tx.amount):0),transactions:b.transactions.filter(t=>t.id!==a.tx.id)}:b)};
+    case"EDIT_BANK_TX":{const _bwas=a.old.status==="Reconciled";const _bis=a.tx.status==="Reconciled";const _bOld=_bwas?(a.old.type==="credit"?a.old.amount:-a.old.amount):0;const _bNew=_bis?(a.tx.type==="credit"?a.tx.amount:-a.tx.amount):0;return{...s,banks:s.banks.map(b=>b.id===a.accId?{...b,balance:b.balance+(_bNew-_bOld),transactions:(b.transactions||[]).map(t=>t.id===a.tx.id?a.tx:t)}:b)};}
+    case"DEL_BANK_TX":return{...s,banks:s.banks.map(b=>b.id===a.accId?{...b,balance:b.balance-(a.tx.status==="Reconciled"?(a.tx.type==="credit"?a.tx.amount:-a.tx.amount):0),transactions:(b.transactions||[]).filter(t=>t.id!==a.tx.id)}:b)};
     case"DUP_BANK_TX":return{...s,banks:s.banks.map(b=>{if(b.id!==a.accId)return b;const sn=nextSn(b.transactions);const _dr=a.tx.status==="Reconciled";return{...b,balance:b.balance+(_dr?(a.tx.type==="credit"?a.tx.amount:-a.tx.amount):0),transactions:[...b.transactions,{...a.tx,id:uid(),_sn:sn,_addedAt:new Date().toISOString()}]};})};
     /* Bulk delete: ids is a Set of tx IDs; balance adjusted atomically */
     case"MASS_DEL_BANK_TX":return{...s,banks:s.banks.map(b=>{
       if(b.id!==a.accId)return b;
-      const toDelete=b.transactions.filter(t=>a.ids.has(t.id));
+      const toDelete=(b.transactions||[]).filter(t=>a.ids.has(t.id));
       const netDelta=toDelete.filter(t=>t.status==="Reconciled").reduce((d,t)=>d+(t.type==="credit"?t.amount:-t.amount),0);
-      return{...b,balance:b.balance-netDelta,transactions:b.transactions.filter(t=>!a.ids.has(t.id))};
+      return{...b,balance:b.balance-netDelta,transactions:(b.transactions||[]).filter(t=>!a.ids.has(t.id))};
     })};
     case"MASS_DEL_CARD_TX":return{...s,cards:s.cards.map(c=>{
       if(c.id!==a.accId)return c;
-      const toDelete=c.transactions.filter(t=>a.ids.has(t.id));
+      const toDelete=(c.transactions||[]).filter(t=>a.ids.has(t.id));
       const netDelta=toDelete.filter(t=>t.status==="Reconciled").reduce((d,t)=>d+(t.type==="debit"?t.amount:-t.amount),0);
-      return{...c,outstanding:Math.max(0,c.outstanding-netDelta),transactions:c.transactions.filter(t=>!a.ids.has(t.id))};
+      return{...c,outstanding:Math.max(0,c.outstanding-netDelta),transactions:(c.transactions||[]).filter(t=>!a.ids.has(t.id))};
     })};
     case"MASS_DEL_CASH_TX":{
       const toDelete=s.cash.transactions.filter(t=>a.ids.has(t.id));
@@ -876,7 +876,7 @@ const reducer=(s,a)=>{
          from reconciled transactions so balance stays in sync with txns */
       if(a.p.balance!==undefined){
         const _base=a.p.balance;
-        const _reconciled=b.transactions.filter(t=>t.status==="Reconciled")
+        const _reconciled=(b.transactions||[]).filter(t=>t.status==="Reconciled")
           .reduce((sum,t)=>sum+(t.type==="credit"?t.amount:-t.amount),0);
         upd.balance=_base+_reconciled;
       }
@@ -894,7 +894,7 @@ const reducer=(s,a)=>{
       const _base=a.openingBalance||0;
       return{...s,banks:s.banks.map(b=>{
         if(b.id!==a.id)return b;
-        const recBalance=_base+b.transactions.filter(t=>t.status==="Reconciled")
+        const recBalance=_base+(b.transactions||[]).filter(t=>t.status==="Reconciled")
           .reduce((sum,t)=>sum+(t.type==="credit"?t.amount:-t.amount),0);
         return{...b,balance:recBalance};
       })};
@@ -903,7 +903,7 @@ const reducer=(s,a)=>{
       /* Recompute card outstanding from Reconciled transactions only */
       return{...s,cards:s.cards.map(c=>{
         if(c.id!==a.id)return c;
-        const recOut=c.transactions.filter(t=>t.status==="Reconciled")
+        const recOut=(c.transactions||[]).filter(t=>t.status==="Reconciled")
           .reduce((sum,t)=>sum+(t.type==="debit"?t.amount:-t.amount),0);
         return{...c,outstanding:Math.max(0,recOut)};
       })};
@@ -918,8 +918,8 @@ const reducer=(s,a)=>{
     case"ADD_CARD":return{...s,cards:[...s.cards,a.p]};
     case"ADD_CARD_TX":{const c=s.cards.find(c=>c.id===a.id);const sn=c?nextSn(c.transactions):1;const _acr2=applyCatRule(s.catRules||[],a.tx);const _upi2=applyUpiEnrichment({...a.tx,...(_acr2||{})});const _tx2={...a.tx,...(_acr2||{}),_sn:sn,...(_upi2||{})};return{...s,cards:s.cards.map(c=>c.id===a.id?{...c,outstanding:Math.max(0,c.outstanding+(_tx2.status==="Reconciled"?(_tx2.type==="debit"?_tx2.amount:-_tx2.amount):0)),transactions:[...c.transactions,_tx2]}:c)};}
     case"UPD_CARD_BAL":return{...s,cards:s.cards.map(c=>c.id===a.id?(a.tx.status==="Reconciled"?{...c,outstanding:Math.max(0,c.outstanding+(a.tx.type==="debit"?a.tx.amount:-a.tx.amount))}:c):c)};
-    case"EDIT_CARD_TX":{const _cwas=a.old.status==="Reconciled";const _cis=a.tx.status==="Reconciled";const _cOld=_cwas?(a.old.type==="debit"?a.old.amount:-a.old.amount):0;const _cNew=_cis?(a.tx.type==="debit"?a.tx.amount:-a.tx.amount):0;return{...s,cards:s.cards.map(c=>c.id===a.accId?{...c,outstanding:Math.max(0,c.outstanding+(_cNew-_cOld)),transactions:c.transactions.map(t=>t.id===a.tx.id?a.tx:t)}:c)};}
-    case"DEL_CARD_TX":return{...s,cards:s.cards.map(c=>c.id===a.accId?{...c,outstanding:Math.max(0,c.outstanding-(a.tx.status==="Reconciled"?(a.tx.type==="debit"?a.tx.amount:-a.tx.amount):0)),transactions:c.transactions.filter(t=>t.id!==a.tx.id)}:c)};
+    case"EDIT_CARD_TX":{const _cwas=a.old.status==="Reconciled";const _cis=a.tx.status==="Reconciled";const _cOld=_cwas?(a.old.type==="debit"?a.old.amount:-a.old.amount):0;const _cNew=_cis?(a.tx.type==="debit"?a.tx.amount:-a.tx.amount):0;return{...s,cards:s.cards.map(c=>c.id===a.accId?{...c,outstanding:Math.max(0,c.outstanding+(_cNew-_cOld)),transactions:(c.transactions||[]).map(t=>t.id===a.tx.id?a.tx:t)}:c)};}
+    case"DEL_CARD_TX":return{...s,cards:s.cards.map(c=>c.id===a.accId?{...c,outstanding:Math.max(0,c.outstanding-(a.tx.status==="Reconciled"?(a.tx.type==="debit"?a.tx.amount:-a.tx.amount):0)),transactions:(c.transactions||[]).filter(t=>t.id!==a.tx.id)}:c)};
     case"DUP_CARD_TX":return{...s,cards:s.cards.map(c=>{if(c.id!==a.accId)return c;const sn=nextSn(c.transactions);const _cr=a.tx.status==="Reconciled";return{...c,outstanding:Math.max(0,c.outstanding+(_cr?(a.tx.type==="debit"?a.tx.amount:-a.tx.amount):0)),transactions:[...c.transactions,{...a.tx,id:uid(),_sn:sn,_addedAt:new Date().toISOString()}]};})};
     case"EDIT_CARD":return{...s,cards:s.cards.map(c=>c.id===a.p.id?{...c,...a.p}:c)};
     case"DEL_CARD":return{...s,
@@ -1089,8 +1089,8 @@ const reducer=(s,a)=>{
       }
       return{...s,categories:updCats,
         insightPrefs:_insightPrefs,
-        banks:s.banks.map(b=>({...b,transactions:b.transactions.map(_updTx)})),
-        cards:s.cards.map(c=>({...c,transactions:c.transactions.map(_updTx)})),
+        banks:s.banks.map(b=>({...b,transactions:(b.transactions||[]).map(_updTx)})),
+        cards:s.cards.map(c=>({...c,transactions:(c.transactions||[]).map(_updTx)})),
         cash:{...s.cash,transactions:s.cash.transactions.map(_updTx)},
         scheduled:(s.scheduled||[]).map(_updSched),
         /* Bug fix: cascade category rename into catRules — field is r.cat, not r.category */
@@ -1116,8 +1116,8 @@ const reducer=(s,a)=>{
       return{...s,categories:updCats,
         /* Remove catRules that reference the deleted subcategory */
         catRules:(s.catRules||[]).filter(r=>r.cat!==_delFullCat),
-        banks:s.banks.map(b=>({...b,transactions:b.transactions.map(_updTx)})),
-        cards:s.cards.map(c=>({...c,transactions:c.transactions.map(_updTx)})),
+        banks:s.banks.map(b=>({...b,transactions:(b.transactions||[]).map(_updTx)})),
+        cards:s.cards.map(c=>({...c,transactions:(c.transactions||[]).map(_updTx)})),
         cash:{...s.cash,transactions:s.cash.transactions.map(_updTx)},
         scheduled:(s.scheduled||[]).map(_updSched),
       };
@@ -1162,8 +1162,8 @@ const reducer=(s,a)=>{
         return upd;
       };
       return{...s,categories:updSubCats,
-        banks:s.banks.map(b=>({...b,transactions:b.transactions.map(_updSubTx)})),
-        cards:s.cards.map(c=>({...c,transactions:c.transactions.map(_updSubTx)})),
+        banks:s.banks.map(b=>({...b,transactions:(b.transactions||[]).map(_updSubTx)})),
+        cards:s.cards.map(c=>({...c,transactions:(c.transactions||[]).map(_updSubTx)})),
         cash:{...s.cash,transactions:s.cash.transactions.map(_updSubTx)},
         scheduled:(s.scheduled||[]).map(_updSubSched),
         /* Bug fix: cascade sub-category rename into catRules — field is r.cat, not r.category */
@@ -1198,8 +1198,8 @@ const reducer=(s,a)=>{
         return tx;
       };
       return{...s,
-        banks:s.banks.map(b=>({...b,transactions:b.transactions.map(applyFn)})),
-        cards:s.cards.map(c=>({...c,transactions:c.transactions.map(applyFn)})),
+        banks:s.banks.map(b=>({...b,transactions:(b.transactions||[]).map(applyFn)})),
+        cards:s.cards.map(c=>({...c,transactions:(c.transactions||[]).map(applyFn)})),
         cash:{...s.cash,transactions:s.cash.transactions.map(applyFn)},
       };
     }
@@ -1337,8 +1337,8 @@ const reducer=(s,a)=>{
       const _renamePayee=p=>p===_oldPayeeName?_newPayeeName:p;
       const _updTxPayee=t=>({...t,payee:_renamePayee(t.payee||"")});
       return{...s,payees:updPayees,
-        banks:s.banks.map(b=>({...b,transactions:b.transactions.map(_updTxPayee)})),
-        cards:s.cards.map(c=>({...c,transactions:c.transactions.map(_updTxPayee)})),
+        banks:s.banks.map(b=>({...b,transactions:(b.transactions||[]).map(_updTxPayee)})),
+        cards:s.cards.map(c=>({...c,transactions:(c.transactions||[]).map(_updTxPayee)})),
         cash:{...s.cash,transactions:s.cash.transactions.map(_updTxPayee)},
         scheduled:(s.scheduled||[]).map(sc=>({...sc,payee:_renamePayee(sc.payee||"")})),
       };
@@ -1368,8 +1368,8 @@ const reducer=(s,a)=>{
       const{accType:at,accId:aid,ids,cat,payee}=a;
       const applyPayee=payee!==undefined;
       const upd=t=>ids.has(t.id)?{...t,cat,...(applyPayee?{payee}:{})}:t;
-      if(at==="bank")return{...s,banks:s.banks.map(b=>b.id!==aid?b:{...b,transactions:b.transactions.map(upd)})};
-      if(at==="card")return{...s,cards:s.cards.map(c=>c.id!==aid?c:{...c,transactions:c.transactions.map(upd)})};
+      if(at==="bank")return{...s,banks:s.banks.map(b=>b.id!==aid?b:{...b,transactions:(b.transactions||[]).map(upd)})};
+      if(at==="card")return{...s,cards:s.cards.map(c=>c.id!==aid?c:{...c,transactions:(c.transactions||[]).map(upd)})};
       if(at==="cash")return{...s,cash:{...s.cash,transactions:s.cash.transactions.map(upd)}};
       return s;
     }
@@ -1538,20 +1538,20 @@ const reducer=(s,a)=>{
       let _ps={...s};
       if(_src.has("banks")){
         _ps={..._ps,banks:_ps.banks.map(b=>{
-          const _rem=b.transactions.filter(t=>t.date<_cut);
+          const _rem=(b.transactions||[]).filter(t=>t.date<_cut);
           if(!_rem.length)return b;
           const _delta=_rem.filter(t=>t.status==="Reconciled")
             .reduce((d,t)=>d+(t.type==="credit"?t.amount:-t.amount),0);
-          return{...b,balance:b.balance-_delta,transactions:b.transactions.filter(t=>t.date>=_cut)};
+          return{...b,balance:b.balance-_delta,transactions:(b.transactions||[]).filter(t=>t.date>=_cut)};
         })};
       }
       if(_src.has("cards")){
         _ps={..._ps,cards:_ps.cards.map(c=>{
-          const _rem=c.transactions.filter(t=>t.date<_cut);
+          const _rem=(c.transactions||[]).filter(t=>t.date<_cut);
           if(!_rem.length)return c;
           const _delta=_rem.filter(t=>t.status==="Reconciled")
             .reduce((d,t)=>d+(t.type==="debit"?t.amount:-t.amount),0);
-          return{...c,outstanding:Math.max(0,c.outstanding-_delta),transactions:c.transactions.filter(t=>t.date>=_cut)};
+          return{...c,outstanding:Math.max(0,c.outstanding-_delta),transactions:(c.transactions||[]).filter(t=>t.date>=_cut)};
         })};
       }
       if(_src.has("cash")){

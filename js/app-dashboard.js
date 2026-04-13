@@ -384,16 +384,16 @@ const Dashboard=React.memo(({data,isMobile})=>{
 
   /* ━━ 2. ALL BANKING TRANSACTIONS (banks + cards + cash) ━━━ */
   const allBankTx=React.useMemo(()=>[
-    ...data.banks.flatMap(b=>b.transactions.filter(t=>!isAnyTransfer(t,data.categories)).map(t=>({...t,_bid:b.id,_src:b.name,_srcType:"bank",_col:"#0e7490"}))),
-    ...data.cards.flatMap(c=>c.transactions.filter(t=>!isAnyTransfer(t,data.categories)).map(t=>({...t,_bid:c.id,_src:c.name,_srcType:"card",_col:"#c2410c"}))),
+    ...data.banks.flatMap(b=>(b.transactions||[]).filter(t=>!isAnyTransfer(t,data.categories)).map(t=>({...t,_bid:b.id,_src:b.name,_srcType:"bank",_col:"#0e7490"}))),
+    ...data.cards.flatMap(c=>(c.transactions||[]).filter(t=>!isAnyTransfer(t,data.categories)).map(t=>({...t,_bid:c.id,_src:c.name,_srcType:"card",_col:"#c2410c"}))),
     ...data.cash.transactions.filter(t=>!isAnyTransfer(t,data.categories)).map(t=>({...t,_bid:"cash",_src:"Cash",_srcType:"cash",_col:"var(--accent)"})),
   ],[data.banks,data.cards,data.cash,data.categories]);
 
   /* ━━ 3. MONTHLY CASH FLOW — all sources (banks + cards + cash) ━ */
   const monthlyFlow=React.useMemo(()=>{
     const allFlowTx=[
-      ...data.banks.flatMap(b=>b.transactions),
-      ...data.cards.flatMap(c=>c.transactions),
+      ...data.banks.flatMap(b=>b.transactions||[]),
+      ...data.cards.flatMap(c=>c.transactions||[]),
       ...data.cash.transactions,
     ];
     const flowMap={};
@@ -594,8 +594,8 @@ const Dashboard=React.memo(({data,isMobile})=>{
     /* Payee Analytics Modal */
     showPayeeAnalytics&&React.createElement(PayeeAnalyticsModal,{
       allTx:[
-        ...data.banks.flatMap(b=>b.transactions.map(t=>({...t,_accName:b.name}))),
-        ...data.cards.flatMap(c=>c.transactions.map(t=>({...t,_accName:c.name}))),
+        ...data.banks.flatMap(b=>(b.transactions||[]).map(t=>({...t,_accName:b.name}))),
+        ...data.cards.flatMap(c=>(c.transactions||[]).map(t=>({...t,_accName:c.name}))),
         ...data.cash.transactions.map(t=>({...t,_accName:"Cash"})),
       ],
       categories:data.categories,
@@ -704,9 +704,9 @@ const Dashboard=React.memo(({data,isMobile})=>{
       React.createElement("div",{style:{display:"flex",gap:10,overflowX:"auto",paddingBottom:4}},
         /* Bank accounts */
         ...data.banks.map(b=>{
-          const mInc=b.transactions.filter(t=>t.date.substr(0,7)===thisMonth&&t.type==="credit").reduce((s,t)=>s+t.amount,0);
-          const mExp=b.transactions.filter(t=>t.date.substr(0,7)===thisMonth&&t.type==="debit").reduce((s,t)=>s+t.amount,0);
-          const lastTx=b.transactions.slice().sort((a,x)=>x.date.localeCompare(a.date))[0];
+          const mInc=(b.transactions||[]).filter(t=>t.date.substr(0,7)===thisMonth&&t.type==="credit").reduce((s,t)=>s+t.amount,0);
+          const mExp=(b.transactions||[]).filter(t=>t.date.substr(0,7)===thisMonth&&t.type==="debit").reduce((s,t)=>s+t.amount,0);
+          const lastTx=(b.transactions||[]).slice().sort((a,x)=>x.date.localeCompare(a.date))[0];
           return React.createElement("div",{key:b.id,className:"db-acct-card",style:{
             minWidth:isMobile?148:168,borderLeft:"3px solid #06b6d4",borderTop:"none",
             display:"flex",flexDirection:"column",gap:6,padding:"12px 14px"
@@ -733,7 +733,7 @@ const Dashboard=React.memo(({data,isMobile})=>{
         ...data.cards.map(c=>{
           const used=c.limit>0?(c.outstanding/c.limit*100):0;
           const uc=used>80?"#ef4444":used>50?"#c2410c":"#16a34a";
-          const mSpend=c.transactions.filter(t=>t.date.substr(0,7)===thisMonth&&t.type==="debit").reduce((s,t)=>s+t.amount,0);
+          const mSpend=(c.transactions||[]).filter(t=>t.date.substr(0,7)===thisMonth&&t.type==="debit").reduce((s,t)=>s+t.amount,0);
           return React.createElement("div",{key:c.id,className:"db-acct-card",style:{
             minWidth:isMobile?148:168,borderLeft:"3px solid #fb923c",borderTop:"none",
             display:"flex",flexDirection:"column",gap:6,padding:"12px 14px"
@@ -1752,8 +1752,8 @@ const GlobalSearchModal=({state,onClose,onJumpToTx,setTab})=>{
   /* Fix 1 — Pre-flatten transactions once, only when account data changes */
   const allTxFlat=React.useMemo(()=>{
     const out=[];
-    state.banks.forEach(b=>b.transactions.forEach(t=>out.push({...t,_accId:b.id,_accName:b.name,_accType:"bank"})));
-    state.cards.forEach(c=>c.transactions.forEach(t=>out.push({...t,_accId:c.id,_accName:c.name,_accType:"card"})));
+    state.banks.forEach(b=>(b.transactions||[]).forEach(t=>out.push({...t,_accId:b.id,_accName:b.name,_accType:"bank"})));
+    state.cards.forEach(c=>(c.transactions||[]).forEach(t=>out.push({...t,_accId:c.id,_accName:c.name,_accType:"card"})));
     (state.cash.transactions||[]).forEach(t=>out.push({...t,_accId:"__cash__",_accName:"Cash",_accType:"cash"}));
     return out;
   },[state.banks,state.cards,state.cash]);

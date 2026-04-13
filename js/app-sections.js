@@ -15,11 +15,11 @@ const CalendarSection=React.memo(({banks,cards,cash,categories,isMobile})=>{
     const rows=[];
     banks.forEach(b=>{
       if(accFilter!=="all"&&accFilter!==b.id)return;
-      b.transactions.filter(t=>t.date.startsWith(prefix)).forEach(t=>rows.push({...t,_src:b.name,_srcId:b.id,_type:"bank"}));
+      (b.transactions||[]).filter(t=>t.date.startsWith(prefix)).forEach(t=>rows.push({...t,_src:b.name,_srcId:b.id,_type:"bank"}));
     });
     cards.forEach(c=>{
       if(accFilter!=="all"&&accFilter!==c.id)return;
-      c.transactions.filter(t=>t.date.startsWith(prefix)).forEach(t=>rows.push({...t,_src:c.name,_srcId:c.id,_type:"card"}));
+      (c.transactions||[]).filter(t=>t.date.startsWith(prefix)).forEach(t=>rows.push({...t,_src:c.name,_srcId:c.id,_type:"card"}));
     });
     if(accFilter==="all"||accFilter==="__cash__"){
       cash.transactions.filter(t=>t.date.startsWith(prefix)).forEach(t=>rows.push({...t,_src:"Cash",_srcId:"__cash__",_type:"cash"}));
@@ -157,8 +157,8 @@ const UnifiedLedgerSection=React.memo(({banks,cards,cash,categories,payees,isMob
   /* ── Merge all transactions, tag each with source account info ── */
   const allTxns=React.useMemo(()=>{
     const out=[];
-    banks.forEach(b=>b.transactions.forEach(tx=>out.push({...tx,_accId:b.id,_accName:b.name,_accBank:b.bank||"",_accType:"bank",_accTypeLbl:"↳"})));
-    cards.forEach(c=>c.transactions.forEach(tx=>out.push({...tx,_accId:c.id,_accName:c.name,_accBank:c.bank||"",_accType:"card",_accTypeLbl:"↳"})));
+    banks.forEach(b=>(b.transactions||[]).forEach(tx=>out.push({...tx,_accId:b.id,_accName:b.name,_accBank:b.bank||"",_accType:"bank",_accTypeLbl:"↳"})));
+    cards.forEach(c=>(c.transactions||[]).forEach(tx=>out.push({...tx,_accId:c.id,_accName:c.name,_accBank:c.bank||"",_accType:"card",_accTypeLbl:"↳"})));
     (cash.transactions||[]).forEach(tx=>out.push({...tx,_accId:"__cash__",_accName:"Cash",_accBank:"",_accType:"cash",_accTypeLbl:"↳"}));
     return out;
   },[banks,cards,cash]);
@@ -859,7 +859,7 @@ const GoalsSection=React.memo(({goals,dispatch,isMobile,scheduled=[],banks=[],ca
     const sc=scheduled.find(s=>s.id===g.linkedSipId);
     if(!sc)return null;
     /* Sum all historical transactions matching this scheduled entry's desc+amount */
-    const allTx=[...banks.flatMap(b=>b.transactions),...cards.flatMap(c=>c.transactions),...(cash.transactions||[])];
+    const allTx=[...banks.flatMap(b=>b.transactions||[]),...cards.flatMap(c=>c.transactions||[]),...(cash.transactions||[])];
     const matched=allTx.filter(t=>Math.abs(t.amount-sc.amount)<0.5&&(t.desc||"").toLowerCase().includes((sc.desc||"").toLowerCase().slice(0,8))&&t.type==="debit");
     const totalInvested=matched.reduce((s,t)=>s+t.amount,0);
     const freqMonths=sc.frequency==="monthly"?1:sc.frequency==="quarterly"?3:sc.frequency==="yearly"?12:1;
@@ -1347,8 +1347,8 @@ const NetWorthInsightTab=({banks,cards,cash,mf,shares,fd,re,loans,categories,pre
 
   /* ── All transactions ── */
   const allTx=React.useMemo(()=>[
-    ...banks.flatMap(b=>b.transactions),
-    ...cards.flatMap(c=>c.transactions),
+    ...banks.flatMap(b=>b.transactions||[]),
+    ...cards.flatMap(c=>c.transactions||[]),
     ...(cash.transactions||[])
   ],[banks,cards,cash]);
 
@@ -1873,8 +1873,8 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
   /* ── ALL TRANSACTIONS ── */
   const allTxns=React.useMemo(()=>{
     const out=[];
-    banks.forEach(b=>b.transactions.forEach(tx=>{if(!isAnyTransfer(tx,categories))out.push({...tx,_src:b.name,_srcType:"bank"});}));
-    cards.forEach(c=>c.transactions.forEach(tx=>{if(!isAnyTransfer(tx,categories))out.push({...tx,_src:c.name,_srcType:"card"});}));
+    banks.forEach(b=>(b.transactions||[]).forEach(tx=>{if(!isAnyTransfer(tx,categories))out.push({...tx,_src:b.name,_srcType:"bank"});}));
+    cards.forEach(c=>(c.transactions||[]).forEach(tx=>{if(!isAnyTransfer(tx,categories))out.push({...tx,_src:c.name,_srcType:"card"});}));
     (cash.transactions||[]).forEach(tx=>{if(!isAnyTransfer(tx,categories))out.push({...tx,_src:"Cash",_srcType:"cash"});});
     return out;
   },[banks,cards,cash,categories]);

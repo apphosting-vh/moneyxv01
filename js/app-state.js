@@ -192,7 +192,7 @@ const CAT_C={Income:"#16a34a",Housing:"#0e7490",Insurance:"#6d28d9",Food:"#c2410
 const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak Mahindra Bank","Punjab National Bank","Bank of Baroda","Yes Bank","IndusInd Bank","Federal Bank","Other"];
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
-/* ── APP VERSIONING & CHANGELOG ──────────────────────────────────────────── */
+/* ── APP VERSIONING ──────────────────────────────────────────────────────── */
 const APP_VERSION="4.0.1";
 
 /* ── SVG Icon Library (replaces all emoji icons) ─────────────────────── */
@@ -346,28 +346,6 @@ const Icon=({n,size=16,col,style={}})=>{
 
 /* Expose to window so the always-fresh self-version-check (in <head>) can read it */
 window.__MM_APP_VERSION = APP_VERSION;
-/* ── CHANGELOG — extracted to changelog.js (lazy-loaded on Info tab open) ──────── */
-let CHANGELOG=[];
-/* Loads changelog.js on first call; subsequent calls resolve immediately. */
-window.__loadChangelog=(function(){
-  var _loaded=false;
-  return function(){
-    /* If the script already ran, just sync the local binding and resolve */
-    if(_loaded||window.__MM_CHANGELOG){
-      if(!_loaded&&window.__MM_CHANGELOG){CHANGELOG=window.__MM_CHANGELOG;_loaded=true;}
-      return Promise.resolve();
-    }
-    return new Promise(function(resolve,reject){
-      var s=document.createElement("script");
-      s.src="./js/changelog.js";
-      s.onload=function(){CHANGELOG=window.__MM_CHANGELOG||[];_loaded=true;resolve();};
-      s.onerror=function(){console.warn("[AS] changelog.js failed to load");resolve();};
-      document.head.appendChild(s);
-    });
-  };
-}());
-
-
 /* helpers for category tree */
 const catColor=(cats,name)=>{
   for(const c of cats){if(c.name===name)return c.color;for(const sc of c.subs)if(sc.name===name)return c.color;}

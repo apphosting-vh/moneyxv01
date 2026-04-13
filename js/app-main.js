@@ -32,7 +32,7 @@ const InfoSection=React.memo(({isMobile})=>{
     /* ── Page header ── */
     React.createElement("div",{style:{marginBottom:22}},
       React.createElement("h2",{style:{fontFamily:"'Sora',sans-serif",fontSize:isMobile?18:22,fontWeight:800,color:"var(--text)",marginBottom:4}},"App Information"),
-      React.createElement("p",{style:{fontSize:13,color:"var(--text5)",lineHeight:1.6,margin:0}},"Developer details, version history, copyright, and terms of authorised use for finsight.")
+      React.createElement("p",{style:{fontSize:13,color:"var(--text5)",lineHeight:1.6,margin:0}},"Developer details, copyright, and terms of authorised use for finsight.")
     ),
 
     /* ── Developer Card ── */
@@ -119,108 +119,6 @@ const InfoSection=React.memo(({isMobile})=>{
       ))
     )}),
 
-    /* ── Version History / Changelog ── */
-    (()=>{
-      const[openVer,setOpenVer]=React.useState(null);
-      const[showAll,setShowAll]=React.useState(false);
-      /* Lazy-load changelog.js the first time this block renders */
-      const[clLoaded,setClLoaded]=React.useState(!!window.__MM_CHANGELOG);
-      React.useEffect(()=>{
-        if(!window.__MM_CHANGELOG){
-          window.__loadChangelog().then(()=>setClLoaded(true));
-        }
-      },[]);
-      /* Sort descending by version number so newest is always first */
-      const sortedLog=React.useMemo(()=>[...CHANGELOG].sort((a,b)=>{
-        const va=a.version.split(".").map(Number);
-        const vb=b.version.split(".").map(Number);
-        for(let i=0;i<3;i++){if((va[i]||0)!==(vb[i]||0))return (vb[i]||0)-(va[i]||0);}
-        return 0;
-      }),[clLoaded]);  // re-sort when changelog data arrives
-      const displayed=showAll?sortedLog:sortedLog.slice(0,10);
-      const oldestVer=sortedLog[sortedLog.length-1]?.version;
-      return Block({icon:React.createElement(Icon,{n:"report",size:18}),title:"Version History & Changelog",accent:"#059669",children:
-        React.createElement("div",null,
-          /* Summary strip */
-          React.createElement("div",{style:{
-            display:"flex",gap:10,flexWrap:"wrap",marginBottom:16,
-            padding:"10px 14px",borderRadius:10,
-            background:"linear-gradient(135deg,rgba(5,150,105,.07),rgba(5,150,105,.02))",
-            border:"1px solid rgba(5,150,105,.2)",
-          }},
-            React.createElement("span",{style:{fontSize:12,color:"#059669",fontWeight:700}},"Current: v"+APP_VERSION),
-            React.createElement("span",{style:{fontSize:12,color:"var(--text5)"}},"|"),
-            React.createElement("span",{style:{fontSize:12,color:"var(--text5)"}},"Total releases: "+sortedLog.length),
-            React.createElement("span",{style:{fontSize:12,color:"var(--text5)"}},"|"),
-            React.createElement("span",{style:{fontSize:12,color:"var(--text5)"}},"Since: v"+oldestVer)
-          ),
-          /* Version entries */
-          displayed.map((entry)=>{
-            const isLatest=entry.version===APP_VERSION;
-            const isOpen=openVer===entry.version;
-            return React.createElement("div",{key:entry.version,style:{
-              marginBottom:6,borderRadius:10,overflow:"hidden",
-              border:"1px solid "+(isLatest?"var(--accent)44":"var(--border2)"),
-              background:isLatest?"var(--accentbg2)":"var(--bg4)",
-            }},
-              /* Header row */
-              React.createElement("div",{
-                onClick:()=>setOpenVer(isOpen?null:entry.version),
-                style:{
-                  display:"flex",alignItems:"center",gap:10,
-                  padding:"9px 14px",cursor:"pointer",userSelect:"none",
-                }
-              },
-                isLatest&&React.createElement("span",{style:{
-                  fontSize:9,fontWeight:800,color:"#fff",background:"#059669",
-                  borderRadius:4,padding:"1px 6px",letterSpacing:.4,flexShrink:0,
-                }},"LATEST"),
-                React.createElement("span",{style:{
-                  fontFamily:"'Sora',sans-serif",fontSize:12,fontWeight:700,
-                  color:isLatest?"var(--accent)":"var(--text2)",
-                  flexShrink:0,minWidth:52,
-                }},"v"+entry.version),
-                React.createElement("span",{style:{
-                  flex:1,fontSize:12,color:"var(--text3)",
-                  overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
-                }},entry.title),
-                React.createElement("span",{style:{fontSize:10,color:"var(--text6)",flexShrink:0,marginRight:6}},entry.date),
-                React.createElement("span",{style:{
-                  fontSize:10,color:"var(--text5)",
-                  transform:isOpen?"rotate(180deg)":"rotate(0deg)",
-                  display:"inline-block",transition:"transform .2s",flexShrink:0,
-                }},"▼")
-              ),
-              /* Change list */
-              isOpen&&React.createElement("div",{style:{
-                padding:"10px 14px 12px 14px",
-                borderTop:"1px solid var(--border2)",
-              }},
-                entry.changes.map((ch,ci)=>React.createElement("div",{key:ci,style:{
-                  display:"flex",gap:8,alignItems:"flex-start",marginBottom:5,
-                }},
-                  React.createElement("span",{style:{color:"#059669",fontSize:11,flexShrink:0,marginTop:2}},"▸"),
-                  React.createElement("span",{style:{fontSize:12,color:"var(--text4)",lineHeight:1.6}},ch)
-                ))
-              )
-            );
-          }),
-          /* Show more / less */
-          sortedLog.length>10&&React.createElement("button",{
-            onClick:()=>setShowAll(s=>!s),
-            style:{
-              width:"100%",marginTop:8,padding:"8px 16px",
-              borderRadius:9,border:"1px solid var(--border)",
-              background:"transparent",color:"var(--text4)",
-              cursor:"pointer",fontFamily:"'DM Sans',sans-serif",
-              fontSize:12,fontWeight:500,transition:"all .15s",
-            },
-            onMouseEnter:e=>{e.currentTarget.style.background="var(--accentbg2)";e.currentTarget.style.color="var(--accent)";},
-            onMouseLeave:e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color="var(--text4)";},
-          },showAll?"▲ Show latest 10 only":"▼ Show all "+sortedLog.length+" releases")
-        )
-      });
-    })(),
 
     /* ── Footer stamp ── */
     React.createElement("div",{style:{

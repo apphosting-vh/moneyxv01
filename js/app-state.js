@@ -1545,6 +1545,30 @@ const reducer=(s,a)=>{
       }
       return _ps;
     }
+    /* ── HYDRATE_TRANSACTIONS — called once on app boot after IDB async load ──
+       Merges transaction arrays from IndexedDB into the in-memory state.
+       a.banks  : { [bankId]: txnArray }
+       a.cards  : { [cardId]: txnArray }
+       a.cashTxns: txnArray
+       Only replaces transactions for accounts whose key exists in the IDB
+       payload, so accounts with zero transactions (new accounts) are safe.   */
+    case"HYDRATE_TRANSACTIONS":{
+      return{
+        ...s,
+        banks:(s.banks||[]).map(b=>({
+          ...b,
+          transactions:(a.banks&&a.banks[b.id]!==undefined)?a.banks[b.id]:b.transactions
+        })),
+        cards:(s.cards||[]).map(c=>({
+          ...c,
+          transactions:(a.cards&&a.cards[c.id]!==undefined)?a.cards[c.id]:c.transactions
+        })),
+        cash:{
+          ...(s.cash||{}),
+          transactions:a.cashTxns!==undefined?a.cashTxns:((s.cash||{}).transactions||[])
+        }
+      };
+    }
     default:return s;
   }
 };

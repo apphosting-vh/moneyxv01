@@ -992,6 +992,8 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
                       savePinHash("");
                       clearSessionUnlock();
                     }catch{}
+                    /* Clear transactions from IndexedDB so no stale data survives reload */
+                    clearTxIDB().catch(()=>{});
                     setTimeout(()=>{window.location.href="#/dashboard";window.location.reload();},100);
                   },sx:{flex:1,justifyContent:"center"}},"Yes, Delete Everything"),
                   React.createElement(Btn,{v:"secondary",onClick:()=>setShowResetConfirm(false),sx:{justifyContent:"center"}},"Cancel")
@@ -2161,6 +2163,10 @@ const loadState=()=>{
                       Cache API + SW caches + OPFS + LS combined (~60% of disk).
                       It is orders of magnitude larger than the LS limit and would
                       make the gauge always show ~0%.
+
+   NOTE: Bank/card/cash transaction arrays are stored in IndexedDB (mm_tx_v1),
+   NOT in localStorage. Only account metadata, settings, investments and cache
+   data live in the LS_KEY blob. This dramatically reduces LS usage.
    ══════════════════════════════════════════════════════════════════════════ */
 const MM_LS_KEYS=[
   {key:LS_KEY,         label:"App State (transactions, accounts, investments)"},
@@ -2206,7 +2212,7 @@ const getStorageStats=()=>{
       const historyCacheBytes=JSON.stringify(p.historyCache||{}).length*2;
       const coreBytes=(raw.length*2)-eodPricesBytes-eodNavsBytes-historyCacheBytes;
       cacheBreakdown=[
-        {key:"_core",      label:"Core data (txns, accounts, investments, settings)",bytes:Math.max(0,coreBytes),  isCache:false},
+        {key:"_core",      label:"Core data (accounts, investments, settings — txns in IDB)",bytes:Math.max(0,coreBytes),  isCache:false},
         {key:"_histcache", label:"Share Price History Cache",                         bytes:historyCacheBytes,       isCache:true},
         {key:"_eodprices", label:"EOD Share Price Snapshots (last 30 days)",          bytes:eodPricesBytes,         isCache:true},
         {key:"_eodnavs",   label:"EOD Mutual Fund NAV Snapshots (last 90 days)",      bytes:eodNavsBytes,           isCache:true},
@@ -2270,9 +2276,19 @@ const _emergencyCompact=(s)=>{
    total failure — so the call site can dispatch the matching PRUNE action
    to bring in-memory state in sync with what was persisted. */
 const saveState=(s)=>{
-  /* ── Selective serialization: eodPrices and eodNavs are saved to separate keys
-     to avoid serializing large historical price caches on every state change. ── */
-  const _stripped=(({eodPrices,eodNavs,...rest})=>rest)(s);
+  /* ── Strip large/redundant blobs before writing to localStorage ─────────
+     1. eodPrices / eodNavs → saved to their own LS keys, not the main blob.
+     2. bank / card / cash transactions → moved to IndexedDB (mm_tx_v1).
+        Storing only an empty [] here frees the bulk of the 5 MB LS quota.
+        The full arrays are always present in React state (hydrated on boot).
+  ── */
+  const _stripped=(({eodPrices,eodNavs,...rest})=>({
+    ...rest,
+    /* Replace transaction arrays with empty sentinels — real data lives in IDB */
+    banks:(rest.banks||[]).map(b=>({...b,transactions:[]})),
+    cards:(rest.cards||[]).map(c=>({...c,transactions:[]})),
+    cash:{...(rest.cash||{}),transactions:[]},
+  }))(s);
   try{
     localStorage.setItem(LS_KEY,JSON.stringify(_stripped));
     /* After a successful save, check if we are approaching the limit and
@@ -2646,6 +2662,140 @@ const fsaReadFile=async(handle)=>{
 /* ── Global singleton — shared across usePersistentReducer and FSAStoragePanel ── */
 window.__fsa={handle:null,filename:"",lastSaved:null,ready:false};
 
+/* ══════════════════════════════════════════════════════════════════════════
+   INDEXED DB — TRANSACTION STORAGE (mm_tx_v1)
+   ──────────────────────────────────────────────────────────────────────────
+   Transactions for banks, cards and cash are stored here rather than inside
+   the main localStorage key.  This frees ~80-90 % of the 5 MB localStorage
+   quota for account metadata, investments, settings and cache data.
+
+   Schema
+   ────────
+   Database : "mm_tx_v1"   (separate from mm_fsa_db which holds FSA handles)
+   Version  : 1
+   Store    : "account_transactions"
+     Key    : string  — "bank:<bankId>" | "card:<cardId>" | "cash"
+     Value  : array of transaction objects (same shape as always used in state)
+
+   Lifecycle
+   ──────────
+   • SAVE  : saveTxToIDB(state)  — called from the debounced save effect and
+             the beforeunload/pagehide flush inside usePersistentReducer.
+   • LOAD  : loadTxFromIDB()     — called once on app boot; result dispatched
+             as HYDRATE_TRANSACTIONS to merge back into React state.
+   • CLEAR : clearTxIDB()        — called on Reset All so data is fully wiped.
+   • MIGRATION: On first run after this change, LS still carries transactions
+             in the old format.  usePersistentReducer detects IDB-empty state
+             and writes those transactions to IDB (one-time migration).
+
+   Important: The in-memory React state always contains the full transactions
+   array.  Only the *persisted* representation splits metadata (LS) from
+   transactions (IDB).  Backup export, FSA file write, and RESTORE_ALL all
+   operate on the complete in-memory state — so they require no changes.
+   ══════════════════════════════════════════════════════════════════════════ */
+const TX_IDB_NAME ="mm_tx_v1";
+const TX_IDB_STORE="account_transactions";
+
+/** Open (or create) the transaction IDB. Returns a Promise<IDBDatabase>. */
+const _txDbOpen=()=>new Promise((res,rej)=>{
+  const req=indexedDB.open(TX_IDB_NAME,1);
+  req.onupgradeneeded=e=>{
+    const db=e.target.result;
+    if(!db.objectStoreNames.contains(TX_IDB_STORE)){
+      db.createObjectStore(TX_IDB_STORE);
+    }
+  };
+  req.onsuccess =e=>res(e.target.result);
+  req.onerror   =e=>rej(e.target.error);
+});
+
+/**
+ * saveTxToIDB(state) — write all transaction arrays to IDB.
+ * Non-blocking: callers fire-and-forget or await as needed.
+ * Returns Promise<boolean> — true on success, false on failure.
+ */
+const saveTxToIDB=async(state)=>{
+  try{
+    const db=await _txDbOpen();
+    return new Promise((res,rej)=>{
+      const tx=db.transaction(TX_IDB_STORE,"readwrite");
+      const store=tx.objectStore(TX_IDB_STORE);
+      /* Bank transactions */
+      (state.banks||[]).forEach(b=>{
+        store.put(b.transactions||[],"bank:"+b.id);
+      });
+      /* Card transactions */
+      (state.cards||[]).forEach(c=>{
+        store.put(c.transactions||[],"card:"+c.id);
+      });
+      /* Cash transactions */
+      store.put((state.cash&&state.cash.transactions)||[],"cash");
+      tx.oncomplete=()=>{db.close();res(true);};
+      tx.onerror   =e=>{db.close();console.warn("[MM] IDB tx write error:",e.target.error);res(false);};
+    });
+  }catch(e){
+    console.warn("[MM] saveTxToIDB failed:",e);
+    return false;
+  }
+};
+
+/**
+ * loadTxFromIDB() — read all transaction arrays from IDB.
+ * Returns Promise<{banks:{[id]:[]}, cards:{[id]:[]}, cashTxns:[]}> or null on failure.
+ */
+const loadTxFromIDB=async()=>{
+  try{
+    const db=await _txDbOpen();
+    return new Promise((res,rej)=>{
+      const tx=db.transaction(TX_IDB_STORE,"readonly");
+      const store=tx.objectStore(TX_IDB_STORE);
+      /* Fetch keys and values in parallel */
+      let keysResult=null,valuesResult=null,done=0;
+      const tryResolve=()=>{
+        if(++done<2)return;
+        db.close();
+        if(!keysResult||!valuesResult){res(null);return;}
+        const banks={},cards={};let cashTxns=[];
+        keysResult.forEach((key,i)=>{
+          const val=valuesResult[i]||[];
+          if(key==="cash")                 cashTxns=val;
+          else if(key.startsWith("bank:")) banks[key.slice(5)]=val;
+          else if(key.startsWith("card:")) cards[key.slice(5)]=val;
+        });
+        res({banks,cards,cashTxns});
+      };
+      const rk=store.getAllKeys();
+      rk.onsuccess=e=>{keysResult=e.target.result;tryResolve();};
+      rk.onerror  =()=>{db.close();res(null);};
+      const rv=store.getAll();
+      rv.onsuccess=e=>{valuesResult=e.target.result;tryResolve();};
+      rv.onerror  =()=>{db.close();res(null);};
+    });
+  }catch(e){
+    console.warn("[MM] loadTxFromIDB failed:",e);
+    return null;
+  }
+};
+
+/**
+ * clearTxIDB() — wipe all stored transactions (used on Reset All).
+ * Returns Promise<boolean>.
+ */
+const clearTxIDB=async()=>{
+  try{
+    const db=await _txDbOpen();
+    return new Promise((res)=>{
+      const tx=db.transaction(TX_IDB_STORE,"readwrite");
+      tx.objectStore(TX_IDB_STORE).clear();
+      tx.oncomplete=()=>{db.close();res(true);};
+      tx.onerror   =()=>{db.close();res(false);};
+    });
+  }catch(e){
+    console.warn("[MM] clearTxIDB failed:",e);
+    return false;
+  }
+};
+
 /* ── PIN LOCK SCREEN ───────────────────────────────────────────────────────── */
 const PinLockScreen=({onUnlock})=>{
   const[digits,setDigits]=React.useState([]);
@@ -2790,8 +2940,8 @@ const useRouting=()=>{
 const usePersistentReducer=(reducer,init)=>{
   const[state,rawDispatch]=useReducer(reducer,null,()=>loadState()||init());
   const dispatch=React.useCallback((action)=>{rawDispatch(action);},[]);
-  /* stateRef: live pointer so writeNow() can access current state without
-     waiting for a state-change to re-trigger the debounced effect */
+  /* stateRef: live pointer so writeNow() and beforeunload can access current
+     state without waiting for a state-change to re-trigger the debounced effect */
   const stateRef=React.useRef(state);
   /* ── Selective eodPrices/eodNavs serialization: only write to separate LS keys on change ── */
   const _prevEodPricesJson=React.useRef(null);
@@ -2807,8 +2957,61 @@ const usePersistentReducer=(reducer,init)=>{
       return ok;
     };
   },[]); // mount-only — stateRef always points to latest value
-  // Save to localStorage (and FSA file if connected) whenever state changes (debounced)
-  // Uses requestIdleCallback so JSON.stringify doesn't block the main thread mid-interaction.
+
+  /* ── IDB HYDRATION — runs once on mount ─────────────────────────────────
+     Loads transaction arrays from IndexedDB and merges them into React state
+     via HYDRATE_TRANSACTIONS.
+
+     Migration path (first boot after IndexedDB was introduced):
+       • IDB is empty → loadTxFromIDB returns no keys.
+       • But LS state (old format) already has transactions in-memory.
+       • We detect this and write them to IDB so future saves are split.
+       • No HYDRATE needed — memory is already correct.
+
+     Normal path (subsequent boots):
+       • LS state has empty transactions[] (new format).
+       • IDB has the real transactions.
+       • We dispatch HYDRATE_TRANSACTIONS to fill them back in.
+  ── */
+  const _txHydratedRef=React.useRef(false);
+  React.useEffect(()=>{
+    if(_txHydratedRef.current)return;
+    _txHydratedRef.current=true;
+    loadTxFromIDB().then(idbData=>{
+      const cur=stateRef.current;
+      /* Determine if IDB has any real data */
+      const hasIDBData=idbData&&(
+        Object.keys(idbData.banks||{}).length>0||
+        Object.keys(idbData.cards||{}).length>0||
+        (idbData.cashTxns&&idbData.cashTxns.length>0)
+      );
+      /* Determine if the current in-memory state already has transactions
+         (could be migration case: old LS format, or fresh INIT sample data) */
+      const hasMemTxns=(
+        (cur.banks||[]).some(b=>(b.transactions||[]).length>0)||
+        (cur.cards||[]).some(c=>(c.transactions||[]).length>0)||
+        ((cur.cash&&cur.cash.transactions)||[]).length>0
+      );
+      if(hasIDBData){
+        /* Normal post-migration path: hydrate from IDB */
+        console.log("[MM] Hydrating transactions from IndexedDB…");
+        dispatch({type:"HYDRATE_TRANSACTIONS",banks:idbData.banks,cards:idbData.cards,cashTxns:idbData.cashTxns});
+      }else if(hasMemTxns){
+        /* One-time migration: IDB is empty but LS had transactions — write them now */
+        console.log("[MM] Migrating transactions from localStorage → IndexedDB…");
+        saveTxToIDB(cur).then(ok=>{
+          if(ok) console.log("[MM] Transaction migration to IDB complete.");
+          else   console.warn("[MM] Transaction migration to IDB failed — will retry on next save.");
+        });
+        /* Memory already has transactions; no HYDRATE dispatch needed */
+      }else{
+        /* Fresh install or RESET state — IDB and memory are both empty, nothing to do */
+        console.log("[MM] IDB: no transactions to hydrate (fresh state).");
+      }
+    }).catch(e=>console.warn("[MM] IDB hydration error:",e));
+  },[]); // run exactly once on mount
+
+  /* ── Debounced save to localStorage + IDB + FSA ── */
   const _ric=typeof requestIdleCallback==="function"?requestIdleCallback:(cb)=>setTimeout(cb,1);
   const timerRef=React.useRef(null);
   const ricRef=React.useRef(null);
@@ -2819,18 +3022,21 @@ const usePersistentReducer=(reducer,init)=>{
       // Defer the expensive JSON.stringify to idle time so it never blocks a user gesture
       if(ricRef.current)cancelIdleCallback?.(ricRef.current);
       ricRef.current=_ric(()=>{
+        /* ── 1. Save metadata to localStorage (transactions stripped) ── */
         const _compacted=saveState(state);
-        /* ── Selective eodPrices/eodNavs save: only when content actually changed ── */
+        /* ── 2. Save transactions to IndexedDB (async, non-blocking) ── */
+        saveTxToIDB(state).catch(e=>console.warn("[MM] IDB periodic save error:",e));
+        /* ── 3. Selective eodPrices/eodNavs save: only when content actually changed ── */
         try{
           const _ePJson=JSON.stringify(state.eodPrices||{});
           const _eNJson=JSON.stringify(state.eodNavs||{});
           if(_ePJson!==_prevEodPricesJson.current){_prevEodPricesJson.current=_ePJson;localStorage.setItem(LS_EOD_PRICES,_ePJson);}
           if(_eNJson!==_prevEodNavsJson.current){_prevEodNavsJson.current=_eNJson;localStorage.setItem(LS_EOD_NAVS,_eNJson);}
         }catch{}
-        /* Bug 2 fix: if emergency compaction pruned caches to fit in localStorage,
-           dispatch the matching PRUNE action(s) so in-memory state stays in sync.
-           Without this the next save would re-include the full caches and trigger
-           another QuotaExceededError on every subsequent state change. */
+        /* ── 4. If emergency compaction pruned caches to fit in localStorage,
+              dispatch the matching PRUNE action(s) so in-memory state stays in sync.
+              Without this the next save re-includes the full caches and triggers
+              another QuotaExceededError on every subsequent state change. ── */
         if(_compacted){
           if(_compacted==="historyCache"||_compacted==="eodPrices"||_compacted==="eodNavs"){
             dispatch({type:"PRUNE_HISTORY_CACHE"});
@@ -2842,8 +3048,10 @@ const usePersistentReducer=(reducer,init)=>{
             dispatch({type:"PRUNE_EOD_NAVS",days:14});
           }
         }
-        /* Also write to FSA file if connected and has permission */
+        /* ── 5. Write to FSA file if connected and has permission ── */
         if(window.__fsa&&window.__fsa.handle&&window.__fsa.ready){
+          /* FSA file always receives the complete state (full transactions included)
+             since it doubles as the backup file and must be self-contained. */
           fsaWriteFile(window.__fsa.handle,state).then(ok=>{
             if(ok){window.__fsa.lastSaved=new Date();window.dispatchEvent(new CustomEvent("fsa:saved"));}
             else{window.dispatchEvent(new CustomEvent("fsa:write-failed"));}
@@ -2853,15 +3061,19 @@ const usePersistentReducer=(reducer,init)=>{
     },400);
     return()=>{if(timerRef.current)clearTimeout(timerRef.current);};
   },[state]);
-  /* ── beforeunload: flush pending save on tab close / reload ──
-     Without this, a state change followed by a quick tab close (< 400 ms debounce)
-     silently loses that change. pagehide is the modern equivalent; beforeunload is
-     the fallback for older browsers. Both fire synchronously so localStorage and
-     FSA writes complete before the page unloads. */
+
+  /* ── beforeunload / pagehide: flush pending save on tab close / reload ──
+     saveState (LS) is synchronous and completes before page unloads.
+     saveTxToIDB is async — it is "best effort" here; the debounced save
+     above (running every 400 ms during normal use) is the primary IDB writer.
+     In practice the IDB write will usually finish within the unload window
+     because browsers grant a short grace period for IndexedDB transactions. */
   React.useEffect(()=>{
     const flush=()=>{
       stateRef.current=state;
       saveState(state);
+      /* Best-effort IDB flush on close — completes if browser grants grace period */
+      saveTxToIDB(state).catch(()=>{});
       try{
         const _ePJson=JSON.stringify(state.eodPrices||{});
         const _eNJson=JSON.stringify(state.eodNavs||{});

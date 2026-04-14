@@ -1960,10 +1960,10 @@ const FSAStoragePanel=({state,dispatch})=>{
    on the user's own Google Drive. Up to 7 recent backups are kept.
    ══════════════════════════════════════════════════════════════════════════ */
 const CloudBackupPanel=({state})=>{
-  const[clientId,setClientId]=useState(()=>localStorage.getItem("mm_gdrive_cid")||"");
-  const[editCid,setEditCid]=useState(!localStorage.getItem("mm_gdrive_cid"));
-  const[cidInput,setCidInput]=useState(()=>localStorage.getItem("mm_gdrive_cid")||"");
-  const[token,setToken]=useState(()=>sessionStorage.getItem("mm_gdrive_tok")||"");
+  const[clientId,setClientId]=useState(()=>{try{return localStorage.getItem("mm_gdrive_cid")||"";}catch{return "";}});
+  const[editCid,setEditCid]=useState(()=>{try{return !localStorage.getItem("mm_gdrive_cid");}catch{return true;}});
+  const[cidInput,setCidInput]=useState(()=>{try{return localStorage.getItem("mm_gdrive_cid")||"";}catch{return "";}});
+  const[token,setToken]=useState(()=>{try{return sessionStorage.getItem("mm_gdrive_tok")||"";}catch{return "";}});
   const[busy,setBusy]=useState(false);
   const[msg,setMsg]=useState({text:"",ok:true});
   const[files,setFiles]=useState([]);
@@ -2654,7 +2654,7 @@ function checkAndFireNotifications(state){
   const today=new Date();today.setHours(0,0,0,0);
   const pad=n=>String(n).padStart(2,"0");
   const fmtD=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-  const fired=new Set(JSON.parse(sessionStorage.getItem("mm_notif_fired")||"[]"));
+  const fired=new Set((()=>{try{return JSON.parse(sessionStorage.getItem("mm_notif_fired")||"[]");}catch{return[];}})());
   const fire=(tag,title,body)=>{if(fired.has(tag))return;fired.add(tag);fireNotification(title,body,tag);};
 
   /* ── EMI / Scheduled reminders ── */
@@ -2711,7 +2711,7 @@ function checkAndFireNotifications(state){
       }
     });
   }
-  sessionStorage.setItem("mm_notif_fired",JSON.stringify([...fired]));
+  try{sessionStorage.setItem("mm_notif_fired",JSON.stringify([...fired]));}catch{}
 }
 
 

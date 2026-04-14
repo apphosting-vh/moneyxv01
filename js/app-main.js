@@ -2897,7 +2897,6 @@ function App(){
             results.forEach(r=>{if(r)prices[r.ticker]=r.price;});
             if(Object.keys(prices).length>0){
               dispatch({type:"SET_EOD_PRICES",date:today,prices});
-              console.log("[MM] EOD share snapshot saved for",today,"—",Object.keys(prices).length,"tickers");
             }
           }
         }
@@ -2923,7 +2922,6 @@ function App(){
             /* Only store if we don't already have this ISO navDate */
             if(!(_eodNavsRef.current&&_eodNavsRef.current[navDateISO])){
               dispatch({type:"SET_EOD_NAVS",date:navDateISO,navs:navsByCode});
-              console.log("[MM] EOD MF NAV snapshot saved for",navDateISO,"—",Object.keys(navsByCode).length,"schemes");
             }
           }
         }

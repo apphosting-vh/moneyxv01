@@ -2858,6 +2858,8 @@ function App(){
   const[themeId,setThemeId]=useState(loadTheme);
   const setTheme=id=>{setThemeId(id);applyTheme(id);saveTheme(id);};
   React.useEffect(()=>{applyTheme(themeId);},[]);
+  /* ── Backup age monitor ── */
+  const[backupBanner,setBackupBanner]=useState(null); /* {ageDays,lastDate} or null */
   /* ── Keyboard shortcuts: Ctrl/Cmd+K = global search, Ctrl/Cmd+Z = undo ── */
   React.useEffect(()=>{
     const handler=e=>{
@@ -2868,6 +2870,25 @@ function App(){
     document.addEventListener("keydown",handler);
     return()=>document.removeEventListener("keydown",handler);
   },[undoSnap,doUndo]);
+  /* ── Backup age check: warn if no backup in 3+ days, auto-download on confirm ── */
+  React.useEffect(()=>{
+    const checkBackupAge=()=>{
+      try{
+        const ageDays=typeof window.__mmGetBackupAgeDays==="function"?window.__mmGetBackupAgeDays():Infinity;
+        const lastDate=typeof window.__mmGetLastBackupDate==="function"?window.__mmGetLastBackupDate():null;
+        if(ageDays>=3){
+          setBackupBanner({ageDays:Math.floor(ageDays),lastDate});
+        }else{
+          setBackupBanner(null);
+        }
+      }catch{}
+    };
+    /* Check after a short delay so settings globals are loaded */
+    const t=setTimeout(checkBackupAge,3000);
+    /* Re-check every hour while app is open */
+    const iv=setInterval(checkBackupAge,60*60*1000);
+    return()=>{clearTimeout(t);clearInterval(iv);};
+  },[]);
   /* Auto-execute due scheduled transactions on load */
   React.useEffect(()=>{
     const today=TODAY();
@@ -3506,6 +3527,50 @@ function App(){
     },"×")
   );
 
+  /* ── Backup age warning banner ── */
+  const BackupWarnBanner=backupBanner&&React.createElement("div",{style:{
+    position:"fixed",top:_swVisible?40:0,left:0,right:0,
+    zIndex:9996,
+    background:"linear-gradient(135deg,#1c0f00,#431407)",
+    borderBottom:"2px solid #f59e0b",
+    padding:"9px 16px",
+    display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",
+    boxShadow:"0 4px 20px rgba(0,0,0,.45)",
+    fontFamily:"'DM Sans',sans-serif",
+  }},
+    React.createElement("span",{style:{fontSize:16,flexShrink:0}},"💾"),
+    React.createElement("div",{style:{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}},
+      React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"#fbbf24",whiteSpace:"nowrap"}},"Backup Reminder"),
+      React.createElement("div",{style:{fontSize:11,color:"rgba(255,255,255,.65)"}},
+        backupBanner.lastDate
+          ?"Last backup was "+backupBanner.ageDays+" day"+(backupBanner.ageDays!==1?"s":"")+" ago ("+new Date(backupBanner.lastDate).toLocaleDateString()+"). Download a fresh backup now?"
+          :"No backup has been taken yet. It's been "+backupBanner.ageDays+" days — download a backup to keep your data safe."
+      )
+    ),
+    React.createElement("button",{
+      onClick:()=>{
+        if(typeof window.__mmAutoBackup==="function"){
+          Promise.resolve(window.__mmAutoBackup(_stateRef.current)).then(ok=>{if(ok)setBackupBanner(null);}).catch(()=>{});
+        }
+      },
+      style:{
+        background:"rgba(245,158,11,.2)",border:"1px solid rgba(245,158,11,.5)",
+        color:"#fbbf24",borderRadius:7,padding:"5px 12px",fontSize:11,fontWeight:700,
+        cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,
+        fontFamily:"'DM Sans',sans-serif",
+      }
+    },"⬇ Download Backup Now"),
+    React.createElement("button",{
+      onClick:()=>setBackupBanner(null),
+      style:{
+        background:"transparent",border:"none",
+        color:"rgba(255,255,255,.35)",cursor:"pointer",
+        fontSize:18,lineHeight:1,padding:"2px 6px",flexShrink:0,
+      },
+      title:"Dismiss for this session"
+    },"×")
+  );
+
   /* ── Collapsed (icon-only) sidebar ── */
   const SidebarCollapsed=()=>React.createElement("div",{className:"sidebar-panel",style:{
     width:64,minWidth:64,background:"var(--sidebar)",
@@ -3788,6 +3853,7 @@ function App(){
     FsaLaunchSuccess,
     UpdateBanner,
     StorageWarnBanner,
+    BackupWarnBanner,
     /* ── Undo Toast ── */
     undoSnap&&React.createElement("div",{style:{
       position:"fixed",bottom:isMobile?88:28,left:"50%",transform:"translateX(-50%)",

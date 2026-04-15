@@ -815,6 +815,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
                   const a=document.createElement("a");a.href=url;
                   a.download="money-manager-ENCRYPTED-"+new Date().toISOString().split("T")[0]+".json";
                   a.click();URL.revokeObjectURL(url);
+                  recordBackupDate();
                   setBackupMsg("✓ Encrypted backup downloaded!");setTimeout(()=>setBackupMsg(""),4000);
                 }catch(e){setBackupMsg("✗ Encryption failed: "+e.message);}
               },
@@ -872,6 +873,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
                 a.download="money-manager-backup-"+new Date().toISOString().split("T")[0]+".json";
                 a.click();
                 URL.revokeObjectURL(url);
+                recordBackupDate();
                 setBackupMsg("✓ Backup downloaded successfully!");
                 setTimeout(()=>setBackupMsg(""),4000);
               }catch(e){setBackupMsg("✗ Export failed: "+e.message);}
@@ -2108,6 +2110,58 @@ const LS_THEME="mm_v7_theme";
 const LS_PIN="mm_v7_pin";   /* stores SHA-256 hex hash of the 6-digit PIN */
 const SS_UNLOCK="mm_v7_unlocked"; /* sessionStorage — cleared when tab closes */
 const CALC_LS_KEY="mm_calc_v1"; /* Financial calculator inputs + results */
+const LS_LAST_BACKUP="mm_v7_lastBackup"; /* ISO timestamp of last successful backup download */
+
+/* ── Backup monitoring helpers ── */
+const recordBackupDate=()=>{try{localStorage.setItem(LS_LAST_BACKUP,new Date().toISOString());}catch{};};
+const getLastBackupDate=()=>{try{return localStorage.getItem(LS_LAST_BACKUP);}catch{return null;}};
+const getBackupAgeDays=()=>{const d=getLastBackupDate();if(!d)return Infinity;return(Date.now()-new Date(d).getTime())/(1000*60*60*24);};
+
+/* Build a standard backup payload from current state (reusable for manual & auto backup) */
+const buildBackupPayload=async(st)=>{
+  /* attachmentBlobs may not be available in all contexts, so wrap in try */
+  let attachmentBlobs=[];
+  try{attachmentBlobs=await rcptGetAllBlobEntries();}catch{}
+  return{
+    version:8,exportedAt:new Date().toISOString(),theme:loadTheme(),
+    attachmentBlobs:Array.isArray(attachmentBlobs)?attachmentBlobs.filter(e=>e.b64):[],
+    summary:{
+      bankAccounts:st.banks.length,bankTxns:st.banks.reduce((s,b)=>s+(b.transactions||[]).length,0),
+      cardAccounts:st.cards.length,cardTxns:st.cards.reduce((s,c)=>s+(c.transactions||[]).length,0),
+      cashTxns:st.cash.transactions.length,loans:st.loans.length,
+      mf:st.mf.length,shares:st.shares.length,fd:st.fd.length,
+      categories:st.categories.length,payees:st.payees.length,
+      scheduled:(st.scheduled||[]).length,notes:(st.notes||[]).length,
+      nwSnapshots:Object.keys(st.nwSnapshots||{}).length,
+      hasTaxData:!!(st.taxData),
+      hasYearlyBudget:Object.values((st.insightPrefs||{}).yearlyBudgetPlans||{}).some(v=>v>0),
+    },
+    data:{
+      ...st,notes:st.notes||[],scheduled:st.scheduled||[],nwSnapshots:st.nwSnapshots||{},
+      eodPrices:st.eodPrices||{},eodNavs:st.eodNavs||{},historyCache:st.historyCache||{},
+      taxData:st.taxData||null,re:st.re||[],pf:st.pf||[],goals:st.goals||[],
+      hiddenTabs:st.hiddenTabs||[],catRules:st.catRules||[],
+      insightPrefs:{...EMPTY_STATE().insightPrefs,...(st.insightPrefs||{})},
+    }
+  };
+};
+
+/* Global auto-backup trigger — called from app-main.js backup monitor */
+window.__mmAutoBackup=async(st)=>{
+  try{
+    const payload=await buildBackupPayload(st);
+    const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;
+    a.download="money-manager-backup-"+new Date().toISOString().split("T")[0]+".json";
+    a.click();URL.revokeObjectURL(url);
+    recordBackupDate();
+    return true;
+  }catch(e){console.warn("[MM] Auto-backup failed:",e);return false;}
+};
+window.__mmRecordBackupDate=recordBackupDate;
+window.__mmGetBackupAgeDays=getBackupAgeDays;
+window.__mmGetLastBackupDate=getLastBackupDate;
 
 /* ── Calculator state persistence helpers ── */
 const loadCalcState=()=>{try{return JSON.parse(localStorage.getItem(CALC_LS_KEY)||"{}");}catch{return {};}};

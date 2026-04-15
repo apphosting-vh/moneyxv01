@@ -2051,6 +2051,7 @@ const CloudBackupPanel=({state})=>{
       if(r.status===401){sessionStorage.removeItem("mm_gdrive_tok");setToken("");say("Session expired — please reconnect.",false);setBusy(false);return;}
       if(!r.ok){say("Upload failed: "+r.statusText,false);setBusy(false);return;}
       say("✓ Backup uploaded to Google Drive → finsight Backups/"+filename);
+      try{window.__mmRecordBackupDate&&window.__mmRecordBackupDate();}catch{}
       listFiles();
       /* Auto-prune: keep only 7 most recent */
       pruneOld(token,folderId);

@@ -1257,7 +1257,7 @@ const reducer=(s,a)=>{
          This ensures the lastExecuted !== today guard works correctly on the same day,
          and completed cards show when the transaction actually ran. */
       const _runDate=getISTDateStr();
-      ns={...ns,scheduled:(ns.scheduled||[]).map(x=>x.id===sc.id?{...x,lastExecuted:_runDate,nextDate:expired?null:newNext,status:expired?"completed":"active"}:x)};
+      ns={...ns,scheduled:(ns.scheduled||[]).map(x=>x.id===sc.id?{...x,lastExecuted:_runDate,nextDate:expired?null:newNext,status:expired?"completed":"active",executionHistory:[...(x.executionHistory||[]),{scheduledDate:sc.nextDate,executedDate:_runDate,amount:sc.amount}]}:x)};
       return ns;
     }
     /* Transfer: debit source, credit target -- supports bank/cash/card */

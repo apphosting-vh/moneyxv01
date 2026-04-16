@@ -1431,6 +1431,8 @@ const ScheduledSection=React.memo(({scheduled=_EA,banks,cards,cash,categories,pa
   const[copySc,setCopySc]=useState(null);
   const[collapsedMonths,setCollapsedMonths]=useState({}); /* {"YYYY-MM": true} = collapsed */
   const toggleMonth=m=>setCollapsedMonths(p=>({...p,[m]:!p[m]}));
+  const[collapsedExecMonths,setCollapsedExecMonths]=useState({});
+  const toggleExecMonth=m=>setCollapsedExecMonths(p=>({...p,[m]:!p[m]}));
 
   const allAccounts=[
     ...banks.map(b=>({...b,accType:"bank",accTypeLbl:"↳"})),
@@ -1451,6 +1453,10 @@ const ScheduledSection=React.memo(({scheduled=_EA,banks,cards,cash,categories,pa
   const due=scheduled.filter(sc=>sc.status==="active"&&sc.nextDate&&sc.nextDate<=today);
   const active=scheduled.filter(sc=>sc.status==="active"&&sc.nextDate&&sc.nextDate>today);
   const completed=scheduled.filter(sc=>sc.status==="completed"||!sc.nextDate);
+  /* Flat list of all individual execution instances from every scheduled tx (active + expired), newest-first */
+  const completedInstances=React.useMemo(()=>(scheduled||[]).flatMap(sc=>(sc.executionHistory||[]).map(inst=>({...inst,schedId:sc.id,desc:sc.desc||sc.payee||"Scheduled",frequency:sc.frequency,accName:getAccName(sc),ledgerType:sc.ledgerType}))).sort((a,b)=>(b.executedDate||"").localeCompare(a.executedDate||"")),[scheduled]);
+  /* Expired schedule cards with no execution history — still shown for delete/copy */
+  const expiredDefs=completed.filter(sc=>!sc.executionHistory||sc.executionHistory.length===0);
 
   /* activeMonths must come AFTER active is defined */
   const activeMonths=React.useMemo(()=>[...new Set(active.map(sc=>(sc.nextDate||"9999-12").substr(0,7)))].sort(),[active]);
@@ -1913,7 +1919,7 @@ const ScheduledSection=React.memo(({scheduled=_EA,banks,cards,cash,categories,pa
           React.createElement("span",{style:{fontSize:12,fontWeight:600,color:showCompleted?"var(--accent)":"var(--text4)"}},
             showCompleted?"Hide Completed / Expired":"Show Completed / Expired"
           ),
-          completed.length>0&&React.createElement("span",{style:{fontSize:11,fontWeight:700,padding:"1px 7px",borderRadius:10,background:"var(--bg4)",color:"var(--text5)",border:"1px solid var(--border2)"}},completed.length)
+          completedInstances.length>0&&React.createElement("span",{style:{fontSize:11,fontWeight:700,padding:"1px 7px",borderRadius:10,background:"var(--bg4)",color:"var(--text5)",border:"1px solid var(--border2)"}},completedInstances.length)
         ),
         /* Due badge */
         due.length>0&&React.createElement("div",{style:{padding:"7px 13px",borderRadius:9,background:"rgba(239,68,68,.12)",border:"1px solid rgba(239,68,68,.3)",color:"#ef4444",fontWeight:700,fontSize:13}},
@@ -2070,23 +2076,104 @@ const ScheduledSection=React.memo(({scheduled=_EA,banks,cards,cash,categories,pa
     ),
 
     /* ── Completed / Expired — always at bottom, shown only when toggled */
-    completed.length>0&&showCompleted&&React.createElement("div",{style:{marginTop: due.length||active.length ? 8 : 0}},
-      React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:10}},
-        React.createElement("div",{style:{flex:1,height:1,background:"var(--border2)"}}),
-        React.createElement("span",{style:{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,color:"var(--text6)",whiteSpace:"nowrap"}},
-          "✓ Completed / Expired ("+completed.length+")"
+    (completedInstances.length>0||expiredDefs.length>0)&&showCompleted&&React.createElement("div",{style:{marginTop: due.length||active.length ? 8 : 0}},
+      /* ── Execution History — grouped by month of executedDate, newest-first ── */
+      (()=>{
+        if(!completedInstances.length)return null;
+        const MONTH_FULL=["January","February","March","April","May","June","July","August","September","October","November","December"];
+        const mkLabel=mk=>{const[y,m]=mk.split("-");return MONTH_FULL[parseInt(m)-1]+" "+y;};
+        /* group by YYYY-MM of executedDate (already sorted newest-first) */
+        const grouped={};
+        completedInstances.forEach(inst=>{
+          const mk=(inst.executedDate||"0000-00").substr(0,7);
+          if(!grouped[mk])grouped[mk]=[];
+          grouped[mk].push(inst);
+        });
+        const sortedMks=Object.keys(grouped).sort().reverse(); /* newest month first */
+        /* compact instance row renderer */
+        const renderInstRow=(inst,i)=>React.createElement("div",{key:inst.schedId+"-"+inst.executedDate+"-"+i,style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"8px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg3)",fontSize:12}},
+          React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8,minWidth:0,flex:1}},
+            React.createElement("span",{style:{fontWeight:600,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},inst.desc),
+            React.createElement("span",{style:{fontSize:10,fontWeight:700,padding:"1px 6px",borderRadius:8,border:"1px solid "+(FREQ_C[inst.frequency]||"var(--accent)")+"55",color:FREQ_C[inst.frequency]||"var(--accent)",background:(FREQ_C[inst.frequency]||"var(--accent)")+"15",whiteSpace:"nowrap"}},inst.frequency==="once"?"One-time":inst.frequency)
+          ),
+          React.createElement("div",{style:{display:"flex",alignItems:"center",gap:12,flexShrink:0}},
+            React.createElement("span",{style:{fontWeight:700,fontFamily:"'Sora',sans-serif",color:inst.ledgerType==="credit"?"#16a34a":"#ef4444"}},(inst.ledgerType==="credit"?"+":"-")+INR(inst.amount)),
+            React.createElement("span",{style:{fontSize:11,color:"var(--text5)",whiteSpace:"nowrap"}},inst.accName),
+            React.createElement("span",{style:{fontSize:10,color:"var(--text6)",whiteSpace:"nowrap"}},"Sch: "+inst.scheduledDate),
+            React.createElement("span",{style:{fontSize:10,color:"var(--text5)",fontWeight:600,whiteSpace:"nowrap"}},"✓ "+inst.executedDate)
+          )
+        );
+        return React.createElement("div",null,
+          /* Section header */
+          React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:10}},
+            React.createElement("div",{style:{flex:1,height:1,background:"var(--border2)"}}),
+            React.createElement("span",{style:{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,color:"var(--text6)",whiteSpace:"nowrap"}},
+              "✓ Completed Executions ("+completedInstances.length+")"
+            ),
+            React.createElement("div",{style:{flex:1,height:1,background:"var(--border2)"}})
+          ),
+          /* Month groups */
+          sortedMks.map(mk=>{
+            const items=grouped[mk];
+            const isCollapsed=!!collapsedExecMonths[mk];
+            const totalOut=items.filter(s=>s.ledgerType!=="credit").reduce((s,inst)=>s+inst.amount,0);
+            const totalIn=items.filter(s=>s.ledgerType==="credit").reduce((s,inst)=>s+inst.amount,0);
+            return React.createElement("div",{key:mk,style:{marginBottom:10}},
+              /* Month header — clickable to toggle */
+              React.createElement("button",{
+                onClick:()=>toggleExecMonth(mk),
+                className:"nb",
+                style:{
+                  display:"flex",alignItems:"center",width:"100%",gap:10,
+                  padding:"10px 14px",borderRadius:isCollapsed?10:"10px 10px 0 0",
+                  border:"1px solid var(--border2)",
+                  background:"var(--bg4)",
+                  cursor:"pointer",textAlign:"left",transition:"all .15s",
+                  borderBottom:isCollapsed?"1px solid var(--border2)":"1px solid var(--border)"
+                }
+              },
+                React.createElement("span",{style:{fontSize:11,color:"var(--text5)",flexShrink:0,transition:"transform .2s",
+                  display:"inline-block",transform:isCollapsed?"rotate(-90deg)":"rotate(0deg)"}},
+                  "▼"),
+                React.createElement("span",{style:{fontSize:13,fontWeight:700,color:"var(--text4)",fontFamily:"'Sora',sans-serif"}},
+                  mkLabel(mk)),
+                React.createElement("span",{style:{fontSize:11,fontWeight:600,padding:"2px 8px",borderRadius:10,
+                  background:"var(--bg3)",color:"var(--text5)",border:"1px solid var(--border2)"}},
+                  items.length+" execution"+(items.length!==1?"s":"")),
+                /* spacer */
+                React.createElement("span",{style:{flex:1}}),
+                /* monthly totals */
+                totalIn>0&&React.createElement("span",{style:{fontSize:11,fontWeight:600,color:"#16a34a",fontFamily:"'Sora',sans-serif"}},"+"+INR(totalIn)),
+                totalOut>0&&React.createElement("span",{style:{fontSize:11,fontWeight:600,color:"#ef4444",fontFamily:"'Sora',sans-serif"}},"−"+INR(totalOut))
+              ),
+              /* Instance rows */
+              !isCollapsed&&React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:6,padding:"10px 12px",
+                border:"1px solid var(--border2)",borderTop:"none",borderRadius:"0 0 10px 10px",background:"var(--bg3)"}},
+                items.map(renderInstRow)
+              )
+            );
+          })
+        );
+      })(),
+      /* ── Expired definition cards (no execution history) — for delete/copy */
+      expiredDefs.length>0&&React.createElement("div",{style:{marginTop:completedInstances.length>0?16:0}},
+        React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:10}},
+          React.createElement("div",{style:{flex:1,height:1,background:"var(--border2)"}}),
+          React.createElement("span",{style:{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,color:"var(--text6)",whiteSpace:"nowrap"}},
+            "Expired Definitions ("+expiredDefs.length+")"
+          ),
+          React.createElement("div",{style:{flex:1,height:1,background:"var(--border2)"}})
         ),
-        React.createElement("div",{style:{flex:1,height:1,background:"var(--border2)"}})
-      ),
-      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:12}},
-        completed.map(renderCard)
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:12}},
+          expiredDefs.map(renderCard)
+        )
       )
     ),
 
     /* ── Hint when completed exist but are hidden */
-    completed.length>0&&!showCompleted&&(due.length>0||active.length>0)&&React.createElement("div",{style:{textAlign:"center",marginTop:8,padding:"10px",borderRadius:8,border:"1px dashed var(--border2)"}},
+    completedInstances.length>0&&!showCompleted&&(due.length>0||active.length>0)&&React.createElement("div",{style:{textAlign:"center",marginTop:8,padding:"10px",borderRadius:8,border:"1px dashed var(--border2)"}},
       React.createElement("span",{style:{fontSize:12,color:"var(--text6)"}},
-        completed.length+" completed / expired transaction"+(completed.length>1?"s are":" is")+" hidden. Use the checkbox above to show."
+        completedInstances.length+" completed execution"+(completedInstances.length>1?"s are":" is")+" hidden. Use the checkbox above to show."
       )
     )
   );

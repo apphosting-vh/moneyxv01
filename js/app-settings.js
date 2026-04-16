@@ -2481,18 +2481,63 @@ const _isAndroidDevice = () => {
 const _gdriveGetToken = () => {
   try { return localStorage.getItem(GDRIVE_LS_TOKEN) || ""; } catch { return ""; }
 };
+
+/* Proactive refresh timer — renewed every time a token is stored. */
+let _gdriveRefreshTimer = null;
+
+/* Schedule a silent token refresh ~5 minutes before the current token expires.
+   This keeps long-running sessions authorised without ever showing a popup. */
+const _gdriveScheduleTokenRefresh = (expiresInSeconds) => {
+  if (_gdriveRefreshTimer) clearTimeout(_gdriveRefreshTimer);
+  const delayMs = Math.max(0, (expiresInSeconds - 300)) * 1000; // 5 min safety margin
+  _gdriveRefreshTimer = setTimeout(async () => {
+    console.log("[GDrive] Proactively refreshing access token silently…");
+    await gdriveRequestTokenSilent();
+  }, delayMs);
+};
+
 const _gdriveSetToken = (tok, expiresIn) => {
   try {
     localStorage.setItem(GDRIVE_LS_TOKEN, tok);
-    if (expiresIn) localStorage.setItem(GDRIVE_LS_EXPIRE, String(Date.now() + expiresIn * 1000));
+    if (expiresIn) {
+      localStorage.setItem(GDRIVE_LS_EXPIRE, String(Date.now() + expiresIn * 1000));
+      _gdriveScheduleTokenRefresh(expiresIn);
+    }
   } catch {}
 };
 const _gdriveClearToken = () => {
+  if (_gdriveRefreshTimer) { clearTimeout(_gdriveRefreshTimer); _gdriveRefreshTimer = null; }
   try { localStorage.removeItem(GDRIVE_LS_TOKEN); localStorage.removeItem(GDRIVE_LS_EXPIRE); } catch {}
 };
 const _gdriveTokenExpired = () => {
   try { return Date.now() > +(localStorage.getItem(GDRIVE_LS_EXPIRE) || 0); } catch { return true; }
 };
+
+/* Silent token refresh — uses the browser's existing Google session cookie.
+   Resolves with a token string on success, or "" if the Google session itself
+   has expired (in which case the interactive popup fallback will be used).
+   No UI is shown at any point. */
+const gdriveRequestTokenSilent = () => new Promise((resolve) => {
+  try {
+    const cid = (function(){try{return localStorage.getItem("mm_gdrive_cid")||"";}catch{return "";}})();
+    if (!cid || typeof google === "undefined" || !google.accounts?.oauth2) { resolve(""); return; }
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: cid,
+      scope: "https://www.googleapis.com/auth/drive.file",
+      prompt: "",           // empty string = no consent screen, no account picker
+      callback: (resp) => {
+        if (resp && resp.access_token) {
+          _gdriveSetToken(resp.access_token, resp.expires_in);
+          resolve(resp.access_token);
+        } else {
+          resolve("");        // silent path failed — caller will try popup
+        }
+      },
+      error_callback: () => resolve(""),
+    });
+    client.requestAccessToken({ prompt: "" });
+  } catch { resolve(""); }
+});
 
 /* Request a fresh access token via GIS popup. Returns token string or "" on failure. */
 const gdriveRequestToken = () => new Promise((resolve) => {
@@ -2514,13 +2559,32 @@ const gdriveRequestToken = () => new Promise((resolve) => {
   } catch { resolve(""); }
 });
 
-/* Ensure we have a valid token; re-prompt if expired. */
+/* Ensure we have a valid token.
+   Order: cached (still valid) → silent refresh (no popup) → interactive popup. */
 const _gdriveEnsureToken = async () => {
   let tok = _gdriveGetToken();
   if (tok && !_gdriveTokenExpired()) return tok;
+  // Attempt silent re-auth first — no popup, uses the Google session cookie.
+  tok = await gdriveRequestTokenSilent();
+  if (tok) return tok;
+  // Google session has also expired — fall back to the interactive consent popup.
   tok = await gdriveRequestToken();
   return tok;
 };
+
+/* On page load: if a still-valid token exists in localStorage, schedule its
+   proactive refresh for the remainder of its lifetime so the app stays
+   authorised across a browser reopen without the user doing anything. */
+(function _gdriveRestoreRefreshSchedule() {
+  try {
+    const exp = +(localStorage.getItem(GDRIVE_LS_EXPIRE) || 0);
+    if (exp > Date.now()) {
+      const remainingSecs = Math.floor((exp - Date.now()) / 1000);
+      _gdriveScheduleTokenRefresh(remainingSecs);
+      console.log("[GDrive] Token valid for ~" + Math.round(remainingSecs / 60) + " more min; refresh scheduled.");
+    }
+  } catch {}
+})();
 
 /* ── Drive API helpers ── */
 

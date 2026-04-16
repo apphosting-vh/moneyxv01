@@ -803,9 +803,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
                 const pw2=window.prompt("Confirm password:");
                 if(pw!==pw2){alert("Passwords do not match.");return;}
                 try{
-                  const attachmentBlobs=await rcptGetAllBlobEntries();
-                  const payload={version:8,exportedAt:new Date().toISOString(),theme:loadTheme(),
-                    attachmentBlobs:attachmentBlobs.filter(e=>e.b64),
+                  const payload={version:8,exportedAt:new Date().toISOString(),
                     summary:{bankAccounts:state.banks.length,bankTxns:state.banks.reduce((s,b)=>s+(b.transactions||[]).length,0),cardAccounts:state.cards.length,cardTxns:state.cards.reduce((s,c)=>s+(c.transactions||[]).length,0),cashTxns:state.cash.transactions.length,loans:state.loans.length,mf:state.mf.length,shares:state.shares.length,fd:state.fd.length,categories:state.categories.length,payees:state.payees.length,scheduled:(state.scheduled||[]).length,notes:(state.notes||[]).length,nwSnapshots:Object.keys(state.nwSnapshots||{}).length,hasTaxData:!!(state.taxData),hasYearlyBudget:Object.values((state.insightPrefs||{}).yearlyBudgetPlans||{}).some(v=>v>0)},
                     data:{...state,notes:state.notes||[],scheduled:state.scheduled||[],nwSnapshots:state.nwSnapshots||{},eodPrices:state.eodPrices||{},eodNavs:state.eodNavs||{},historyCache:state.historyCache||{},taxData:state.taxData||null,re:state.re||[],pf:state.pf||[],goals:state.goals||[],hiddenTabs:state.hiddenTabs||[],catRules:state.catRules||[],insightPrefs:{...EMPTY_STATE().insightPrefs,...(state.insightPrefs||{})}}
                   };
@@ -823,12 +821,9 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
             },"Encrypted Backup"),
             React.createElement(Btn,{onClick:async()=>{
               try{
-                const attachmentBlobs=await rcptGetAllBlobEntries();
                 const payload={
                   version:8,
                   exportedAt:new Date().toISOString(),
-                  theme:loadTheme(),
-                  attachmentBlobs:attachmentBlobs.filter(e=>e.b64),
                   summary:{
                     bankAccounts:state.banks.length,
                     bankTxns:state.banks.reduce((s,b)=>s+(b.transactions||[]).length,0),
@@ -943,13 +938,8 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
                         if(_restoreData.eodNavs&&Object.keys(_restoreData.eodNavs).length>0)
                           localStorage.setItem(LS_EOD_NAVS,JSON.stringify(_restoreData.eodNavs));
                       }catch{}
-                      /* ── Restore attachment blobs to IDB so files survive cache-clear ── */
-                      if(payload.attachmentBlobs&&payload.attachmentBlobs.length>0){
-                        try{await rcptRestoreAllBlobEntries(payload.attachmentBlobs);}catch{}
-                      }
                       /* ── Update in-memory React state for the 1.8s before reload ── */
                       dispatch({type:"RESTORE_ALL",data:_restoreData});
-                      if(payload.theme){saveTheme(payload.theme);}
                       const s=payload.summary;
                       const msg=s
                         ? "✓ Restored: "+s.bankTxns+" bank · "+s.cardTxns+" card · "+s.cashTxns+" cash txns · "+s.categories+" cats · "+s.payees+" payees · "+s.notes+" notes"+(s.nwSnapshots?" · "+s.nwSnapshots+" NW snapshots":"")
@@ -2119,12 +2109,8 @@ const getBackupAgeDays=()=>{const d=getLastBackupDate();if(!d)return Infinity;re
 
 /* Build a standard backup payload from current state (reusable for manual & auto backup) */
 const buildBackupPayload=async(st)=>{
-  /* attachmentBlobs may not be available in all contexts, so wrap in try */
-  let attachmentBlobs=[];
-  try{attachmentBlobs=await rcptGetAllBlobEntries();}catch{}
   return{
-    version:8,exportedAt:new Date().toISOString(),theme:loadTheme(),
-    attachmentBlobs:Array.isArray(attachmentBlobs)?attachmentBlobs.filter(e=>e.b64):[],
+    version:8,exportedAt:new Date().toISOString(),
     summary:{
       bankAccounts:st.banks.length,bankTxns:st.banks.reduce((s,b)=>s+(b.transactions||[]).length,0),
       cardAccounts:st.cards.length,cardTxns:st.cards.reduce((s,c)=>s+(c.transactions||[]).length,0),

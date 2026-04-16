@@ -91,8 +91,6 @@ gdriveReadSyncFile = async () => {
     return {
       state: _safe(data.data),
       modifiedTime: remoteExportedAt,
-      theme: data.theme || null,
-      attachmentBlobs: Array.isArray(data.attachmentBlobs) ? data.attachmentBlobs : [],
     };
   } catch (e) {
     console.warn("[GDrive] read failed:", e);

@@ -3469,6 +3469,11 @@ const usePersistentReducer=(reducer,init)=>{
        • IDB has the real transactions.
        • We dispatch HYDRATE_TRANSACTIONS to fill them back in.
   ── */
+  /* idbHydrated: flips to true once IDB hydration has fully settled (all branches).
+     Exposed in the return value so App's auto-execute effect can wait for it before
+     firing EXECUTE_SCHEDULED — otherwise the newly added scheduled transaction gets
+     wiped by the subsequent HYDRATE_TRANSACTIONS dispatch (race condition fix). */
+  const[idbHydrated,setIdbHydrated]=useState(false);
   const _txHydratedRef=React.useRef(false);
   React.useEffect(()=>{
     if(_txHydratedRef.current)return;
@@ -3504,7 +3509,15 @@ const usePersistentReducer=(reducer,init)=>{
         /* Fresh install or RESET state — IDB and memory are both empty, nothing to do */
         console.log("[MM] IDB: no transactions to hydrate (fresh state).");
       }
-    }).catch(e=>console.warn("[MM] IDB hydration error:",e));
+      /* Signal hydration complete in ALL branches so App's auto-execute effect unblocks.
+         In React 18, this setState and the HYDRATE_TRANSACTIONS dispatch above are batched
+         into a single render, so the auto-execute effect sees the fully hydrated state. */
+      setIdbHydrated(true);
+    }).catch(e=>{
+      console.warn("[MM] IDB hydration error:",e);
+      /* Signal even on error — auto-execute must not be blocked forever */
+      setIdbHydrated(true);
+    });
   },[]); // run exactly once on mount
 
   /* ── CLOUD SYNC — bidirectional pull from Drive (Step 4, updated) ────────
@@ -3663,7 +3676,7 @@ const usePersistentReducer=(reducer,init)=>{
     window.addEventListener("pagehide",flush);
     return()=>{window.removeEventListener("beforeunload",flush);window.removeEventListener("pagehide",flush);};
   },[state]);
-  return[state,dispatch];
+  return[state,dispatch,idbHydrated];
 };
 
 /* ── APP SHELL ────────────────────────────────────────────────────────────── */

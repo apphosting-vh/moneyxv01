@@ -2795,7 +2795,7 @@ class ErrorBoundary extends React.Component{
 }
 
 function App(){
-  const[state,rawDispatch]=usePersistentReducer(reducer,INIT);
+  const[state,rawDispatch,idbHydrated]=usePersistentReducer(reducer,INIT);
   /* ── Wrap dispatch: auto-snapshot before destructive actions for undo ──
      _undoStateRef mirrors `state` each render so the useCallback closure
      never needs `state` in its dep array — keeping `dispatch` identity
@@ -2889,18 +2889,26 @@ function App(){
     const iv=setInterval(checkBackupAge,60*60*1000);
     return()=>{clearTimeout(t);clearInterval(iv);};
   },[]);
-  /* Auto-execute due scheduled transactions on load */
+  /* Auto-execute due scheduled transactions — runs only after IDB hydration completes.
+     BUG FIX: previously used [] deps, which caused EXECUTE_SCHEDULED to fire before
+     HYDRATE_TRANSACTIONS. Since HYDRATE replaces bank/card/cash transaction arrays
+     with IDB data, any transaction added by EXECUTE_SCHEDULED was silently wiped,
+     leaving the scheduled entry permanently marked as "executed" with no actual
+     transaction in the account ledger.
+     Fix: depend on [idbHydrated] so the effect re-runs the moment hydration settles.
+     In React 18, setIdbHydrated(true) and the HYDRATE_TRANSACTIONS dispatch are
+     batched into a single render — so `state` here is already the post-hydration
+     state, and EXECUTE_SCHEDULED appends on top of fully-loaded IDB transactions. */
   React.useEffect(()=>{
+    if(!idbHydrated)return; // wait for IDB to be fully loaded first
     const today=TODAY();
-    /* Guard: skip entries already executed today to prevent double-firing on
-       rapid reloads or when the user revisits the tab the same day. */
     const due=(state.scheduled||[]).filter(sc=>
       sc.status==="active"&&sc.nextDate&&sc.nextDate<=today&&sc.lastExecuted!==today
     );
     if(due.length>0){
       due.forEach(sc=>dispatch({type:"EXECUTE_SCHEDULED",sc}));
     }
-  },[]);
+  },[idbHydrated]);
 
   /* ── Notification check: on mount and tab focus ── */
   const _stateRef=React.useRef(state);

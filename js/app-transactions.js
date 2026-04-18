@@ -695,7 +695,7 @@ const TxEditModal=({tx,categories,payees,txTypes,onSave,onClose,allAccounts=[]})
       onChange:rcpts=>setF(p=>({...p,_receipts:rcpts}))
     }),
     React.createElement("div",{style:{display:"flex",flexWrap:"wrap",gap:8,paddingTop:12,borderTop:"1px solid var(--border)"}},
-      React.createElement(Btn,{onClick:()=>{if(!f.amount)return;onSave({...f,amount:+f.amount});},sx:{flex:"1 1 120px",justifyContent:"center"}},"Save Changes"),
+      React.createElement(Btn,{onClick:()=>{if(!f.amount)return;onSave({...f,amount:+f.amount,type:isTransfer?"debit":typeToLedger(f.txType)});},sx:{flex:"1 1 120px",justifyContent:"center"}},"Save Changes"),
       React.createElement(Btn,{v:"secondary",onClick:onClose,sx:{justifyContent:"center",minWidth:70}},"Cancel")
     )
   );

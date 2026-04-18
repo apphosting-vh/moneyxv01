@@ -202,7 +202,7 @@ const BankSection=React.memo(({banks,dispatch,categories,payees,allBanks,allCard
         onMassUpdateTx:(ids,status)=>{if(selD)dispatch({type:"MASS_UPDATE_STATUS",accType:"bank",accId:selD.id,ids,status});},
         onMassCatTx:(ids,cat,payee)=>{if(selD)dispatch({type:"MASS_UPDATE_CAT",accType:"bank",accId:selD.id,ids,cat,payee});},
         onMassDeleteTx:(ids)=>{if(selD)dispatch({type:"MASS_DEL_BANK_TX",accId:selD.id,ids});},
-        onEditTx:(updated,old)=>{if(selD)dispatch({type:"EDIT_BANK_TX",accId:selD.id,tx:updated,old});},
+        onEditTx:(updated,old)=>{if(!selD)return;if(updated.srcId&&updated.srcId!==selD.id){dispatch({type:"DEL_BANK_TX",accId:selD.id,tx:old});const isCard=allCards.some(c=>c.id===updated.srcId);if(isCard){dispatch({type:"ADD_CARD_TX",id:updated.srcId,tx:updated});}else{dispatch({type:"ADD_BANK_TX",id:updated.srcId,tx:updated});}}else{dispatch({type:"EDIT_BANK_TX",accId:selD.id,tx:updated,old});}},
         onDeleteTx:tx=>{if(selD){dispatch({type:"DEL_BANK_TX",accId:selD.id,tx});rcptDelAllForTx(tx.id);}},
         onDupTx:tx=>{if(selD)dispatch({type:"DUP_BANK_TX",accId:selD.id,tx});},
         onSplitTx:(origTx,splits)=>{if(selD)dispatch({type:"SPLIT_TX",accType:"bank",accId:selD.id,originalTx:origTx,splits});},
@@ -453,7 +453,7 @@ const CardSection=React.memo(({cards,dispatch,categories,payees,allBanks,allCard
         onMassUpdateTx:(ids,status)=>{if(selD)dispatch({type:"MASS_UPDATE_STATUS",accType:"card",accId:selD.id,ids,status});},
         onMassCatTx:(ids,cat,payee)=>{if(selD)dispatch({type:"MASS_UPDATE_CAT",accType:"card",accId:selD.id,ids,cat,payee});},
         onMassDeleteTx:(ids)=>{if(selD)dispatch({type:"MASS_DEL_CARD_TX",accId:selD.id,ids});},
-        onEditTx:(updated,old)=>{if(selD)dispatch({type:"EDIT_CARD_TX",accId:selD.id,tx:updated,old});},
+        onEditTx:(updated,old)=>{if(!selD)return;if(updated.srcId&&updated.srcId!==selD.id){dispatch({type:"DEL_CARD_TX",accId:selD.id,tx:old});const isBank=allBanks.some(b=>b.id===updated.srcId);if(isBank){dispatch({type:"ADD_BANK_TX",id:updated.srcId,tx:updated});}else{dispatch({type:"ADD_CARD_TX",id:updated.srcId,tx:updated});}}else{dispatch({type:"EDIT_CARD_TX",accId:selD.id,tx:updated,old});}},
         onDeleteTx:tx=>{if(selD){dispatch({type:"DEL_CARD_TX",accId:selD.id,tx});rcptDelAllForTx(tx.id);}},
         onDupTx:tx=>{if(selD)dispatch({type:"DUP_CARD_TX",accId:selD.id,tx});},
         onSplitTx:(origTx,splits)=>{if(selD)dispatch({type:"SPLIT_TX",accType:"card",accId:selD.id,originalTx:origTx,splits});},      })

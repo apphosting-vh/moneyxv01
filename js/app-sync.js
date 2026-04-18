@@ -56,9 +56,21 @@ gdriveReadSyncFile = async () => {
     if (!fileId) fileId = await _gdriveFindFile(token);
     if (!fileId) return { notFound: true }; /* Bug 5 fix: signal "no file yet" */
 
-    /* Download raw payload */
-    const data = await _gdriveDownloadFile(token, fileId);
-    if (!data || !data.data) return null;
+    /* Download raw payload.
+       If the cached fileId is stale (file deleted & re-created, or a different
+       device session) the download silently returns null — which previously caused
+       handlePull to falsely report "already up to date".  Fix: on failure, wipe
+       the cached ID and do ONE fresh _gdriveFindFile search before giving up.    */
+    let data = await _gdriveDownloadFile(token, fileId);
+    if (!data || !data.data) {
+      try { localStorage.removeItem(GDRIVE_LS_FILEID); } catch {}
+      const freshId = await _gdriveFindFile(token);
+      if (!freshId) return { notFound: true };
+      if (freshId !== fileId) {
+        data = await _gdriveDownloadFile(token, freshId);
+      }
+      if (!data || !data.data) return null;
+    }
 
     /* ① FIX: exportedAt lives at payload root, not inside data.data */
     const remoteExportedAt = data.exportedAt || "";
@@ -325,15 +337,23 @@ const CloudBackupPanel = ({ state }) => {
     setPulling(true);
     setPullMsg("Checking Google Drive for newer data…");
     try {
-      /* Temporarily clear the last-sync so we force a pull regardless of timestamp */
+      /* Clear BOTH the last-sync timestamp AND the cached file ID before pulling.
+         - Clearing LS_GDRIVE_LAST_SYNC bypasses the "already newer" guard so we
+           always fetch the remote payload.
+         - Clearing GDRIVE_LS_FILEID forces _gdriveFindFile() to search Drive
+           fresh, so a stale cached ID from a previous session or device can
+           never cause the pull to silently fail or return the wrong file.     */
       const savedSync = _syncGetLocal();
+      const savedFileId = (() => { try { return localStorage.getItem(GDRIVE_LS_FILEID) || ""; } catch { return ""; } })();
       try { localStorage.removeItem(LS_GDRIVE_LAST_SYNC); } catch {}
+      try { localStorage.removeItem(GDRIVE_LS_FILEID); } catch {}
 
       const remote = await gdriveReadSyncFile();
 
       if (!remote || !remote.state) {
-        /* Restore the timestamp we cleared */
+        /* Restore both cleared values so background auto-sync isn't disrupted */
         _syncSaveLocal(savedSync);
+        try { if (savedFileId) localStorage.setItem(GDRIVE_LS_FILEID, savedFileId); } catch {}
         /* Bug 5 fix: distinguish "no file yet" from "no newer data" */
         if (remote && remote.notFound) {
           setPullMsg("No sync file found on Drive yet. Push your data first to create it.");
@@ -351,6 +371,7 @@ const CloudBackupPanel = ({ state }) => {
         "Restore from Drive? This will overwrite your current local data."
       )) {
         _syncSaveLocal(savedSync);
+        try { if (savedFileId) localStorage.setItem(GDRIVE_LS_FILEID, savedFileId); } catch {}
         setPullMsg("Pull cancelled.");
         setPulling(false);
         setTimeout(() => setPullMsg(""), 2500);
@@ -377,23 +398,28 @@ const CloudBackupPanel = ({ state }) => {
 
       /* Persist to localStorage (synchronous, completes before reload) */
       saveState({ ...EMPTY_STATE(), ..._restoreData });
+      /* Bug 3 fix: always write eodPrices/eodNavs to separate LS keys,
+         even if empty — prevents stale cache from surviving the restore. */
       try {
-        if (Object.keys(_restoreData.eodPrices || {}).length > 0)
-          localStorage.setItem(LS_EOD_PRICES, JSON.stringify(_restoreData.eodPrices));
-        if (Object.keys(_restoreData.eodNavs || {}).length > 0)
-          localStorage.setItem(LS_EOD_NAVS, JSON.stringify(_restoreData.eodNavs));
+        localStorage.setItem(LS_EOD_PRICES, JSON.stringify(_restoreData.eodPrices || {}));
+        localStorage.setItem(LS_EOD_NAVS,   JSON.stringify(_restoreData.eodNavs   || {}));
       } catch {}
 
-      /* Persist transactions to IDB */
+      /* Bug 2 fix: clear IDB first so stale records from deleted accounts
+         don't linger after restore. */
+      try { await clearTxIDB(); } catch {}
       try { await saveTxToIDB(_restoreData); } catch {}
 
       /* Save the remote timestamp so next launch won't re-pull */
       _syncSaveLocal(remote.modifiedTime);
       setLastSync(remote.modifiedTime);
 
+      /* Bug 4 fix: dispatch RESTORE_ALL to update React state immediately
+         for the ~1.8s before the reload — matches manual file restore. */
+      dispatch({ type: "RESTORE_ALL", data: _restoreData });
       setPullMsg("✓ Restored from Drive (" + fmtTs(remote.modifiedTime) + "). Refreshing…");
-      /* Bug 4 fix: flush to FSA before reload so the restored state is persisted */
-      try { if (window.__fsa && window.__fsa.writeNow) await window.__fsa.writeNow(); } catch {}
+      /* Bug 1 fix: removed writeNow() call — it flushes stale pre-pull state
+         to the FSA file. The next boot's auto-write handles FSA correctly. */
       setTimeout(() => window.location.reload(), 1800);
     } catch (e) {
       setPullMsg("✗ Pull failed: " + (e.message || "Unknown error"));

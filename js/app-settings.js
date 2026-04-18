@@ -2680,7 +2680,10 @@ const _gdriveEnsureToken = async () => {
 const _gdriveFindFile = async (token) => {
   try {
     const q = encodeURIComponent(`name='${GDRIVE_SYNC_FILENAME}' and trashed=false and 'root' in parents`);
-    const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,modifiedTime)&spaces=drive`, {
+    /* orderBy=modifiedTime+desc ensures the most recently written file is always
+       returned first — guards against duplicate file names or stale copies.
+       pageSize=5 is sufficient; we only ever use files[0]. */
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=modifiedTime+desc&pageSize=5&fields=files(id,modifiedTime)&spaces=drive`, {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     });
@@ -3527,6 +3530,16 @@ const usePersistentReducer=(reducer,init)=>{
         }
         console.log("[GDrive] Found newer state on Drive (",remoteTime,") — applying…");
         _lastPulledAt=remoteTime;
+        const remote_state = remote.state;
+        /* Persist to localStorage so data survives reload */
+        try {
+          saveState({ ...EMPTY_STATE(), ...remote_state });
+          localStorage.setItem(LS_EOD_PRICES, JSON.stringify(remote_state.eodPrices || {}));
+          localStorage.setItem(LS_EOD_NAVS,   JSON.stringify(remote_state.eodNavs   || {}));
+        } catch {}
+        /* Clear IDB then write transactions */
+        try { await clearTxIDB(); } catch {}
+        try { await saveTxToIDB(remote_state); } catch {}
         dispatch({type:"RESTORE_ALL",data:remote.state});
         window.dispatchEvent(new CustomEvent("gdrive:pulled",{detail:{time:remoteTime}}));
       }catch(e){console.warn("[GDrive] Pull failed:",e);}

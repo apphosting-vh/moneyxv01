@@ -473,7 +473,10 @@ function TaxEstimatorSection({ taxData, dispatch, fyKey }) {
   React.useEffect(() => {
     if (isFirstRender.current) { isFirstRender.current = false; return; }
     const payload = { regime, f, tdsRows, atRows };
-    if (dispatch && fyKey === "2526") dispatch({ type:"SET_TAX_DATA", data: payload });
+    if (dispatch) {
+      if (fyKey === "2526") dispatch({ type:"SET_TAX_DATA", data: payload });
+      else if (fyKey === "2627") dispatch({ type:"SET_TAX_DATA_2627", data: payload });
+    }
     saveToLS(payload);
     setSaveStatus("saved");
     const t = setTimeout(() => setSaveStatus("idle"), 1800);
@@ -483,7 +486,7 @@ function TaxEstimatorSection({ taxData, dispatch, fyKey }) {
   /* External sync (only for current FY that syncs with MM state) */
   const prevTaxDataRef = React.useRef(taxData);
   React.useEffect(() => {
-    if (fyKey !== "2526") return;
+    if (fyKey !== "2526" && fyKey !== "2627") return;
     if (prevTaxDataRef.current === taxData) return;
     prevTaxDataRef.current = taxData;
     isFirstRender.current = true;
@@ -502,7 +505,10 @@ function TaxEstimatorSection({ taxData, dispatch, fyKey }) {
 
   const handleClear = () => {
     if (!window.confirm("Clear all saved data and reset the form?")) return;
-    if (dispatch && fyKey === "2526") dispatch({ type:"SET_TAX_DATA", data: null });
+    if (dispatch) {
+      if (fyKey === "2526") dispatch({ type:"SET_TAX_DATA", data: null });
+      else if (fyKey === "2627") dispatch({ type:"SET_TAX_DATA_2627", data: null });
+    }
     try { localStorage.removeItem(cfg.lsKey); } catch {}
     setRegime("new");
     setF({ ...DEFAULT_F });
@@ -1454,7 +1460,7 @@ function TaxEstimatorSection({ taxData, dispatch, fyKey }) {
 TaxEstimatorSection = React.memo(TaxEstimatorSection);
 
 /* ── Tax Estimator Wrapper — FY tab switcher ── */
-const TaxEstimatorWrapper = ({ taxData, dispatch }) => {
+const TaxEstimatorWrapper = ({ taxData, taxData2627, dispatch }) => {
   const [fyTab, setFyTab] = useState(() => {
     try { return localStorage.getItem("itr_fy_tab") || "fy2526"; } catch { return "fy2526"; }
   });
@@ -1485,7 +1491,7 @@ const TaxEstimatorWrapper = ({ taxData, dispatch }) => {
         ))}
       </div>
       {fyTab === "fy2526" && <TaxEstimatorSection taxData={taxData} dispatch={dispatch} fyKey="2526" />}
-      {fyTab === "fy2627" && <TaxEstimatorSection taxData={null} dispatch={dispatch} fyKey="2627" />}
+      {fyTab === "fy2627" && <TaxEstimatorSection taxData={taxData2627} dispatch={dispatch} fyKey="2627" />}
     </div>
   );
 };
@@ -2582,7 +2588,7 @@ function App(){
           React.createElement(InfoSection,{isMobile}))),
       React.createElement("div",{style:{display:tab==="tax_est"?"contents":"none"}},
         React.createElement(ErrorBoundary,{name:"Tax Estimator"},
-          React.createElement(TaxEstimatorWrapper,{taxData:state.taxData||null,dispatch})))
+          React.createElement(TaxEstimatorWrapper,{taxData:state.taxData||null,taxData2627:state.taxData2627||null,dispatch})))
     )
   ),
     FsaPermCard,

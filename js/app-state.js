@@ -99,6 +99,7 @@ const INIT=()=>({
   historyCache:{},
   hiddenTabs:[],
   taxData:null,
+  taxData2627:null,
   insightPrefs:{
     currentAge:"",retirementAge:45,
     fireMode:"auto",manualFireNumber:"",
@@ -152,6 +153,7 @@ const EMPTY_STATE=()=>({
   historyCache:{},
   hiddenTabs:[],
   taxData:null,
+  taxData2627:null,
   catRules:[],
   insightPrefs:{
     currentAge:"",retirementAge:45,
@@ -193,7 +195,7 @@ const BANKS=["HDFC Bank","State Bank of India","ICICI Bank","Axis Bank","Kotak M
 const CATS=["Income","Housing","Food","Transport","Shopping","Entertainment","Utilities","Insurance","Investment","Travel","Transfer","Others"];
 
 /* ── APP VERSIONING ──────────────────────────────────────────────────────── */
-const APP_VERSION="4.5.0";
+const APP_VERSION="4.5.1";
 
 /* ── SVG Icon Library (replaces all emoji icons) ─────────────────────── */
 const SVGI=(path,opts={})=>React.createElement("svg",{
@@ -1422,6 +1424,7 @@ const reducer=(s,a)=>{
       return s;
     }
     case"SET_TAX_DATA":return{...s,taxData:a.data};
+    case"SET_TAX_DATA_2627":return{...s,taxData2627:a.data};
     case"SET_INSIGHT_PREFS":return{...s,insightPrefs:{...s.insightPrefs,...a.p}};
     case"SET_NW_SNAPSHOT":return{...s,nwSnapshots:{...(s.nwSnapshots||{}),[a.month]:a.nw}};
     case"SET_HIDDEN_TABS":return{...s,hiddenTabs:a.hiddenTabs||[]};

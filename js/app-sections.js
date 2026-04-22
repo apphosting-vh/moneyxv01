@@ -764,7 +764,7 @@ const UnifiedLedgerSection=React.memo(({banks,cards,cash,categories,payees,isMob
         React.createElement("div",{style:{width:1,height:22,background:"var(--border)",margin:"0 2px"}}),
         React.createElement("div",{style:{position:"relative",display:"flex",alignItems:"center"}},
           React.createElement("span",{style:{position:"absolute",left:9,color:"var(--text5)",fontSize:13,pointerEvents:"none"}},React.createElement(Icon,{n:"search",size:16})),
-          React.createElement("input",{value:search,onChange:e=>setSearch(e.target.value),placeholder:"Search all transactions…",style:{background:"var(--inp-bg)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontFamily:"'DM Sans',sans-serif",fontSize:12,padding:"6px 10px 6px 28px",width:210,outline:"none"}})
+          React.createElement("input",{value:search,onChange:e=>setSearch(e.target.value),placeholder:"Search all transactions…",style:{background:"var(--inp-bg)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontFamily:"'DM Sans',sans-serif",fontSize:12,padding:"6px 10px 6px 28px",width:"100%",minWidth:120,maxWidth:210,outline:"none",boxSizing:"border-box"}})
         )
       )
     )
@@ -1760,7 +1760,7 @@ const NetWorthInsightTab=({banks,cards,cash,mf,shares,fd,re,loans,categories,pre
     ),
 
     /* ── Data Table ── */
-    React.createElement(C,{sx:{padding:0,overflow:"hidden",overflowX:"auto"}},
+    React.createElement(C,{sx:{padding:0,overflowY:"hidden",overflowX:"auto"}},
       React.createElement("div",{style:{
         display:"grid",
         gridTemplateColumns:isMobile?"0.9fr 1.2fr 1.1fr":"0.7fr 1.3fr 1.1fr 1fr 0.5fr 0.8fr",
@@ -1834,7 +1834,7 @@ const NetWorthInsightTab=({banks,cards,cash,mf,shares,fd,re,loans,categories,pre
         ),
         React.createElement("button",{
           onClick:()=>setReminderDismissed(true),
-          style:{background:"none",border:"none",color:"var(--text5)",cursor:"pointer",fontSize:18,lineHeight:1,padding:"0 2px",flexShrink:0}
+          style:{background:"none",border:"none",color:"var(--text5)",cursor:"pointer",fontSize:18,lineHeight:1,padding:"8px 10px",minWidth:44,minHeight:44,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0,borderRadius:8}
         },"×")
       ),
       React.createElement("div",{style:{display:"flex",gap:8,marginTop:4}},
@@ -2336,7 +2336,7 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
     const hasInvest=actualInvest>0||plannedInvest>0;
     const invOnTrack=plannedInvest>0&&actualInvest>=plannedInvest;
     const invShort=plannedInvest>0&&actualInvest<plannedInvest;
-    return React.createElement(Card2,{sx:{padding:0,overflow:"hidden",overflowX:"auto"}},
+    return React.createElement(Card2,{sx:{padding:0,overflowY:"hidden",overflowX:"auto"}},
       /* Header — always visible, click to toggle */
       React.createElement("div",{
         style:{padding:"10px 14px",background:"var(--card2)",borderBottom:collapsed?"none":"1px solid var(--border)",cursor:"pointer",userSelect:"none"},
@@ -2432,7 +2432,7 @@ const InsightsSection=React.memo(({banks,cards,cash,categories,dispatch,isMobile
     const savings=income-totalActual;
     const pctUsed=totalPlanned>0?Math.min(totalActual/totalPlanned*100,100):0;
     const maxBar=Math.max(totalPlanned,totalActual,1);
-    return React.createElement(Card2,{sx:{padding:0,overflow:"hidden",overflowX:"auto"}},
+    return React.createElement(Card2,{sx:{padding:0,overflowY:"hidden",overflowX:"auto"}},
       /* ── Header — always visible, click to toggle ── */
       React.createElement("div",{
         style:{padding:"12px 16px",background:"var(--card2)",borderBottom:collapsed?"none":"1px solid var(--border)",cursor:"pointer",userSelect:"none"},
@@ -3403,7 +3403,7 @@ const XirrCalc=()=>{
     setResult(xirr);
   };
 
-  const rowSty={display:"grid",gridTemplateColumns:"130px 140px 1fr 32px",gap:8,alignItems:"center",marginBottom:8};
+  const rowSty={display:"grid",gridTemplateColumns:"minmax(100px,130px) minmax(100px,140px) 1fr 32px",gap:8,alignItems:"center",marginBottom:8};
   const labelSty={fontSize:10,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.5};
   return React.createElement("div",null,
     React.createElement("div",{style:{marginBottom:14}},
@@ -3562,10 +3562,10 @@ const CapGainsTab=({shares=[],mf=[],isMobile})=>{
       "⚠ "+missingDates+" holding"+(missingDates===1?"":"s")+" missing a buy date — add dates below for accurate STCG/LTCG classification."
     ),
     /* Holdings table */
-    React.createElement("div",{style:{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}},
-      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 90px 80px 80px 80px 90px",padding:"7px 12px",background:"var(--bg4)",borderBottom:"1px solid var(--border)",fontSize:10,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.4}},React.createElement("span",{style:{whiteSpace:"nowrap"}},"Holding"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Buy Date"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Held"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Gain/Loss"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Type"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Tax Est.†")),
+    React.createElement("div",{style:{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,overflowX:"auto",overflowY:"hidden",WebkitOverflowScrolling:"touch"}},
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"minmax(120px,1fr) minmax(75px,90px) minmax(65px,80px) minmax(65px,80px) minmax(65px,80px) minmax(75px,90px)",padding:"7px 12px",background:"var(--bg4)",borderBottom:"1px solid var(--border)",fontSize:10,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.4}},React.createElement("span",{style:{whiteSpace:"nowrap"}},"Holding"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Buy Date"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Held"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Gain/Loss"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Type"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Tax Est.†")),
       holdings.length===0&&React.createElement("div",{style:{padding:"30px",textAlign:"center",color:"var(--text5)",fontSize:13}},"No holdings with gains/losses found. Add shares or mutual funds in the Investments section."),
-      holdings.map((h,i)=>React.createElement("div",{key:h.id,style:{display:"grid",gridTemplateColumns:"1fr 90px 80px 80px 80px 90px",padding:"9px 12px",borderBottom:i<holdings.length-1?"1px solid var(--border2)":"none",alignItems:"center",background:i%2?"var(--bg5)":"transparent"}},
+      holdings.map((h,i)=>React.createElement("div",{key:h.id,style:{display:"grid",gridTemplateColumns:"minmax(120px,1fr) minmax(75px,90px) minmax(65px,80px) minmax(65px,80px) minmax(65px,80px) minmax(75px,90px)",padding:"9px 12px",borderBottom:i<holdings.length-1?"1px solid var(--border2)":"none",alignItems:"center",background:i%2?"var(--bg5)":"transparent"}},
         React.createElement("div",null,
           React.createElement("div",{style:{fontSize:12,fontWeight:600,color:"var(--text2)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},h.name),
           React.createElement("div",{style:{fontSize:10,color:"var(--text5)"}},h.assetType)

@@ -307,7 +307,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
             )
           )
         ),
-        React.createElement(Card,{sx:{padding:0,overflow:"hidden",overflowX:"auto"}},
+        React.createElement(Card,{sx:{padding:0,overflowY:"hidden",overflowX:"auto"}},
           React.createElement("div",{style:{display:"grid",gridTemplateColumns:"2fr 1.5fr 1fr 1.2fr auto",gap:12,padding:"9px 16px",borderBottom:"1px solid #1c3050",fontSize:11,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.5}},React.createElement("span",{style:{whiteSpace:"nowrap"}},"Account Name"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Bank"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Type"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Balance"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Actions")),
           state.banks.length===0&&React.createElement(Empty,{icon:React.createElement(Icon,{n:"bank",size:18}),text:"No bank accounts yet"}),
           state.banks.map(b=>React.createElement("div",{key:b.id,style:{display:"grid",gridTemplateColumns:"2fr 1.5fr 1fr 1.2fr auto",gap:12,padding:"13px 16px",borderBottom:"1px solid #0a1828",alignItems:"center",transition:"background .15s",opacity:b.hidden?0.55:1},className:"tr"},
@@ -355,7 +355,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
             React.createElement("p",{style:{color:"var(--text5)",fontSize:12,marginTop:3}},state.cards.length+" card(s) · Outstanding: ",React.createElement("span",{style:{color:"#c2410c"}},INR(state.cards.reduce((s,c)=>s+c.outstanding,0))),state.cards.some(c=>c.hidden)?React.createElement("span",{style:{color:"#d97706",marginLeft:8}},"· "+state.cards.filter(c=>c.hidden).length+" hidden"):null)
           )
         ),
-        React.createElement(Card,{sx:{padding:0,overflow:"hidden",overflowX:"auto"}},
+        React.createElement(Card,{sx:{padding:0,overflowY:"hidden",overflowX:"auto"}},
           React.createElement("div",{style:{display:"grid",gridTemplateColumns:"2fr 1.5fr 1.2fr 1.2fr auto",gap:12,padding:"9px 16px",borderBottom:"1px solid #1c3050",fontSize:11,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.5}},React.createElement("span",{style:{whiteSpace:"nowrap"}},"Card Name"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Bank"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Limit"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Outstanding"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Actions")),
           state.cards.length===0&&React.createElement(Empty,{icon:React.createElement(Icon,{n:"card",size:18}),text:"No credit cards yet"}),
           state.cards.map(c=>{
@@ -432,7 +432,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
             React.createElement("p",{style:{color:"var(--text5)",fontSize:12,marginTop:3}},state.loans.length+" loan(s) · Outstanding: ",React.createElement("span",{style:{color:"#ef4444"}},INR(state.loans.reduce((s,l)=>s+l.outstanding,0))))
           )
         ),
-        React.createElement(Card,{sx:{padding:0,overflow:"hidden",overflowX:"auto"}},
+        React.createElement(Card,{sx:{padding:0,overflowY:"hidden",overflowX:"auto"}},
           React.createElement("div",{style:{display:"grid",gridTemplateColumns:"2fr 1.5fr 1fr 1.2fr 1.1fr auto",gap:10,padding:"9px 16px",borderBottom:"1px solid #1c3050",fontSize:11,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.5}},React.createElement("span",{style:{whiteSpace:"nowrap"}},"Loan Name"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Bank"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Type"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Outstanding"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"EMI"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Actions")),
           state.loans.length===0&&React.createElement(Empty,{icon:React.createElement(Icon,{n:"party",size:34}),text:"No loans -- debt free!"}),
           state.loans.map(l=>React.createElement("div",{key:l.id,style:{display:"grid",gridTemplateColumns:"2fr 1.5fr 1fr 1.2fr 1.1fr auto",gap:10,padding:"13px 16px",borderBottom:"1px solid #0a1828",alignItems:"center"},className:"tr"},
@@ -460,7 +460,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
             React.createElement("span",{style:{fontWeight:600,color:"#6d28d9"}},"XIRR: "),
             "Auto-calculated when a Start Date is set on the fund. Enter a Manual XIRR here to override when no Start Date is available (e.g. for SIP funds where you know the XIRR from your broker app). Auto takes priority over Manual whenever a Start Date exists."
           ),
-          React.createElement(Card,{sx:{padding:0,overflow:"hidden",overflowX:"auto"}},
+          React.createElement(Card,{sx:{padding:0,overflowY:"hidden",overflowX:"auto"}},
             React.createElement("div",{style:{display:"grid",gridTemplateColumns:"3fr 1fr 80px 140px auto",gap:12,padding:"9px 16px",borderBottom:"1px solid #1c3050",fontSize:11,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.5}},
               React.createElement("span",{style:{whiteSpace:"nowrap"}},"Fund Name"),
               React.createElement("span",{style:{whiteSpace:"nowrap"}},"Units"),
@@ -474,7 +474,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
         /* Shares */
         React.createElement("div",{style:{marginBottom:20}},
           React.createElement("div",{style:{fontSize:13,color:"var(--text4)",fontWeight:600,marginBottom:10,display:"flex",alignItems:"center",gap:8}},React.createElement("span",null,React.createElement(Icon,{n:"invest",size:18})),"Shares / Equities (",state.shares.length,")"),
-          React.createElement(Card,{sx:{padding:0,overflow:"hidden",overflowX:"auto"}},
+          React.createElement(Card,{sx:{padding:0,overflowY:"hidden",overflowX:"auto"}},
             React.createElement("div",{style:{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr auto",gap:10,padding:"9px 16px",borderBottom:"1px solid #1c3050",fontSize:11,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.5}},React.createElement("span",{style:{whiteSpace:"nowrap"}},"Company"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Ticker"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Qty"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Buy"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Now"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Acquired"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"")),
             state.shares.length===0&&React.createElement(Empty,{icon:React.createElement(Icon,{n:"invest",size:18}),text:"No shares"}),
             state.shares.map(sh=>React.createElement("div",{key:sh.id,style:{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr 1fr auto",gap:10,padding:"12px 16px",borderBottom:"1px solid #0a1828",alignItems:"center"},className:"tr"},
@@ -491,7 +491,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
         /* FDs */
         React.createElement("div",null,
           React.createElement("div",{style:{fontSize:13,color:"var(--text4)",fontWeight:600,marginBottom:10,display:"flex",alignItems:"center",gap:8}},React.createElement("span",null,React.createElement(Icon,{n:"bank",size:18})),"Fixed Deposits (",state.fd.length,")"),
-          React.createElement(Card,{sx:{padding:0,overflow:"hidden",overflowX:"auto"}},
+          React.createElement(Card,{sx:{padding:0,overflowY:"hidden",overflowX:"auto"}},
             React.createElement("div",{style:{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr auto",gap:12,padding:"9px 16px",borderBottom:"1px solid #1c3050",fontSize:11,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.5}},React.createElement("span",{style:{whiteSpace:"nowrap"}},"Bank"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Principal"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Rate"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Matures"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"")),
             state.fd.length===0&&React.createElement(Empty,{icon:React.createElement(Icon,{n:"bank",size:18}),text:"No fixed deposits"}),
             state.fd.map(f=>React.createElement("div",{key:f.id,style:{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr auto",gap:12,padding:"12px 16px",borderBottom:"1px solid #0a1828",alignItems:"center"},className:"tr"},
@@ -506,7 +506,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
         /* PF */
         React.createElement("div",{style:{marginTop:20}},
           React.createElement("div",{style:{fontSize:13,color:"var(--text4)",fontWeight:600,marginBottom:10,display:"flex",alignItems:"center",gap:8}},React.createElement("span",null,React.createElement(Icon,{n:"inv_pf",size:18})),"Provident Funds (",(state.pf||[]).length,")"),
-          React.createElement(Card,{sx:{padding:0,overflow:"hidden",overflowX:"auto"}},
+          React.createElement(Card,{sx:{padding:0,overflowY:"hidden",overflowX:"auto"}},
             React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr auto",gap:12,padding:"9px 16px",borderBottom:"1px solid #1c3050",fontSize:11,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.5}},React.createElement("span",{style:{whiteSpace:"nowrap"}},"Type / Holder"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Balance"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Rate"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"Account No."),React.createElement("span",{style:{whiteSpace:"nowrap"}},"")),
             (state.pf||[]).length===0&&React.createElement(Empty,{icon:React.createElement(Icon,{n:"inv_pf",size:18}),text:"No provident fund accounts"}),
             (state.pf||[]).map(p=>React.createElement("div",{key:p.id,style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr auto",gap:12,padding:"12px 16px",borderBottom:"1px solid #0a1828",alignItems:"center"},className:"tr"},
@@ -536,7 +536,7 @@ const SettingsSection=React.memo(({state,dispatch,themeId,setTheme,onResetAll,is
         React.createElement("div",{style:{display:"flex",gap:14,flexWrap:"wrap",alignItems:"flex-start"}},
           /* Payee table */
           React.createElement("div",{style:{flex:"1 1 380px"}},
-            React.createElement(Card,{sx:{padding:0,overflow:"hidden",overflowX:"auto"}},
+            React.createElement(Card,{sx:{padding:0,overflowY:"hidden",overflowX:"auto"}},
               React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr auto",gap:12,padding:"9px 16px",borderBottom:"1px solid #1c3050",fontSize:11,color:"var(--text6)",textTransform:"uppercase",letterSpacing:.5}},React.createElement("span",{style:{whiteSpace:"nowrap"}},"Name"),React.createElement("span",{style:{whiteSpace:"nowrap"}},"")),
               state.payees.length===0&&React.createElement(Empty,{icon:React.createElement(Icon,{n:"user",size:18}),text:"No payees yet"}),
               state.payees.map(p=>

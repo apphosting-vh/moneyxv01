@@ -391,14 +391,14 @@ const MFTxnsPanel=React.memo(({fundName,mfTxns,dispatch,onClose})=>{
       )
     ),
     /* Transaction table */
-    React.createElement("div",{style:{border:"1px solid var(--border)",borderRadius:10,overflow:"hidden"}},
-      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"95px 55px 90px 80px 100px 100px",background:"var(--bg4)",padding:"8px 12px",fontSize:10,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.5,borderBottom:"1px solid var(--border)"}},
+    React.createElement("div",{style:{border:"1px solid var(--border)",borderRadius:10,overflowX:"auto",overflowY:"hidden",WebkitOverflowScrolling:"touch"}},
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"minmax(80px,95px) minmax(45px,55px) minmax(70px,90px) minmax(65px,80px) minmax(80px,100px) minmax(80px,100px)",background:"var(--bg4)",padding:"8px 12px",fontSize:10,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.5,borderBottom:"1px solid var(--border)"}},
         ["Date","Type","Units","NAV","Amount","Folio"].map(h=>React.createElement("div",{key:h,style:{textAlign:h==="Date"||h==="Folio"?"left":"right"}},h))
       ),
       React.createElement("div",{style:{maxHeight:400,overflowY:"auto"}},
         txns.map((t,i)=>{
           const isBuy=t.orderType==="buy";
-          return React.createElement("div",{key:t.id||i,style:{display:"grid",gridTemplateColumns:"95px 55px 90px 80px 100px 100px",padding:"7px 12px",borderBottom:"1px solid var(--border2)",background:i%2?"rgba(255,255,255,.014)":"transparent",fontSize:12,alignItems:"center"}},
+          return React.createElement("div",{key:t.id||i,style:{display:"grid",gridTemplateColumns:"minmax(80px,95px) minmax(45px,55px) minmax(70px,90px) minmax(65px,80px) minmax(80px,100px) minmax(80px,100px)",padding:"7px 12px",borderBottom:"1px solid var(--border2)",background:i%2?"rgba(255,255,255,.014)":"transparent",fontSize:12,alignItems:"center"}},
             React.createElement("div",{style:{color:"var(--text3)",fontFamily:"'Sora',sans-serif"}},t.date||"--"),
             React.createElement("div",null,
               React.createElement("span",{style:{
@@ -954,7 +954,7 @@ const InvestDashboard=React.memo(({mf,mfTxns=[],shares,fd,re=[],dispatch,isMobil
       ),
       React.createElement("button",{
         onClick:()=>setRefreshStatus(null),
-        style:{background:"none",border:"none",cursor:"pointer",color:"var(--text5)",fontSize:14,lineHeight:1,padding:"0 2px"}
+        style:{background:"none",border:"none",cursor:"pointer",color:"var(--text5)",fontSize:14,lineHeight:1,padding:"8px 10px",minWidth:44,minHeight:44,display:"inline-flex",alignItems:"center",justifyContent:"center",borderRadius:8}
       },"×")
     ),
 

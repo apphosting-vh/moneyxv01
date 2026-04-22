@@ -596,7 +596,7 @@ const TxEditModal=({tx,categories,payees,txTypes,onSave,onClose,allAccounts=[]})
   const F=(label,children,sx={})=>React.createElement("div",{style:{marginBottom:12,...sx}},
     React.createElement("label",{style:lbl},label),children);
   return React.createElement(Modal,{title:"Edit Transaction",onClose,w:500},
-    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}},
+    React.createElement("div",{className:"tx-grid-2col",style:{marginBottom:12}},
       React.createElement("div",null,
         React.createElement("label",{style:lbl},"Date"),
         React.createElement("input",{className:"inp",type:"date",value:f.date,onChange:set("date")})
@@ -647,7 +647,7 @@ const TxEditModal=({tx,categories,payees,txTypes,onSave,onClose,allAccounts=[]})
         React.createElement("span",{style:{fontSize:13,fontWeight:500,color:showTax?"var(--accent)":"var(--text4)"}},"GST / TDS Tagging"),
         !showTax&&React.createElement("span",{style:{fontSize:11,color:"var(--text6)"}},"(optional)")
       ),
-      showTax&&React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
+      showTax&&React.createElement("div",{className:"tx-grid-2col"},
         React.createElement("div",null,
           React.createElement("label",{style:lbl},"GST Rate"),
           React.createElement("select",{className:"inp",value:f.gstRate||"0",onChange:set("gstRate"),style:{fontSize:13}},
@@ -1038,7 +1038,7 @@ const TxModal=({onAdd,onClose,categories,payees,txTypes,allAccounts,currentAccou
       React.createElement("span",{style:{fontSize:13,fontWeight:600,color:f.isScheduled?"var(--accent)":"var(--text4)"}},"Schedule this transaction"),
       !f.isScheduled&&React.createElement("span",{style:{fontSize:11,color:"var(--text6)"}},"(recurring / future-dated)")
     ),
-    f.isScheduled&&React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
+    f.isScheduled&&React.createElement("div",{className:"tx-grid-2col"},
       React.createElement("div",null,
         React.createElement("label",{style:lbl},"First / Next Date"),
         React.createElement("input",{className:"inp",type:"date",value:f.date,onChange:set("date"),style:{fontSize:12}})
@@ -1064,7 +1064,7 @@ const TxModal=({onAdd,onClose,categories,payees,txTypes,allAccounts,currentAccou
 
   return React.createElement(Modal,{title:"New Transaction",onClose,w:500},
     schedSection,
-    !f.isScheduled&&React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}},
+    !f.isScheduled&&React.createElement("div",{className:"tx-grid-2col",style:{marginBottom:12}},
       React.createElement("div",null,
         React.createElement("label",{style:lbl},"Date"),
         React.createElement("input",{className:"inp",type:"date",value:f.date,onChange:set("date")})
@@ -1124,7 +1124,7 @@ const TxModal=({onAdd,onClose,categories,payees,txTypes,allAccounts,currentAccou
         React.createElement("span",{style:{fontSize:13,fontWeight:500,color:showTax?"var(--accent)":"var(--text4)"}},"GST / TDS Tagging"),
         !showTax&&React.createElement("span",{style:{fontSize:11,color:"var(--text6)"}},"(optional)")
       ),
-      showTax&&React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
+      showTax&&React.createElement("div",{className:"tx-grid-2col"},
         React.createElement("div",null,
           React.createElement("label",{style:lbl},"GST Rate"),
           React.createElement("select",{className:"inp",value:f.gstRate,onChange:set("gstRate"),style:{fontSize:13}},

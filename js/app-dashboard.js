@@ -1799,7 +1799,7 @@ const GlobalSearchModal=({state,onClose,onJumpToTx,setTab})=>{
           placeholder:"Search transactions, accounts, notes, payees…",
           style:{flex:1,background:"transparent",border:"none",outline:"none",fontSize:15,color:"var(--text)",fontFamily:"'DM Sans',sans-serif"},
         }),
-        q&&React.createElement("button",{onClick:()=>{setQ("");setDebouncedQ("");},style:{background:"none",border:"none",color:"var(--text5)",cursor:"pointer",fontSize:20,lineHeight:1,padding:0}},"×"),
+        q&&React.createElement("button",{onClick:()=>{setQ("");setDebouncedQ("");},style:{background:"none",border:"none",color:"var(--text5)",cursor:"pointer",fontSize:20,lineHeight:1,padding:"8px 10px",minWidth:44,minHeight:44,display:"inline-flex",alignItems:"center",justifyContent:"center",borderRadius:8}},"×"),
         React.createElement("kbd",{style:{fontSize:10,background:"var(--bg5)",border:"1px solid var(--border)",borderRadius:5,padding:"2px 7px",color:"var(--text5)",flexShrink:0,whiteSpace:"nowrap"}},"Esc to close")
       ),
       /* Results */

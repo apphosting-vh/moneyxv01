@@ -902,7 +902,7 @@ const RptGstTds=({data,from,to,onExportPDF})=>{
 
     /* ── DETAILED TABLE ── */
     view==="detailed"&&React.createElement("div",null,
-      React.createElement(Card,{sx:{padding:0,overflow:"hidden",overflowX:"auto"}},
+      React.createElement(Card,{sx:{padding:0,overflowY:"hidden",overflowX:"auto"}},
         React.createElement("div",{style:{
           display:"grid",
           gridTemplateColumns:"90px 1fr 110px 90px 80px 100px 100px 90px 90px 90px 80px",
@@ -1015,7 +1015,7 @@ const RptGstTds=({data,from,to,onExportPDF})=>{
         const thS={padding:"9px 12px",fontSize:10,fontWeight:700,color:"var(--text5)",textTransform:"uppercase",letterSpacing:.5,background:"var(--bg4)",borderBottom:"1px solid var(--border)"};
         const tdS=(col,al)=>({padding:"9px 12px",fontSize:12,color:col||"var(--text2)",borderBottom:"1px solid var(--border2)",textAlign:al||"left",verticalAlign:"middle"});
         const gc="1fr 70px 110px 90px 90px 110px";
-        return React.createElement(Card,{sx:{padding:0,overflow:"hidden",overflowX:"auto"}},
+        return React.createElement(Card,{sx:{padding:0,overflowY:"hidden",overflowX:"auto"}},
           React.createElement("div",{style:{display:"grid",gridTemplateColumns:gc,minWidth:560,background:"var(--bg4)",borderBottom:"2px solid var(--border)"}},
             React.createElement("div",{style:thS},"Vendor / Payee"),
             React.createElement("div",{style:{...thS,textAlign:"center"}},"Txns"),

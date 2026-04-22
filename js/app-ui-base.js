@@ -64,7 +64,7 @@ const Modal=({title,onClose,children,w=480})=>React.createElement("div",{classNa
     React.createElement("div",{className:"fu",onClick:e=>e.stopPropagation(),style:{background:"var(--modal-bg)",border:"1px solid var(--border)",borderRadius:14,padding:"20px 18px",width:"100%",maxWidth:w,boxSizing:"border-box",flexShrink:0}},
       React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18,gap:8}},
         React.createElement("h3",{style:{color:"var(--accent)",fontFamily:"'Sora',sans-serif",fontSize:16,fontWeight:700,lineHeight:1.3,minWidth:0,flex:1}},title),
-        React.createElement("button",{onClick:onClose,style:{background:"none",border:"none",color:"var(--text5)",cursor:"pointer",fontSize:26,lineHeight:1,padding:"0 2px",flexShrink:0}},"×")
+        React.createElement("button",{onClick:onClose,style:{background:"none",border:"none",color:"var(--text5)",cursor:"pointer",fontSize:26,lineHeight:1,padding:"8px 12px",minWidth:44,minHeight:44,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,borderRadius:8,transition:"background .15s"},onMouseEnter:e=>{e.currentTarget.style.background="var(--accentbg2)";},onMouseLeave:e=>{e.currentTarget.style.background="transparent";}},"×")
       ),children
     )
   )
@@ -1264,7 +1264,7 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
       }},
         React.createElement("span",{style:{fontSize:13}},React.createElement(Icon,{n:"link",size:16})),
         React.createElement("span",{style:{flex:1}},"Showing only this transaction — tap × to see all"),
-        React.createElement("button",{onClick:()=>{setJumpActive(false);setSelId(null);},style:{background:"transparent",border:"none",color:"var(--accent)",cursor:"pointer",fontSize:14,lineHeight:1,padding:"0 2px"}},"×")
+        React.createElement("button",{onClick:()=>{setJumpActive(false);setSelId(null);},style:{background:"transparent",border:"none",color:"var(--accent)",cursor:"pointer",fontSize:14,lineHeight:1,padding:"8px 10px",minWidth:44,minHeight:44,display:"inline-flex",alignItems:"center",justifyContent:"center",borderRadius:8}},"×")
       ),
       similarFilter&&React.createElement("div",{style:{
         display:"flex",alignItems:"center",gap:8,padding:"6px 10px",
@@ -1606,7 +1606,7 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
          scroll context as the body rows, so horizontal scrolling keeps
          header and body perfectly aligned at all times.
     ────────────────────────────────────────────────────────────────────── */
-    React.createElement("div",{style:{flex:1,minHeight:0,overflow:"auto"}},
+    React.createElement("div",{style:{flex:1,minHeight:0,overflow:"auto",WebkitOverflowScrolling:"touch"}},
     /* ── Table inner: enforces min-width so grid columns never squish ── */
     React.createElement("div",{style:{minWidth:980}},
     /* ── Table header
@@ -1919,7 +1919,7 @@ const TxLedger=({transactions,onEdit,onDelete,onDuplicate,onSplit,onNew,onImport
             React.createElement("div",{style:{width:1,height:22,background:"var(--border)",margin:"0 2px"}}),
             React.createElement("div",{style:{position:"relative",display:"flex",alignItems:"center"}},
               React.createElement("span",{style:{position:"absolute",left:9,color:"var(--text5)",fontSize:13,pointerEvents:"none"}},React.createElement(Icon,{n:"search",size:16})),
-              React.createElement("input",{value:search,onChange:e=>setSearch(e.target.value),placeholder:"Search transactions…",style:{background:"var(--inp-bg)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontFamily:"'DM Sans',sans-serif",fontSize:12,padding:"6px 10px 6px 28px",width:200,outline:"none"}})
+              React.createElement("input",{value:search,onChange:e=>setSearch(e.target.value),placeholder:"Search transactions…",style:{background:"var(--inp-bg)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text)",fontFamily:"'DM Sans',sans-serif",fontSize:12,padding:"6px 10px 6px 28px",width:"100%",minWidth:100,maxWidth:200,outline:"none",boxSizing:"border-box"}})
             )
           )
     ),

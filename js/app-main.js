@@ -2211,7 +2211,7 @@ function App(){
       style:{
         background:"transparent",border:"none",
         color:"var(--text5)",cursor:"pointer",
-        fontSize:20,lineHeight:1,padding:"4px 6px",flexShrink:0,
+        fontSize:20,lineHeight:1,padding:"8px 10px",minWidth:44,minHeight:44,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0,
       },
       title:"Dismiss"
     },"×")
@@ -2264,7 +2264,7 @@ function App(){
       style:{
         background:"transparent",border:"none",
         color:"rgba(255,255,255,.35)",cursor:"pointer",
-        fontSize:18,lineHeight:1,padding:"2px 6px",flexShrink:0,
+        fontSize:18,lineHeight:1,padding:"8px 10px",minWidth:44,minHeight:44,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0,
       },
       title:"Dismiss for this session"
     },"×")
@@ -2308,7 +2308,7 @@ function App(){
       style:{
         background:"transparent",border:"none",
         color:"rgba(255,255,255,.35)",cursor:"pointer",
-        fontSize:18,lineHeight:1,padding:"2px 6px",flexShrink:0,
+        fontSize:18,lineHeight:1,padding:"8px 10px",minWidth:44,minHeight:44,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0,
       },
       title:"Dismiss for this session"
     },"×")
@@ -2614,7 +2614,7 @@ function App(){
       }},"↩ Undo"),
       React.createElement("button",{onClick:()=>setUndoSnap(null),style:{
         background:"none",border:"none",color:"rgba(255,255,255,.35)",cursor:"pointer",
-        fontSize:18,lineHeight:1,padding:0
+        fontSize:18,lineHeight:1,padding:"8px 10px",minWidth:44,minHeight:44,display:"inline-flex",alignItems:"center",justifyContent:"center"
       }},"×")
     ),
     /* ── Global Search Modal ── */

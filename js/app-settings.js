@@ -2356,19 +2356,35 @@ const ScheduledSection=React.memo(({scheduled=_EA,banks,cards,cash,categories,pa
           grouped[mk].push(inst);
         });
         const sortedMks=Object.keys(grouped).sort().reverse(); /* newest month first */
-        /* compact instance row renderer */
-        const renderInstRow=(inst,i)=>React.createElement("div",{key:inst.schedId+"-"+inst.executedDate+"-"+i,style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"8px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg3)",fontSize:12}},
-          React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8,minWidth:0,flex:1}},
-            React.createElement("span",{style:{fontWeight:600,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},inst.desc),
-            React.createElement("span",{style:{fontSize:10,fontWeight:700,padding:"1px 6px",borderRadius:8,border:"1px solid "+(FREQ_C[inst.frequency]||"var(--accent)")+"55",color:FREQ_C[inst.frequency]||"var(--accent)",background:(FREQ_C[inst.frequency]||"var(--accent)")+"15",whiteSpace:"nowrap"}},inst.frequency==="once"?"One-time":inst.frequency)
-          ),
-          React.createElement("div",{style:{display:"flex",alignItems:"center",gap:12,flexShrink:0}},
-            React.createElement("span",{style:{fontWeight:700,fontFamily:"'Sora',sans-serif",color:inst.ledgerType==="credit"?"#16a34a":"#ef4444"}},(inst.ledgerType==="credit"?"+":"-")+INR(inst.amount)),
-            React.createElement("span",{style:{fontSize:11,color:"var(--text5)",whiteSpace:"nowrap"}},inst.accName),
-            React.createElement("span",{style:{fontSize:10,color:"var(--text6)",whiteSpace:"nowrap"}},"Sch: "+inst.scheduledDate),
-            React.createElement("span",{style:{fontSize:10,color:"var(--text5)",fontWeight:600,whiteSpace:"nowrap"}},"✓ "+inst.executedDate)
-          )
-        );
+        /* card-style instance renderer — matches Expired Definitions card format */
+        const renderInstCard=(inst,i)=>{
+          const parentSc=(scheduled||[]).find(sc=>sc.id===inst.schedId);
+          const ct=catClassType(categories,(parentSc&&parentSc.cat)||"Others");
+          return React.createElement(Card,{key:inst.schedId+"-"+inst.executedDate+"-"+i,sx:{borderLeft:"3px solid var(--border)"}},
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}},
+              React.createElement("div",{style:{flex:1,minWidth:0}},
+                React.createElement("div",{style:{fontSize:14,fontWeight:600,color:"var(--text)",marginBottom:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},inst.desc),
+                React.createElement("div",{style:{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}},
+                  React.createElement("span",{style:{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:10,border:"1px solid "+(FREQ_C[inst.frequency]||"var(--accent)")+"55",color:FREQ_C[inst.frequency]||"var(--accent)",background:(FREQ_C[inst.frequency]||"var(--accent)")+"15"}},inst.frequency==="once"?"One-time":inst.frequency),
+                  React.createElement("span",{style:{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:10,border:"1px solid "+CLASS_C[ct]+"55",color:CLASS_C[ct],background:CLASS_C[ct]+"15"}},CLASS_ICON[ct]," ",ct),
+                  parentSc&&parentSc.cat&&React.createElement("span",{style:{fontSize:10,color:"var(--text5)"}},catDisplayName(parentSc.cat))
+                )
+              ),
+              React.createElement("div",{style:{textAlign:"right",flexShrink:0,marginLeft:8}},
+                React.createElement("div",{style:{fontSize:18,fontFamily:"'Sora',sans-serif",fontWeight:700,color:inst.ledgerType==="credit"?"#16a34a":"#ef4444"}},(inst.ledgerType==="credit"?"+":"-")+INR(inst.amount)),
+                React.createElement("div",{style:{fontSize:11,color:"var(--text5)",marginTop:2}},inst.accName)
+              )
+            ),
+            React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:11,color:"var(--text5)",marginBottom:10}},
+              React.createElement("div",null,React.createElement("span",{style:{color:"var(--text6)"}},"Sch: "),React.createElement("span",{style:{color:"var(--text3)",fontWeight:600}},inst.scheduledDate||"--")),
+              React.createElement("div",null,React.createElement("span",{style:{color:"var(--text6)"}},"Executed: "),React.createElement("span",{style:{color:"var(--text3)"}},inst.executedDate||"--"))
+            ),
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}},
+              React.createElement("span",{style:{fontSize:11,color:"var(--text6)",fontStyle:"italic"}},"✓ Executed"),
+              parentSc&&React.createElement("button",{onClick:()=>setCopySc(parentSc),style:{background:"none",border:"1px solid var(--border2)",borderRadius:6,color:"var(--text4)",cursor:"pointer",fontSize:11,padding:"3px 8px",fontFamily:"'DM Sans',sans-serif"}},"⎘ Copy")
+            )
+          );
+        };
         return React.createElement("div",null,
           /* Section header */
           React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10,marginBottom:10}},
@@ -2412,10 +2428,10 @@ const ScheduledSection=React.memo(({scheduled=_EA,banks,cards,cash,categories,pa
                 totalIn>0&&React.createElement("span",{style:{fontSize:11,fontWeight:600,color:"#16a34a",fontFamily:"'Sora',sans-serif"}},"+"+INR(totalIn)),
                 totalOut>0&&React.createElement("span",{style:{fontSize:11,fontWeight:600,color:"#ef4444",fontFamily:"'Sora',sans-serif"}},"−"+INR(totalOut))
               ),
-              /* Instance rows */
-              !isCollapsed&&React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:6,padding:"10px 12px",
-                border:"1px solid var(--border2)",borderTop:"none",borderRadius:"0 0 10px 10px",background:"var(--bg3)"}},
-                items.map(renderInstRow)
+              /* Instance cards — same grid format as Expired Definitions */
+              !isCollapsed&&React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:12,padding:"12px",
+                border:"1px solid var(--border2)",borderTop:"none",borderRadius:"0 0 10px 10px",background:"var(--bg4)"}},
+                items.map(renderInstCard)
               )
             );
           })

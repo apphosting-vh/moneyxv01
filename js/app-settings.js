@@ -2849,13 +2849,26 @@ const _gdriveGetToken = () => {
 let _gdriveRefreshTimer = null;
 
 /* Schedule a silent token refresh ~5 minutes before the current token expires.
-   This keeps long-running sessions authorised without ever showing a popup. */
+   This keeps long-running sessions authorised without ever showing a popup.
+   Resolution order:
+     1. GIS session cookie (gdriveRequestTokenSilent) — no network round-trip
+     2. Stored refresh token (_gdriveRefreshAccessToken, defined in app-sync.js)
+        — works even when the browser's Google session has expired           */
 const _gdriveScheduleTokenRefresh = (expiresInSeconds) => {
   if (_gdriveRefreshTimer) clearTimeout(_gdriveRefreshTimer);
   const delayMs = Math.max(0, (expiresInSeconds - 300)) * 1000; // 5 min safety margin
   _gdriveRefreshTimer = setTimeout(async () => {
     console.log("[GDrive] Proactively refreshing access token silently…");
-    await gdriveRequestTokenSilent();
+    // Step 1: try GIS browser-session refresh (fast, no network call to token endpoint)
+    const tok = await gdriveRequestTokenSilent();
+    if (tok) return; // success — new token stored by gdriveRequestTokenSilent
+    // Step 2: GIS session has expired — fall back to the refresh token exchange.
+    // _gdriveRefreshAccessToken is defined in app-sync.js which loads after this file;
+    // the typeof guard ensures this is safe even if app-sync.js is not present.
+    if (typeof _gdriveRefreshAccessToken !== "undefined") {
+      console.log("[GDrive] GIS silent refresh failed — falling back to refresh token…");
+      await _gdriveRefreshAccessToken();
+    }
   }, delayMs);
 };
 

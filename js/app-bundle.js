@@ -6626,6 +6626,42 @@ var ChatbotTrainingPanel=({state})=>{
   };
   const delCatRule=id=>save({...training,customCatRules:(training.customCatRules||[]).filter(r=>r.id!==id)});
 
+  /* Import file input ref */
+  const importFileRef=React.useRef(null);
+
+  /* Export category rules as JSON file */
+  const exportCatRules=()=>{
+    const rules=training.customCatRules||[];
+    if(!rules.length)return;
+    const blob=new Blob([JSON.stringify(rules,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download='chatbot-category-rules.json';
+    document.body.appendChild(a);a.click();
+    setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},200);
+  };
+
+  /* Import category rules from JSON file — merges by id (skips duplicates) */
+  const importCatRules=e=>{
+    const file=e.target.files&&e.target.files[0];
+    if(!file)return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      try{
+        const parsed=JSON.parse(ev.target.result);
+        if(!Array.isArray(parsed))throw new Error('Expected an array of rules');
+        const valid=parsed.filter(r=>r&&Array.isArray(r.keywords)&&r.cat);
+        const existingIds=new Set((training.customCatRules||[]).map(r=>r.id));
+        const fresh=valid.map(r=>({...r,id:r.id&&!existingIds.has(r.id)?r.id:'cr_'+Date.now()+'_'+Math.random().toString(36).substr(2,4)}));
+        const merged=[...(training.customCatRules||[]),...fresh.filter(r=>!existingIds.has(r.id))];
+        save({...training,customCatRules:merged});
+        alert('✅ Imported '+fresh.length+' rule'+(fresh.length!==1?'s':'')+' successfully.');
+      }catch(err){alert('❌ Import failed: '+err.message);}
+    };
+    reader.readAsText(file);
+    e.target.value=''; // reset so same file can be re-imported
+  };
+
   /* Add an account alias */
   const addAlias=()=>{
     if(!newAlias.trim()||!newAccId)return;
@@ -6715,12 +6751,32 @@ var ChatbotTrainingPanel=({state})=>{
               fontSize:13,fontWeight:600,fontFamily:"'DM Sans',sans-serif",transition:'all .15s',alignSelf:'flex-end',width:'fit-content'}},'+ Add Rule')
         )
       ),
+      /* Hidden file input for import */
+      React.createElement('input',{ref:importFileRef,type:'file',accept:'.json',style:{display:'none'},onChange:importCatRules}),
       /* Existing rules */
       (training.customCatRules||[]).length===0
         ? React.createElement('div',{style:{textAlign:'center',padding:'32px 16px',color:'var(--text6)',fontSize:13,background:'var(--bg4)',borderRadius:12,border:'1px dashed var(--border)'}},
-            'No custom category rules yet. Add your first rule above.')
+            React.createElement('div',{style:{marginBottom:12}},'No custom category rules yet. Add your first rule above.'),
+            React.createElement('button',{onClick:()=>importFileRef.current&&importFileRef.current.click(),
+              style:{padding:'7px 16px',borderRadius:8,border:'1px solid var(--border2)',background:'var(--bg3)',color:'var(--text4)',
+                fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:"'DM Sans',sans-serif",display:'inline-flex',alignItems:'center',gap:6}},
+              '⬆ Import Rules from JSON')
+          )
         : React.createElement('div',null,
-            React.createElement('div',{style:{fontSize:12,fontWeight:700,color:'var(--text5)',textTransform:'uppercase',letterSpacing:.8,marginBottom:10}},'Your Rules ('+(training.customCatRules||[]).length+')'),
+            React.createElement('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8,marginBottom:10}},
+              React.createElement('div',{style:{fontSize:12,fontWeight:700,color:'var(--text5)',textTransform:'uppercase',letterSpacing:.8}},
+                'Your Rules ('+(training.customCatRules||[]).length+')'),
+              React.createElement('div',{style:{display:'flex',gap:8}},
+                React.createElement('button',{onClick:()=>importFileRef.current&&importFileRef.current.click(),
+                  style:{padding:'5px 12px',borderRadius:7,border:'1px solid var(--border2)',background:'var(--bg3)',color:'var(--text4)',
+                    fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:"'DM Sans',sans-serif",display:'inline-flex',alignItems:'center',gap:5}},
+                  '⬆ Import'),
+                React.createElement('button',{onClick:exportCatRules,
+                  style:{padding:'5px 12px',borderRadius:7,border:'1px solid var(--accentbg5)',background:'var(--accentbg2)',color:'var(--accent)',
+                    fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:"'DM Sans',sans-serif",display:'inline-flex',alignItems:'center',gap:5}},
+                  '⬇ Export')
+              )
+            ),
             (training.customCatRules||[]).map(r=>React.createElement('div',{key:r.id,style:rowStyle},
               React.createElement('div',null,
                 React.createElement('div',{style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:3}},

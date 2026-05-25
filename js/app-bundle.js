@@ -8010,6 +8010,11 @@ var SettingsSection=React.memo(({state,dispatch,themeId,setTheme,fontId,setFont,
                         if(d.chatbotTraining)
                           localStorage.setItem("mm_v7_chatbot_training",JSON.stringify(d.chatbotTraining));
                       }catch{}
+                      /* ── Overwrite IDB transactions so next-boot hydration loads
+                         the restored data instead of the pre-restore snapshot.
+                         Must complete before reload — await both calls. ── */
+                      try { await clearTxIDB(); } catch {}
+                      try { await saveTxToIDB(_restoreData); } catch {}
                       /* ── Update in-memory React state for the 1.8s before reload ── */
                       dispatch({type:"RESTORE_ALL",data:_restoreData});
                       const s=payload.summary;
@@ -8060,6 +8065,10 @@ var SettingsSection=React.memo(({state,dispatch,themeId,setTheme,fontId,setFont,
                       localStorage.removeItem(LS_LAST_BACKUP);
                       localStorage.removeItem(LS_LAST_LS_SAVE);
                       localStorage.removeItem(LS_LAST_IDB_SAVE);
+                      /* Clear Drive sync timestamps so a future pull is not blocked
+                         by stale "local is newer" comparisons after factory reset. */
+                      localStorage.removeItem(LS_LAST_LOCAL_EDIT);
+                      localStorage.removeItem(LS_GDRIVE_LAST_SYNC);
                       savePinHash("");
                       clearSessionUnlock();
                     }catch{}
@@ -29601,6 +29610,11 @@ const FSAStoragePanel=({state,dispatch})=>{
         if(data.chatbotTraining)
           localStorage.setItem("mm_v7_chatbot_training",JSON.stringify(data.chatbotTraining));
       }catch{}
+      /* ── Overwrite IDB transactions so next-boot hydration loads
+         the restored data instead of the pre-restore snapshot.
+         Must complete before reload — await both calls. ── */
+      try { await clearTxIDB(); } catch {}
+      try { await saveTxToIDB(_restoreData); } catch {}
       /* ── Update in-memory React state ── */
       dispatch({type:"RESTORE_ALL",data:_restoreData});
       /* ── Request read-write permission (we're inside a user-gesture chain) ── */
@@ -37979,7 +37993,7 @@ function App(){
           React.createElement(ReportsSection,{data:state,isMobile,onJumpToLedger}))),
       React.createElement("div",{style:{display:tab==="settings"?"contents":"none"}},
         React.createElement(ErrorBoundary,{name:"Settings"},
-          React.createElement(SettingsSection,{state,dispatch,themeId,setTheme,fontId,setFont,isMobile,onResetAll:()=>{dispatch({type:"RESET_ALL"});try{localStorage.removeItem(LS_KEY);localStorage.removeItem(LS_EOD_PRICES);localStorage.removeItem(LS_EOD_NAVS);localStorage.removeItem(LS_THEME);localStorage.removeItem(TAX_LS_KEY);}catch{}/* Clear transactions from IndexedDB so no stale data survives reload */clearTxIDB().catch(()=>{});setTimeout(()=>window.location.reload(),100);}}))),
+          React.createElement(SettingsSection,{state,dispatch,themeId,setTheme,fontId,setFont,isMobile,onResetAll:async()=>{_mmResetting=true;dispatch({type:"RESET_ALL"});try{localStorage.removeItem(LS_KEY);localStorage.removeItem(LS_EOD_PRICES);localStorage.removeItem(LS_EOD_NAVS);localStorage.removeItem(LS_THEME);localStorage.removeItem(TAX_LS_KEY);localStorage.removeItem(LS_LAST_LOCAL_EDIT);localStorage.removeItem(LS_GDRIVE_LAST_SYNC);}catch{}/* Clear transactions from IndexedDB so no stale data survives reload */try{await clearTxIDB();}catch{}setTimeout(()=>window.location.reload(),100);}}))),
       React.createElement("div",{style:{display:tab==="info"?"contents":"none"}},
         React.createElement(ErrorBoundary,{name:"About"},
           React.createElement(InfoSection,{isMobile}))),

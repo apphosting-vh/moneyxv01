@@ -10904,7 +10904,12 @@ var usePersistentReducer=(reducer,init)=>{
   const[state,rawDispatch]=useReducer(reducer,null,()=>loadState()||init());
   const _systemActions=new Set(["HYDRATE_TRANSACTIONS","RESTORE_ALL","PRUNE_HISTORY_CACHE","PRUNE_EOD_PRICES","PRUNE_EOD_NAVS"]);
   const dispatch=React.useCallback((action)=>{
-    if(action&&action.type&&!_systemActions.has(action.type)) _syncSaveLocalEdit(new Date().toISOString());
+    /* Only stamp a local-edit timestamp once the boot Drive pull has completed (or
+       been skipped because sync is not configured).  Without this gate, boot-time
+       auto-dispatches such as EXECUTE_SCHEDULED run before the 2-second boot pull
+       timer fires and write today's time into mm_v7_lastEdit, making gdriveReadSyncFile
+       think local data is newer than Drive and silently skip the restore. */
+    if(action&&action.type&&!_systemActions.has(action.type)&&_bootPullCompletedRef.current) _syncSaveLocalEdit(new Date().toISOString());
     rawDispatch(action);
   },[]);
   /* stateRef: live pointer so writeNow() and beforeunload can access current
@@ -11024,7 +11029,12 @@ var usePersistentReducer=(reducer,init)=>{
      overwrites the other on next pull.  This is acceptable for a
      single-user personal finance app. */
   React.useEffect(()=>{
-    if(!cloudSyncSupported())return;
+    if(!cloudSyncSupported()){
+      /* No Drive sync configured — there is no boot pull to wait for, so mark it
+         complete immediately so the dispatch gate allows local-edit stamps. */
+      _bootPullCompletedRef.current=true;
+      return;
+    }
     let _lastPulledAt=""; /* tracks the Drive exportedAt we last applied */
     let _pollTimer=null;
 
